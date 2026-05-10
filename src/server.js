@@ -175,6 +175,42 @@ async function scrapeTaseFallbackWithAxios(taseUrl) {
   return { currentPrice, changePercent, _rawPercentToken: rawToken };
 }
 
+async function scrapeFunderWithAxios(stockId) {
+  const url = `https://www.funder.co.il/etf/${encodeURIComponent(String(stockId || '').trim())}`;
+  const { data } = await axios.get(url, {
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7'
+    },
+    timeout: 12000
+  });
+  const html = typeof data === 'string' ? data : '';
+  const compact = html.replace(/\s+/g, ' ');
+  const sectionMatch = compact.match(
+    /שער אחרון<\/div>\s*<div[^>]*>שינוי<\/div>\s*<div[^>]*>מחזור מסחר<\/div>\s*<div[^>]*>([^<]+)<\/div>\s*<div[^>]*>(?:<span[^>]*>)?([^<]+)(?:<\/span>)?<\/div>/i
+  );
+  if (!sectionMatch) {
+    throw new Error('funder parse miss');
+  }
+  const parsePrice = (token) => {
+    const s = String(token || '').replace(/,/g, '').trim();
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? Math.round(n) : null;
+  };
+  const parsePercent = (token) => {
+    const s = String(token || '')
+      .replace(/[\u2212\u2012\u2013\u2014]/g, '-')
+      .replace(/[%\s]/g, '')
+      .trim();
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : null;
+  };
+  const currentPrice = parsePrice(sectionMatch[1]);
+  const changePercent = parsePercent(sectionMatch[2]);
+  return { currentPrice, changePercent };
+}
+
 app.get('/api/israeli-stock/:id', async (req, res) => {
   const stockId = req.params.id;
   const cacheKey = String(stockId || '').trim();
@@ -194,6 +230,9 @@ app.get('/api/israeli-stock/:id', async (req, res) => {
       'tase puppeteer'
     );
     const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
+    if (payload.currentPrice == null && payload.changePercent == null) {
+      throw new Error('tase puppeteer parse miss');
+    }
     taseCache.set(cacheKey, { payload, expiresAt: Date.now() + TASE_CACHE_TTL_MS });
     console.log(
       `[israeli-stock:${cacheKey}] puppeteer_ok price=${payload.currentPrice} change=${payload.changePercent}`
@@ -206,16 +245,30 @@ app.get('/api/israeli-stock/:id', async (req, res) => {
     try {
       const result = await scrapeTaseFallbackWithAxios(taseUrl);
       const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
+      if (payload.currentPrice == null && payload.changePercent == null) {
+        throw new Error('tase axios parse miss');
+      }
       taseCache.set(cacheKey, { payload, expiresAt: Date.now() + TASE_CACHE_TTL_MS });
       console.log(
         `[israeli-stock:${cacheKey}] axios_ok price=${payload.currentPrice} change=${payload.changePercent} raw=${result._rawPercentToken || 'n/a'}`
       );
       return res.json(payload);
     } catch (e2) {
-      console.error(
-        `[israeli-stock:${cacheKey}] axios_fail ${e2 && e2.message ? e2.message : e2}`
-      );
-      return res.json({ currentPrice: null, changePercent: null });
+      console.error(`[israeli-stock:${cacheKey}] axios_fail ${e2 && e2.message ? e2.message : e2}`);
+      try {
+        const result = await scrapeFunderWithAxios(cacheKey);
+        const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
+        taseCache.set(cacheKey, { payload, expiresAt: Date.now() + TASE_CACHE_TTL_MS });
+        console.log(
+          `[israeli-stock:${cacheKey}] funder_ok price=${payload.currentPrice} change=${payload.changePercent}`
+        );
+        return res.json(payload);
+      } catch (e3) {
+        console.error(
+          `[israeli-stock:${cacheKey}] funder_fail ${e3 && e3.message ? e3.message : e3}`
+        );
+        return res.json({ currentPrice: null, changePercent: null });
+      }
     }
   }
 });
