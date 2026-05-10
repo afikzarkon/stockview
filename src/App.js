@@ -200,7 +200,21 @@ function App() {
       });
       if (!response.ok) throw new Error('שגיאה בקריאת נתונים מהשרת');
       const json = await response.json();
-      return json;
+      const normalizedSource = {
+        ...(json?.source || {}),
+        provider: json?.source?.provider || 'legacy-response'
+      };
+      if (!json?.source) {
+        console.warn(
+          `[israeli-stock:${stockId}] missing_source_field response_url=${response.url}`
+        );
+      }
+      console.log(
+        `[israeli-stock:${stockId}] source=${normalizedSource.provider} symbol=${
+          normalizedSource.symbol || '-'
+        } status=${normalizedSource.status || 'ok'} response_url=${response.url}`
+      );
+      return { ...json, source: normalizedSource };
     } catch (error) {
       return null;
     }
@@ -234,13 +248,15 @@ function App() {
           if (priceData && priceData.currentPrice !== null) {
             // המרה מאגורות לשקלים
             const normalizedPrice = priceData.currentPrice / 100;
+            const sourceProvider = String(priceData?.source?.provider || 'unknown');
             
             // עדכן את כל השורות של המנייה הזו
             stocks.forEach(stock => {
               updatedIsraeliStocks.push({
                 ...stock,
                 currentPrice: normalizedPrice,
-                dailyChangePercent: priceData.changePercent
+                dailyChangePercent: priceData.changePercent,
+                priceSource: sourceProvider
               });
             });
           } else {
@@ -515,6 +531,7 @@ function App() {
     // קבלת מחיר נוכחי ואחוז שינוי יומי מ-API
     let currentPrice = 0;
     let dailyChangePercent = 0;
+    let israeliPriceData = null;
     
     if (formData.exchange === 'american') {
       const priceData = await fetchCurrentPrice(formData.stockName.trim());
@@ -524,11 +541,11 @@ function App() {
       }
     } else if (formData.exchange === 'israeli') {
       const stockId = formData.stockName.trim();
-      const priceData = await fetchIsraeliStockPrice(stockId);
-      if (priceData && priceData.currentPrice !== null) {
-        const normalizedPrice = priceData.currentPrice / 100; // המרה מאגורות לשקלים
+      israeliPriceData = await fetchIsraeliStockPrice(stockId);
+      if (israeliPriceData && israeliPriceData.currentPrice !== null) {
+        const normalizedPrice = israeliPriceData.currentPrice / 100; // המרה מאגורות לשקלים
         currentPrice = normalizedPrice;
-        dailyChangePercent = priceData.changePercent || 0;
+        dailyChangePercent = israeliPriceData.changePercent || 0;
       }
       // אם לא מתקבל מחיר, המחיר נשאר 0 (כפי שהוגדר בתחילת הפונקציה)
     }
@@ -543,7 +560,11 @@ function App() {
         quantity: parseInt(formData.quantity),
         exchangeRate: formData.exchange === 'american' ? parseFloat(formData.exchangeRate) : null,
         currentPrice: currentPrice,
-        dailyChangePercent: dailyChangePercent
+        dailyChangePercent: dailyChangePercent,
+        priceSource:
+          formData.exchange === 'israeli'
+            ? String(israeliPriceData?.source?.provider || 'unknown')
+            : null
       };
       console.log('💾 שומר מנייה/כספית חדשה:', stockData);
       if (formData.exchange === 'israeli') {

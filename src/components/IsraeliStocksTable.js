@@ -20,6 +20,16 @@ function IsraeliStocksTable({
   toggleGroup,
   editingField
 }) {
+  const renderPriceSource = (source) => {
+    const text = String(source || '').trim();
+    if (!text) return null;
+    return (
+      <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
+        מקור: {text}
+      </div>
+    );
+  };
+
   return (
     <>
       {israeliStocks.length > 0 && (
@@ -136,7 +146,10 @@ function IsraeliStocksTable({
                           )}
                         </td>
                         <td>{formatPrice(totalPurchase)}</td>
-                        <td>{formatPrice(displayCurrentPrice)}</td>
+                        <td>
+                          {formatPrice(displayCurrentPrice)}
+                          {renderPriceSource(stock.priceSource)}
+                        </td>
                         <td>{formatPrice(totalCurrentValue)}</td>
                         <td className={profit >= 0 ? 'profit-positive' : 'profit-negative'}>
                           {formatPriceWithSign(profit)}
@@ -192,7 +205,10 @@ function IsraeliStocksTable({
                         <td>פתח קיבוץ</td>
                         <td>{summary.totalQuantity}</td>
                         <td>{formatPrice(summary.totalPurchaseValue)}</td>
-                        <td>{formatPrice(summary.averageCurrentPrice)}</td>
+                        <td>
+                          {formatPrice(summary.averageCurrentPrice)}
+                          {renderPriceSource(stocks[0].priceSource)}
+                        </td>
                         <td>{formatPrice(summary.totalCurrentValue)}</td>
                         <td className={summary.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'}>
                           {formatPriceWithSign(summary.totalProfit)}
@@ -306,7 +322,10 @@ function IsraeliStocksTable({
                               )}
                             </td>
                             <td>{formatPrice(totalPurchase)}</td>
-                            <td>{formatPrice(displayCurrentPrice)}</td>
+                            <td>
+                              {formatPrice(displayCurrentPrice)}
+                              {renderPriceSource(stock.priceSource)}
+                            </td>
                             <td>{formatPrice(totalCurrentValue)}</td>
                             <td className={profit >= 0 ? 'profit-positive' : 'profit-negative'}>
                               {formatPriceWithSign(profit)}
