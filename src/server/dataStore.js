@@ -122,6 +122,164 @@ async function pgStore(connectionString) {
       `CREATE INDEX IF NOT EXISTS ${table}_user_id_sort_idx ON ${table} (user_id, sort_index)`
     );
   }
+  // Add query-friendly generated columns per item type while keeping full JSON compatibility.
+  await pool.query(`
+    ALTER TABLE user_israeli_stocks
+      ADD COLUMN IF NOT EXISTS client_item_id BIGINT GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'id') ~ '^-?\\d+$' THEN (item->>'id')::BIGINT
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS stock_name TEXT GENERATED ALWAYS AS (item->>'stockName') STORED,
+      ADD COLUMN IF NOT EXISTS purchase_date TEXT GENERATED ALWAYS AS (item->>'purchaseDate') STORED,
+      ADD COLUMN IF NOT EXISTS purchase_price DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'purchasePrice') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'purchasePrice')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS quantity DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'quantity') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'quantity')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS current_price DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'currentPrice') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'currentPrice')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS daily_change_percent DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'dailyChangePercent') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'dailyChangePercent')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS user_israeli_stocks_stock_name_idx ON user_israeli_stocks (user_id, stock_name)');
+
+  await pool.query(`
+    ALTER TABLE user_american_stocks
+      ADD COLUMN IF NOT EXISTS client_item_id BIGINT GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'id') ~ '^-?\\d+$' THEN (item->>'id')::BIGINT
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS stock_name TEXT GENERATED ALWAYS AS (item->>'stockName') STORED,
+      ADD COLUMN IF NOT EXISTS purchase_date TEXT GENERATED ALWAYS AS (item->>'purchaseDate') STORED,
+      ADD COLUMN IF NOT EXISTS purchase_price DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'purchasePrice') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'purchasePrice')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS quantity DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'quantity') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'quantity')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS exchange_rate DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'exchangeRate') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'exchangeRate')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS current_exchange_rate DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'currentExchangeRate') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'currentExchangeRate')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS current_price DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'currentPrice') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'currentPrice')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS daily_change_percent DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'dailyChangePercent') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'dailyChangePercent')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS user_american_stocks_stock_name_idx ON user_american_stocks (user_id, stock_name)');
+
+  await pool.query(`
+    ALTER TABLE user_pension_funds
+      ADD COLUMN IF NOT EXISTS client_item_id BIGINT GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'id') ~ '^-?\\d+$' THEN (item->>'id')::BIGINT
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS fund_name TEXT GENERATED ALWAYS AS (item->>'fundName') STORED,
+      ADD COLUMN IF NOT EXISTS update_date TEXT GENERATED ALWAYS AS (item->>'updateDate') STORED,
+      ADD COLUMN IF NOT EXISTS initial_investment DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'initialInvestment') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'initialInvestment')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS current_value DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'currentValue') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'currentValue')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS previous_value DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'previousValue') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'previousValue')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS amount DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'amount') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'amount')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED
+  `);
+
+  await pool.query(`
+    ALTER TABLE user_bank_balances
+      ADD COLUMN IF NOT EXISTS client_item_id BIGINT GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'id') ~ '^-?\\d+$' THEN (item->>'id')::BIGINT
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS update_date TEXT GENERATED ALWAYS AS (item->>'updateDate') STORED,
+      ADD COLUMN IF NOT EXISTS amount DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'amount') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'amount')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED
+  `);
+
+  await pool.query(`
+    ALTER TABLE user_cash_funds
+      ADD COLUMN IF NOT EXISTS client_item_id BIGINT GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'id') ~ '^-?\\d+$' THEN (item->>'id')::BIGINT
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS fund_name TEXT GENERATED ALWAYS AS (item->>'fundName') STORED,
+      ADD COLUMN IF NOT EXISTS security_id TEXT GENERATED ALWAYS AS (item->>'securityId') STORED,
+      ADD COLUMN IF NOT EXISTS update_date TEXT GENERATED ALWAYS AS (item->>'updateDate') STORED,
+      ADD COLUMN IF NOT EXISTS amount DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'amount') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'amount')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED
+  `);
 
   function normalizeSnapshot(input) {
     const parsed =
