@@ -101,6 +101,71 @@ async function pgStore(connectionString) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  const portfolioTables = [
+    'user_israeli_stocks',
+    'user_american_stocks',
+    'user_pension_funds',
+    'user_bank_balances',
+    'user_cash_funds'
+  ];
+  for (const table of portfolioTables) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ${table} (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        sort_index INTEGER NOT NULL DEFAULT 0,
+        item JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS ${table}_user_id_sort_idx ON ${table} (user_id, sort_index)`
+    );
+  }
+
+  function normalizeSnapshot(input) {
+    const parsed =
+      input && typeof input === 'object'
+        ? input
+        : (() => {
+            try {
+              return JSON.parse(String(input || '{}'));
+            } catch {
+              return {};
+            }
+          })();
+    return {
+      israeliStocks: Array.isArray(parsed.israeliStocks) ? parsed.israeliStocks : [],
+      americanStocks: Array.isArray(parsed.americanStocks) ? parsed.americanStocks : [],
+      pensionFunds: Array.isArray(parsed.pensionFunds) ? parsed.pensionFunds : [],
+      bankBalances: Array.isArray(parsed.bankBalances) ? parsed.bankBalances : [],
+      cashFunds: Array.isArray(parsed.cashFunds) ? parsed.cashFunds : []
+    };
+  }
+
+  async function readItems(client, table, userId) {
+    const { rows } = await client.query(
+      `SELECT item FROM ${table} WHERE user_id = $1 ORDER BY sort_index ASC, id ASC`,
+      [userId]
+    );
+    return rows.map((r) => r.item);
+  }
+
+  async function writeItems(client, table, userId, items) {
+    await client.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId]);
+    if (!items.length) return;
+    const values = [];
+    const placeholders = [];
+    items.forEach((item, i) => {
+      const base = i * 3;
+      placeholders.push(`($${base + 1}, $${base + 2}, $${base + 3}::jsonb)`);
+      values.push(userId, i, JSON.stringify(item));
+    });
+    await client.query(
+      `INSERT INTO ${table} (user_id, sort_index, item) VALUES ${placeholders.join(',')}`,
+      values
+    );
+  }
 
   return {
     kind: 'postgres',
@@ -124,26 +189,74 @@ async function pgStore(connectionString) {
       return rows[0] || null;
     },
     async getPortfolioPayload(userId) {
-      const { rows } = await pool.query('SELECT payload FROM user_portfolios WHERE user_id = $1', [
-        userId
-      ]);
-      const row = rows[0];
-      return row && row.payload != null ? String(row.payload) : null;
+      const client = await pool.connect();
+      try {
+        const [israeliStocks, americanStocks, pensionFunds, bankBalances, cashFunds] =
+          await Promise.all([
+            readItems(client, 'user_israeli_stocks', userId),
+            readItems(client, 'user_american_stocks', userId),
+            readItems(client, 'user_pension_funds', userId),
+            readItems(client, 'user_bank_balances', userId),
+            readItems(client, 'user_cash_funds', userId)
+          ]);
+        const normalized = {
+          israeliStocks,
+          americanStocks,
+          pensionFunds,
+          bankBalances,
+          cashFunds
+        };
+        const hasNormalizedData = Object.values(normalized).some((arr) => arr.length > 0);
+        if (hasNormalizedData) return JSON.stringify(normalized);
+
+        // Backward compatibility: if legacy snapshot exists, return it as-is.
+        const { rows } = await client.query('SELECT payload FROM user_portfolios WHERE user_id = $1', [
+          userId
+        ]);
+        const row = rows[0];
+        return row && row.payload != null ? String(row.payload) : null;
+      } finally {
+        client.release();
+      }
     },
     async upsertPortfolio(userId, payloadJson) {
-      await pool.query(
-        `INSERT INTO user_portfolios (user_id, payload, updated_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (user_id) DO UPDATE SET
-           payload = EXCLUDED.payload,
-           updated_at = NOW()`,
-        [userId, payloadJson]
-      );
+      const snapshot = normalizeSnapshot(payloadJson);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await writeItems(client, 'user_israeli_stocks', userId, snapshot.israeliStocks);
+        await writeItems(client, 'user_american_stocks', userId, snapshot.americanStocks);
+        await writeItems(client, 'user_pension_funds', userId, snapshot.pensionFunds);
+        await writeItems(client, 'user_bank_balances', userId, snapshot.bankBalances);
+        await writeItems(client, 'user_cash_funds', userId, snapshot.cashFunds);
+        // Keep legacy snapshot row updated for easy inspection and backward compatibility.
+        await client.query(
+          `INSERT INTO user_portfolios (user_id, payload, updated_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (user_id) DO UPDATE SET
+             payload = EXCLUDED.payload,
+             updated_at = NOW()`,
+          [userId, JSON.stringify(snapshot)]
+        );
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
     },
     async listUsersWithPortfolio() {
       const { rows } = await pool.query(`
         SELECT u.id, u.email, u.created_at::text AS created_at,
-               p.updated_at::text AS portfolio_saved_at
+               GREATEST(
+                 p.updated_at,
+                 (SELECT MAX(updated_at) FROM user_israeli_stocks s WHERE s.user_id = u.id),
+                 (SELECT MAX(updated_at) FROM user_american_stocks s WHERE s.user_id = u.id),
+                 (SELECT MAX(updated_at) FROM user_pension_funds s WHERE s.user_id = u.id),
+                 (SELECT MAX(updated_at) FROM user_bank_balances s WHERE s.user_id = u.id),
+                 (SELECT MAX(updated_at) FROM user_cash_funds s WHERE s.user_id = u.id)
+               )::text AS portfolio_saved_at
         FROM users u
         LEFT JOIN user_portfolios p ON p.user_id = u.id
         ORDER BY u.id
