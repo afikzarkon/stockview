@@ -2,6 +2,7 @@
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
+const cheerio = require('cheerio');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const { initDataStore } = require('./server/dataStore');
@@ -28,12 +29,36 @@ async function scrapeFunderWithAxios(stockId) {
   });
   const html = typeof data === 'string' ? data : '';
   const compact = html.replace(/\s+/g, ' ');
-  const sectionMatch = compact.match(
-    /שער אחרון<\/div>\s*<div[^>]*>שינוי<\/div>\s*<div[^>]*>מחזור מסחר<\/div>\s*<div[^>]*>([^<]+)<\/div>\s*<div[^>]*>(?:<span[^>]*>)?([^<]+)(?:<\/span>)?<\/div>/i
-  );
-  if (!sectionMatch) {
-    throw new Error('funder parse miss');
+  const $ = cheerio.load(html);
+
+  // Primary parse via DOM: in "מחיר" panel, first bg-grey2 cell is last price, second is daily change.
+  let rawPrice = '';
+  let rawChange = '';
+  const pricePanel = $('.panel')
+    .filter((_, el) => {
+      const heading = $(el).find('.panel-title').text().replace(/\s+/g, ' ').trim();
+      return heading.includes('מחיר');
+    })
+    .first();
+  if (pricePanel && pricePanel.length) {
+    const dataCells = pricePanel.find('.panel-body .bg-grey2');
+    rawPrice = (dataCells.eq(0).text() || '').trim();
+    rawChange = (dataCells.eq(1).text() || '').trim();
   }
+
+  // Secondary parse from compact HTML when DOM lookup misses.
+  if (!rawPrice || !rawChange) {
+    const sectionMatch = compact.match(
+      /שער אחרון<\/div>\s*<div[^>]*>שינוי<\/div>\s*<div[^>]*>מחזור מסחר<\/div>\s*<div[^>]*>([^<]+)<\/div>\s*<div[^>]*>(?:<span[^>]*>)?([^<]+)(?:<\/span>)?<\/div>/i
+    );
+    if (sectionMatch) {
+      rawPrice = rawPrice || sectionMatch[1];
+      rawChange = rawChange || sectionMatch[2];
+    }
+  }
+
+  if (!rawPrice && !rawChange) throw new Error('funder parse miss');
+
   const parsePrice = (token) => {
     const s = String(token || '').replace(/,/g, '').trim();
     const n = parseFloat(s);
@@ -47,8 +72,11 @@ async function scrapeFunderWithAxios(stockId) {
     const n = parseFloat(s);
     return Number.isFinite(n) ? n : null;
   };
-  const currentPrice = parsePrice(sectionMatch[1]);
-  const changePercent = parsePercent(sectionMatch[2]);
+  const currentPrice = parsePrice(rawPrice);
+  const changePercent = parsePercent(rawChange);
+  if (currentPrice == null && changePercent == null) {
+    throw new Error('funder parse empty');
+  }
   return { currentPrice, changePercent };
 }
 
