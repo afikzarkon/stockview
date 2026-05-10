@@ -104,7 +104,8 @@ function mountAuthRoutes(app, store) {
       });
       res.cookie(COOKIE_NAME, token, cookieOptions());
       return res.status(201).json({ user });
-    } catch {
+    } catch (err) {
+      console.error('auth/register', err && err.stack ? err.stack : err);
       return res.status(500).json({ error: 'שגיאת שרת' });
     }
   });
@@ -129,7 +130,8 @@ function mountAuthRoutes(app, store) {
       });
       res.cookie(COOKIE_NAME, token, cookieOptions());
       return res.json({ user });
-    } catch {
+    } catch (err) {
+      console.error('auth/login', err && err.stack ? err.stack : err);
       return res.status(500).json({ error: 'שגיאת שרת' });
     }
   });
