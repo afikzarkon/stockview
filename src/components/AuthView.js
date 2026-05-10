@@ -1,6 +1,16 @@
 import React, { useState } from 'react';
+import { apiUrl, getApiBase } from '../apiBase';
 
 const defaultError = '';
+
+function vercelMissingApiHint() {
+  if (typeof window === 'undefined') return '';
+  const host = window.location.hostname || '';
+  const noBase = !getApiBase();
+  if (noBase && (host.endsWith('vercel.app') || host.includes('vercel')))
+    return ' חסרה כתובת השרת: ב-Vercel הוסף משתנה REACT_APP_API_URL (כתובת ה-API) ועשה Redeploy.';
+  return '';
+}
 
 function AuthView({ onAuthenticated }) {
   const [mode, setMode] = useState('register');
@@ -12,27 +22,38 @@ function AuthView({ onAuthenticated }) {
   const submit = async (e) => {
     e.preventDefault();
     setError('');
-    const path = mode === 'register' ? '/api/auth/register' : '/api/auth/login';
+    const url = apiUrl(mode === 'register' ? '/api/auth/register' : '/api/auth/login');
     setLoading(true);
     try {
-      const res = await fetch(path, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ email, password })
       });
-      const data = await res.json().catch(() => ({}));
+      const ct = res.headers.get('content-type') || '';
+      const data =
+        ct.includes('application/json') ? await res.json().catch(() => ({})) : {};
       if (!res.ok) {
+        if (res.status === 404 && !ct.includes('json')) {
+          setError(
+            'לא נמצא שרת API בכתובת הזו. אם האתר על Vercel, הגדר REACT_APP_API_URL בפרויקט והרץ Deploy מחדש.'
+          );
+          return;
+        }
         setError(data.error || 'אירעה שגיאה, נסה שוב');
         return;
       }
       if (data.user) {
         onAuthenticated(data.user);
       } else {
-        setError('תגובת שרת לא תקינה. עצור והפעל מחדש את npm run dev.');
+        setError('תגובת שרת לא תקינה. נסה שוב או בדוק הגדרות API.' + vercelMissingApiHint());
       }
     } catch {
-      setError('לא ניתן להתחבר לשרת. ודא שהשרת רץ (פורט 5000).');
+      setError(
+        'לא ניתן להתחבר לשרת. בפיתוח מקומי ודא שהשרת רץ על פורט 5000.' +
+          vercelMissingApiHint()
+      );
     } finally {
       setLoading(false);
     }

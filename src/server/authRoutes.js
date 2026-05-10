@@ -16,14 +16,29 @@ function getJwtSecret() {
   return s;
 }
 
+function crossSiteCookies() {
+  return process.env.CROSS_SITE_COOKIES === '1' || process.env.CROSS_SITE_COOKIES === 'true';
+}
+
+function cookieSharedAttributes() {
+  const cross = crossSiteCookies();
+  return {
+    path: '/',
+    sameSite: cross ? 'none' : 'lax',
+    secure: cross || process.env.NODE_ENV === 'production'
+  };
+}
+
 function cookieOptions() {
   return {
+    ...cookieSharedAttributes(),
     httpOnly: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    secure: process.env.NODE_ENV === 'production'
+    maxAge: 7 * 24 * 60 * 60 * 1000
   };
+}
+
+function clearCookieAttrs() {
+  return cookieSharedAttributes();
 }
 
 function normalizeEmail(email) {
@@ -48,7 +63,7 @@ function mountAuthRoutes(app, db) {
         user: { id: payload.sub, email: payload.email }
       });
     } catch {
-      res.clearCookie(COOKIE_NAME, { path: '/', sameSite: 'lax' });
+      res.clearCookie(COOKIE_NAME, clearCookieAttrs());
       return res.json({ user: null });
     }
   });
@@ -124,7 +139,7 @@ function mountAuthRoutes(app, db) {
   });
 
   app.post('/api/auth/logout', (req, res) => {
-    res.clearCookie(COOKIE_NAME, { path: '/', sameSite: 'lax' });
+    res.clearCookie(COOKIE_NAME, clearCookieAttrs());
     return res.json({ ok: true });
   });
 }

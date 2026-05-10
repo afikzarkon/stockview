@@ -8,6 +8,7 @@ import IsraeliStocksTable from './components/IsraeliStocksTable';
 import AmericanStocksTable from './components/AmericanStocksTable';
 import FinancialAccountsTables from './components/FinancialAccountsTables';
 import AuthView from './components/AuthView';
+import { apiUrl } from './apiBase';
 
 function normalizeIsraeliStocksFromStorage(parsed) {
   if (!Array.isArray(parsed)) return [];
@@ -128,7 +129,7 @@ function App() {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch('/api/auth/me', { credentials: 'include' });
+        const r = await fetch(apiUrl('/api/auth/me'), { credentials: 'include' });
         const d = await r.json();
         if (!cancelled) setUser(d.user || null);
       } catch {
@@ -153,7 +154,7 @@ function App() {
     setPortfolioReady(false);
     (async () => {
       try {
-        const r = await fetch('/api/portfolio', { credentials: 'include' });
+        const r = await fetch(apiUrl('/api/portfolio'), { credentials: 'include' });
         if (!r.ok) throw new Error('load failed');
         const d = await r.json();
         if (cancelled) return;
@@ -183,7 +184,7 @@ function App() {
   // פונקציה לקבלת מחיר נוכחי ואחוז שינוי יומי מ-TASE (דרך השרת המקומי)
   const fetchIsraeliStockPrice = async (stockId) => {
     try {
-      const response = await fetch(`/api/israeli-stock/${stockId}`, {
+      const response = await fetch(apiUrl(`/api/israeli-stock/${stockId}`), {
         credentials: 'include'
       });
       if (!response.ok) throw new Error('שגיאה בקריאת נתונים מהשרת');
@@ -326,7 +327,7 @@ function App() {
         cashFunds: cashData
       });
       try {
-        await fetch('/api/portfolio', {
+        await fetch(apiUrl('/api/portfolio'), {
           method: 'PUT',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -405,7 +406,7 @@ function App() {
       persistTimerRef.current = null;
     }
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      await fetch(apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include' });
     } catch {
       /* ignore */
     }
@@ -442,7 +443,7 @@ function App() {
       persistTimerRef.current = null;
     }
     try {
-      const r = await fetch('/api/portfolio', {
+      const r = await fetch(apiUrl('/api/portfolio'), {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
