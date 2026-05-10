@@ -21,7 +21,7 @@ function PortfolioSummary({ summary, formatPriceWithSign }) {
             <div className="summary-item"><span className="summary-label">סה"כ השקעה:</span><span className="summary-value">{formatPriceWithSign(summary.totalPurchaseUSD)} $</span></div>
             <div className="summary-item"><span className="summary-label">סה"כ שווי:</span><span className="summary-value">{formatPriceWithSign(summary.totalCurrentValueUSD)} $</span></div>
             <div className="summary-item"><span className="summary-label">סה"כ רווח/הפסד:</span><span className={`summary-value ${summary.totalProfitUSD >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalProfitUSD)} $</span></div>
-            <div className="summary-item"><span className="summary-label">השפעת שער על קרן הקנייה:</span><span className={`summary-value ${summary.totalExchangeImpact >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalExchangeImpact)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">השפעת שער הדולר על הרווח:</span><span className={`summary-value ${summary.totalExchangeImpact >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalExchangeImpact)} ₪</span></div>
             <div className="summary-item"><span className="summary-label">אחוז רווח/הפסד כללי:</span><span className={`summary-value ${summary.americanOnlyProfitPercent >= 0 ? 'profit-positive' : 'profit-negative'}`}>{summary.americanOnlyProfitPercent.toFixed(2)}%</span></div>
             <div className="summary-item"><span className="summary-label">אחוז רווח/הפסד יומי:</span><span className={`summary-value ${summary.americanOnlyDailyPercent >= 0 ? 'profit-positive' : 'profit-negative'}`}>{summary.americanOnlyDailyPercent.toFixed(2)}%</span></div>
             <div className="summary-item"><span className="summary-label">רווח/הפסד יומי:</span><span className={`summary-value ${summary.americanOnlyDailyProfitUSD >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.americanOnlyDailyProfitUSD)} $</span></div>
@@ -41,12 +41,12 @@ function PortfolioSummary({ summary, formatPriceWithSign }) {
 
           <div className="summary-section summary-col">
             <h3 className="summary-section-title">קופות גמל - השקעה בש''ח(₪)</h3>
-            <div className="summary-item"><span className="summary-label">סה"כ השקעה:</span><span className="summary-value">{formatPriceWithSign(summary.pensionInitialInvestmentILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">סה"כ שווי כיום:</span><span className="summary-value">{formatPriceWithSign(summary.pensionCurrentValueILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">סה"כ הפקדות:</span><span className="summary-value">{formatPriceWithSign(summary.pensionInitialInvestmentILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">סה"כ שווי היום:</span><span className="summary-value">{formatPriceWithSign(summary.pensionCurrentValueILS)} ₪</span></div>
             <div className="summary-item"><span className="summary-label">סה"כ אחוז רווח:</span><span className={`summary-value ${summary.pensionProfitPercent >= 0 ? 'profit-positive' : 'profit-negative'}`}>{summary.pensionProfitPercent.toFixed(2)}%</span></div>
-            <div className="summary-item"><span className="summary-label">סה"כ אחוז רווח מבדיקה קודמת:</span><span className={`summary-value ${summary.pensionPreviousProfitPercent >= 0 ? 'profit-positive' : 'profit-negative'}`}>{summary.pensionPreviousProfitPercent.toFixed(2)}%</span></div>
+            <div className="summary-item"><span className="summary-label">סה"כ אחוז רווח מיתרה קודמת:</span><span className={`summary-value ${summary.pensionPreviousProfitPercent >= 0 ? 'profit-positive' : 'profit-negative'}`}>{summary.pensionPreviousProfitPercent.toFixed(2)}%</span></div>
             <div className="summary-item"><span className="summary-label">סה"כ רווח/הפסד:</span><span className={`summary-value ${summary.pensionTotalProfitILS >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.pensionTotalProfitILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">סה"כ רווח/הפסד מהשקעה קודמת:</span><span className={`summary-value ${summary.pensionUpdateProfitILS >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.pensionUpdateProfitILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">סה"כ רווח/הפסד מיתרה קודמת:</span><span className={`summary-value ${summary.pensionUpdateProfitILS >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.pensionUpdateProfitILS)} ₪</span></div>
           </div>
         </div>
 
@@ -59,9 +59,9 @@ function PortfolioSummary({ summary, formatPriceWithSign }) {
             <div className="summary-item"><span className="summary-label">מס בבורסה בישראל:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.israeliOnlyTaxILS)} ₪</span></div>
             <div className="summary-item"><span className="summary-label">מס בבורסה אמריקאית:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.americanOnlyTaxILS)} ₪</span></div>
             <div className="summary-item"><span className="summary-label">מס על קופות גמל:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.pensionTaxILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">סה"כ מס שנשלם:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.totalTaxILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">סה"כ מס לתשלום:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.totalTaxILS)} ₪</span></div>
             <div className="summary-item"><span className="summary-label">סה"כ רווח /הפסד לאחר מס:</span><span className={`summary-value ${summary.totalProfitAfterTaxILS >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalProfitAfterTaxILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">השפעת שער על קרן הקנייה:</span><span className={`summary-value ${summary.totalExchangeImpact >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalExchangeImpact)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">השפעת שער הדולר על התיק:</span><span className={`summary-value ${summary.totalExchangeImpact >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalExchangeImpact)} ₪</span></div>
           </div>
         </div>
       </div>
