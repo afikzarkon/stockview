@@ -181,10 +181,12 @@ app.get('/api/israeli-stock/:id', async (req, res) => {
   if (!cacheKey) return res.json({ currentPrice: null, changePercent: null });
   const cached = taseCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
+    console.log(`[israeli-stock:${cacheKey}] cache_hit`);
     return res.json(cached.payload);
   }
 
   const taseUrl = `https://market.tase.co.il/he/market_data/security/${stockId}/major_data`;
+  console.log(`[israeli-stock:${cacheKey}] fetch_start`);
   try {
     const result = await withTimeout(
       scrapeTaseWithPuppeteer(taseUrl),
@@ -193,14 +195,26 @@ app.get('/api/israeli-stock/:id', async (req, res) => {
     );
     const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
     taseCache.set(cacheKey, { payload, expiresAt: Date.now() + TASE_CACHE_TTL_MS });
+    console.log(
+      `[israeli-stock:${cacheKey}] puppeteer_ok price=${payload.currentPrice} change=${payload.changePercent}`
+    );
     return res.json(payload);
   } catch (err) {
+    console.warn(
+      `[israeli-stock:${cacheKey}] puppeteer_fail ${err && err.message ? err.message : err}`
+    );
     try {
       const result = await scrapeTaseFallbackWithAxios(taseUrl);
       const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
       taseCache.set(cacheKey, { payload, expiresAt: Date.now() + TASE_CACHE_TTL_MS });
+      console.log(
+        `[israeli-stock:${cacheKey}] axios_ok price=${payload.currentPrice} change=${payload.changePercent} raw=${result._rawPercentToken || 'n/a'}`
+      );
       return res.json(payload);
     } catch (e2) {
+      console.error(
+        `[israeli-stock:${cacheKey}] axios_fail ${e2 && e2.message ? e2.message : e2}`
+      );
       return res.json({ currentPrice: null, changePercent: null });
     }
   }
