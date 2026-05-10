@@ -1220,18 +1220,44 @@ function App() {
       addDateBucket(stock, metrics.totalCurrentValueILS);
     });
 
+    const stockList = Object.values(stockDistribution);
+
     // דוחות מפורטים
-    const topPerformers = Object.values(stockDistribution)
+    const topPerformers = [...stockList]
       .sort((a, b) => b.profit - a.profit)
       .slice(0, 5);
 
-    const worstPerformers = Object.values(stockDistribution)
+    const worstPerformers = [...stockList]
       .sort((a, b) => a.profit - b.profit)
       .slice(0, 5);
 
-    const largestPositions = Object.values(stockDistribution)
+    const largestPositions = [...stockList]
       .sort((a, b) => b.value - a.value)
       .slice(0, 5);
+
+    const totalPurchaseILS = stockList.reduce((sum, stock) => sum + stock.totalPurchaseValue, 0);
+    const totalProfitILS = stockList.reduce((sum, stock) => sum + stock.profit, 0);
+    const weightedDailyChangePercent = totalValueILS > 0
+      ? stockList.reduce((sum, stock) => sum + (stock.dailyChange * stock.value), 0) / totalValueILS
+      : 0;
+    const weightedAnnualizedReturnPercent = totalPurchaseILS > 0
+      ? stockList.reduce((sum, stock) => sum + ((stock.annualizedReturn || 0) * stock.totalPurchaseValue), 0) /
+        totalPurchaseILS * 100
+      : 0;
+    const concentrationTop3Percent = stockList
+      .slice()
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 3)
+      .reduce((sum, stock) => sum + stock.percentage, 0);
+    const averageHoldingDays = stockList.length
+      ? Math.round(stockList.reduce((sum, stock) => sum + stock.daysHeld, 0) / stockList.length)
+      : 0;
+    const americanFxImpactILS = americanStocks.reduce((sum, stock) => {
+      const metrics = calculateAmericanStockMetrics(stock);
+      return sum + metrics.exchangeRateImpact;
+    }, 0);
+    const israeliPositions = stockList.filter((s) => s.exchange === 'israeli').length;
+    const americanPositions = stockList.filter((s) => s.exchange === 'american').length;
 
     return {
       // פיזור לפי בורסות
@@ -1248,7 +1274,7 @@ function App() {
       },
       
       // פיזור לפי מניות
-      stockDistribution: Object.values(stockDistribution).sort((a, b) => b.value - a.value),
+      stockDistribution: [...stockList].sort((a, b) => b.value - a.value),
       
       // פיזור לפי תאריכים
       monthlyDistribution: Object.entries(monthlyDistribution)
@@ -1264,6 +1290,18 @@ function App() {
         topPerformers,
         worstPerformers,
         largestPositions
+      },
+      summaryMetrics: {
+        positionsCount: stockList.length,
+        israeliPositions,
+        americanPositions,
+        totalPurchaseILS,
+        totalProfitILS,
+        weightedDailyChangePercent,
+        weightedAnnualizedReturnPercent,
+        concentrationTop3Percent,
+        averageHoldingDays,
+        americanFxImpactILS
       }
     };
   };

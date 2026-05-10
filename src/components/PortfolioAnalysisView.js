@@ -13,6 +13,55 @@ function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
           </button>
 
           <div className="analysis-section">
+            <h2 className="section-title">תקציר ניתוח</h2>
+            <div className="distribution-grid">
+              <div className="distribution-card">
+                <h3>מספר פוזיציות</h3>
+                <div className="distribution-value">{analysis.summaryMetrics.positionsCount}</div>
+                <div className="distribution-percentage">
+                  ישראליות: {analysis.summaryMetrics.israeliPositions} | אמריקאיות: {analysis.summaryMetrics.americanPositions}
+                </div>
+              </div>
+              <div className="distribution-card">
+                <h3>רווח/הפסד לא ממומש</h3>
+                <div className={`distribution-value ${analysis.summaryMetrics.totalProfitILS >= 0 ? 'profit-positive' : 'profit-negative'}`}>
+                  {formatPriceWithSign(analysis.summaryMetrics.totalProfitILS)} ₪
+                </div>
+                <div className="distribution-percentage">
+                  מול השקעה כוללת של {formatPriceWithSign(analysis.summaryMetrics.totalPurchaseILS)} ₪
+                </div>
+              </div>
+              <div className="distribution-card">
+                <h3>שינוי יומי משוקלל</h3>
+                <div className={`distribution-value ${analysis.summaryMetrics.weightedDailyChangePercent >= 0 ? 'profit-positive' : 'profit-negative'}`}>
+                  {analysis.summaryMetrics.weightedDailyChangePercent.toFixed(2)}%
+                </div>
+                <div className="distribution-percentage">
+                  תשואה שנתית משוקללת: {analysis.summaryMetrics.weightedAnnualizedReturnPercent.toFixed(2)}%
+                </div>
+              </div>
+              <div className="distribution-card">
+                <h3>ריכוזיות 3 פוזיציות</h3>
+                <div className="distribution-value">
+                  {analysis.summaryMetrics.concentrationTop3Percent.toFixed(1)}%
+                </div>
+                <div className="distribution-percentage">
+                  זמן החזקה ממוצע: {analysis.summaryMetrics.averageHoldingDays} ימים
+                </div>
+              </div>
+              <div className="distribution-card">
+                <h3>השפעת מט"ח על רכיב ארה"ב</h3>
+                <div className={`distribution-value ${analysis.summaryMetrics.americanFxImpactILS >= 0 ? 'profit-positive' : 'profit-negative'}`}>
+                  {formatPriceWithSign(analysis.summaryMetrics.americanFxImpactILS)} ₪
+                </div>
+                <div className="distribution-percentage">
+                  מחושב על שווי נוכחי של הפוזיציות האמריקאיות
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="analysis-section">
             <h2 className="section-title">פיזור לפי בורסות</h2>
             <div className="distribution-grid">
               <div className="distribution-card">
