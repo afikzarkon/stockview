@@ -15,6 +15,20 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
+const TASE_CACHE_TTL_MS = 45 * 1000;
+const PUPPETEER_TIMEOUT_MS = 12000;
+const taseCache = new Map();
+
+function withTimeout(promise, timeoutMs, label) {
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label || 'operation'} timeout`)), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 async function scrapeTaseWithPuppeteer(taseUrl) {
   const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox','--disable-setuid-sandbox'] });
   const page = await browser.newPage();
@@ -163,14 +177,29 @@ async function scrapeTaseFallbackWithAxios(taseUrl) {
 
 app.get('/api/israeli-stock/:id', async (req, res) => {
   const stockId = req.params.id;
+  const cacheKey = String(stockId || '').trim();
+  if (!cacheKey) return res.json({ currentPrice: null, changePercent: null });
+  const cached = taseCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return res.json(cached.payload);
+  }
+
   const taseUrl = `https://market.tase.co.il/he/market_data/security/${stockId}/major_data`;
   try {
-    const result = await scrapeTaseWithPuppeteer(taseUrl);
-    return res.json({ currentPrice: result.currentPrice, changePercent: result.changePercent });
+    const result = await withTimeout(
+      scrapeTaseWithPuppeteer(taseUrl),
+      PUPPETEER_TIMEOUT_MS,
+      'tase puppeteer'
+    );
+    const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
+    taseCache.set(cacheKey, { payload, expiresAt: Date.now() + TASE_CACHE_TTL_MS });
+    return res.json(payload);
   } catch (err) {
     try {
       const result = await scrapeTaseFallbackWithAxios(taseUrl);
-      return res.json({ currentPrice: result.currentPrice, changePercent: result.changePercent });
+      const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
+      taseCache.set(cacheKey, { payload, expiresAt: Date.now() + TASE_CACHE_TTL_MS });
+      return res.json(payload);
     } catch (e2) {
       return res.json({ currentPrice: null, changePercent: null });
     }
