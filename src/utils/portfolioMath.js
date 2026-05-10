@@ -12,9 +12,9 @@ export const calculateAmericanStockMetrics = (stock, taxRate = TAX_RATE) => {
   const taxILS = taxUSD * currentExchangeRate;
   const afterTaxUSD = profitUSD - taxUSD;
   const afterTaxILS = profitILS - taxILS;
-  // FX impact in ILS based on current USD position value, as requested:
-  // (buy USDILS - current USDILS) * (current stock price * quantity)
-  const exchangeRateImpact = ((stock.exchangeRate || 0) - currentExchangeRate) * totalCurrentValueUSD;
+  // FX impact is measured on today's position value in USD:
+  // (current stock price * quantity * current USDILS) - (current stock price * quantity * buy USDILS)
+  const exchangeRateImpact = totalCurrentValueUSD * (currentExchangeRate - (stock.exchangeRate || 0));
 
   return {
     totalPurchaseUSD,
