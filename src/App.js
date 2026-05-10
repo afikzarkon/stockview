@@ -11,16 +11,39 @@ import AuthView from './components/AuthView';
 import { apiUrl } from './apiBase';
 import { clearAuthToken, getAuthToken, setAuthToken } from './authToken';
 
+/** True if currentPrice looks like TASE agorot (integer, typically 5–7 digits). */
+function looksLikeAgorotInteger(priceNum) {
+  if (priceNum === null || priceNum === undefined || Number.isNaN(priceNum)) return false;
+  const n = Number(priceNum);
+  if (!Number.isFinite(n) || n <= 0) return false;
+  const intLike = Math.abs(n - Math.round(n)) < 1e-9;
+  return intLike && n >= 10000;
+}
+
+/** מפתח יציב ל-/api/israeli-stock/:id — לא משתנה כשעורכים את עמודת השם לתצוגה. */
+function getIsraeliQuoteKey(stock) {
+  const id = String(stock?.taseSecurityId ?? '').trim();
+  if (id) return id;
+  return String(stock?.stockName ?? '').trim();
+}
+
 function normalizeIsraeliStocksFromStorage(parsed) {
   if (!Array.isArray(parsed)) return [];
   return parsed.map((stock) => {
     const priceNum =
       typeof stock.currentPrice === 'string' ? parseFloat(stock.currentPrice) : stock.currentPrice;
-    const needsDivide =
-      priceNum !== null && priceNum !== undefined && !isNaN(priceNum) && priceNum > 1000;
+    const needsDivide = looksLikeAgorotInteger(priceNum);
+    let taseSecurityId = stock.taseSecurityId;
+    if (!taseSecurityId && stock.stockName != null) {
+      const raw = String(stock.stockName).trim().replace(/\s/g, '');
+      if (/^\d+$/.test(raw)) {
+        taseSecurityId = raw.replace(/\D/g, '');
+      }
+    }
     return {
       ...stock,
-      currentPrice: needsDivide ? priceNum / 100 : priceNum
+      currentPrice: needsDivide ? priceNum / 100 : priceNum,
+      ...(taseSecurityId ? { taseSecurityId } : {})
     };
   });
 }
@@ -230,20 +253,22 @@ function App() {
       
       // עדכון מניות ישראליות
       if (israeliStocks.length > 0) {
-        // קיבוץ מניות לפי שם (ID) כדי לבצע בקשה אחת לכל מנייה
-        const stocksBySymbol = {};
-        israeliStocks.forEach(stock => {
-          if (!stocksBySymbol[stock.stockName]) {
-            stocksBySymbol[stock.stockName] = [];
+        // קיבוץ לפי מזהה נייר TASE (לא לפי שם תצוגה), כדי שעריכת עמודת "שם" לא תשבור את הקריאה ל-API
+        const stocksByQuoteKey = {};
+        israeliStocks.forEach((stock) => {
+          const quoteKey = getIsraeliQuoteKey(stock);
+          if (!quoteKey) return;
+          if (!stocksByQuoteKey[quoteKey]) {
+            stocksByQuoteKey[quoteKey] = [];
           }
-          stocksBySymbol[stock.stockName].push(stock);
+          stocksByQuoteKey[quoteKey].push(stock);
         });
 
         const updatedIsraeliStocks = [];
-        
+
         // עבור כל מנייה ייחודית, בקש נתונים פעם אחת
-        for (const [stockSymbol, stocks] of Object.entries(stocksBySymbol)) {
-          const priceData = await fetchIsraeliStockPrice(stockSymbol);
+        for (const [quoteKey, stocks] of Object.entries(stocksByQuoteKey)) {
+          const priceData = await fetchIsraeliStockPrice(quoteKey);
           
           if (priceData && priceData.currentPrice !== null) {
             // המרה מאגורות לשקלים
@@ -555,6 +580,9 @@ function App() {
       const stockData = {
         id: Date.now(),
         stockName: formData.stockName,
+        ...(formData.exchange === 'israeli'
+          ? { taseSecurityId: formData.stockName.trim() }
+          : {}),
         purchaseDate: formData.purchaseDate,
         purchasePrice: parseFloat(formData.purchasePrice),
         quantity: parseInt(formData.quantity),
@@ -689,6 +717,14 @@ function App() {
     const updatedStock = {
       ...editingStock,
       stockName: formData.stockName,
+      ...(formData.exchange === 'israeli'
+        ? {
+            taseSecurityId:
+              editingStock.taseSecurityId != null && editingStock.taseSecurityId !== ''
+                ? editingStock.taseSecurityId
+                : String(formData.stockName || '').trim()
+          }
+        : {}),
       purchasePrice: parseFloat(formData.purchasePrice),
       quantity: parseInt(formData.quantity),
       purchaseDate: formData.purchaseDate,
@@ -837,11 +873,14 @@ function App() {
     }
   };
 
-  // Normalize Israeli price: if saved in agorot (big number), convert to shekels
+  // Israeli currentPrice in state is usually already in ₪ (after API divides agorot by 100).
+  // Legacy localStorage may still hold raw agorot as a large integer (e.g. 230190).
+  // Do NOT divide again when the value already has agorot→shekel decimals (e.g. 2301.9).
   const normalizeIsraeliPrice = (price) => {
     const num = typeof price === 'string' ? parseFloat(price) : price;
     if (num === null || num === undefined || isNaN(num)) return 0;
-    return num > 1000 ? num / 100 : num;
+    if (looksLikeAgorotInteger(num)) return num / 100;
+    return num;
   };
 
   const calculateProfitPercentage = (purchaseValue, currentValue) => {

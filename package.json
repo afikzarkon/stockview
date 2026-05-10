@@ -33,7 +33,8 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "db:users": "node scripts/list-users.js"
+    "db:users": "node scripts/list-users.js",
+    "tase:scrape": "node scripts/scrape-tase.js"
   },
   "eslintConfig": {
     "extends": [
