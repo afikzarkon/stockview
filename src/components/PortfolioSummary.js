@@ -5,6 +5,21 @@ function PortfolioSummary({ summary, formatPriceWithSign }) {
     <div className="portfolio-summary">
       <h2 className="portfolio-summary-title">סיכום התיק</h2>
       <div className="summary-grid-custom">
+        <div className="summary-row summary-row-single">
+          <div className="summary-section summary-col">
+            <h3 className="summary-section-title">סיכום השקעות נטו (₪)</h3>
+            <div className="summary-item"><span className="summary-label">סה"כ השקעה בש"ח:</span><span className="summary-value">{formatPriceWithSign(summary.totalPurchaseILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">סה"כ שווי בש"ח:</span><span className="summary-value">{formatPriceWithSign(summary.totalCurrentValueILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">סה"כ רווח /הפסד בש"ח:</span><span className={`summary-value ${summary.totalProfitILS >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalProfitILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">מס בבורסה בישראל:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.israeliOnlyTaxILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">מס בבורסה אמריקאית:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.americanOnlyTaxILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">מס על קופות גמל:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.pensionTaxILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">סה"כ מס לתשלום:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.totalTaxILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">סה"כ רווח /הפסד לאחר מס:</span><span className={`summary-value ${summary.totalProfitAfterTaxILS >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalProfitAfterTaxILS)} ₪</span></div>
+            <div className="summary-item"><span className="summary-label">השפעת שער הדולר על התיק:</span><span className={`summary-value ${summary.totalExchangeImpact >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalExchangeImpact)} ₪</span></div>
+          </div>
+        </div>
+
         <div className="summary-row">
           <div className="summary-section summary-col">
             <h3 className="summary-section-title"> בורסה ישראל - השקעה בש''ח(₪)</h3>
@@ -50,20 +65,6 @@ function PortfolioSummary({ summary, formatPriceWithSign }) {
           </div>
         </div>
 
-        <div className="summary-row summary-row-single">
-          <div className="summary-section summary-col">
-            <h3 className="summary-section-title">סיכום השקעות נטו (₪)</h3>
-            <div className="summary-item"><span className="summary-label">סה"כ השקעה בש"ח:</span><span className="summary-value">{formatPriceWithSign(summary.totalPurchaseILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">סה"כ שווי בש"ח:</span><span className="summary-value">{formatPriceWithSign(summary.totalCurrentValueILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">סה"כ רווח /הפסד בש"ח:</span><span className={`summary-value ${summary.totalProfitILS >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalProfitILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">מס בבורסה בישראל:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.israeliOnlyTaxILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">מס בבורסה אמריקאית:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.americanOnlyTaxILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">מס על קופות גמל:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.pensionTaxILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">סה"כ מס לתשלום:</span><span className="summary-value profit-negative">{formatPriceWithSign(-summary.totalTaxILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">סה"כ רווח /הפסד לאחר מס:</span><span className={`summary-value ${summary.totalProfitAfterTaxILS >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalProfitAfterTaxILS)} ₪</span></div>
-            <div className="summary-item"><span className="summary-label">השפעת שער הדולר על התיק:</span><span className={`summary-value ${summary.totalExchangeImpact >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.totalExchangeImpact)} ₪</span></div>
-          </div>
-        </div>
       </div>
     </div>
   );
