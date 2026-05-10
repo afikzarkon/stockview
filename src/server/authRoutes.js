@@ -52,16 +52,31 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
+function extractBearerToken(req) {
+  const raw = req.headers && (req.headers.authorization || req.headers.Authorization);
+  if (!raw) return '';
+  const m = String(raw).match(/^Bearer\s+(.+)$/i);
+  return m ? m[1].trim() : '';
+}
+
+function readAuthUserFromRequest(req, jwtSecret) {
+  const cookieToken = req.cookies ? req.cookies[COOKIE_NAME] : '';
+  const bearerToken = extractBearerToken(req);
+  const token = bearerToken || cookieToken;
+  if (!token) return null;
+  const payload = jwt.verify(token, jwtSecret || getJwtSecret());
+  return { id: payload.sub, email: payload.email, tokenSource: bearerToken ? 'bearer' : 'cookie' };
+}
+
 function mountAuthRoutes(app, store) {
   const JWT_SECRET = getJwtSecret();
 
   app.get('/api/auth/me', (req, res) => {
-    const token = req.cookies ? req.cookies[COOKIE_NAME] : null;
-    if (!token) return res.json({ user: null });
     try {
-      const payload = jwt.verify(token, JWT_SECRET);
+      const authUser = readAuthUserFromRequest(req, JWT_SECRET);
+      if (!authUser) return res.json({ user: null });
       return res.json({
-        user: { id: payload.sub, email: payload.email }
+        user: { id: authUser.id, email: authUser.email }
       });
     } catch {
       res.clearCookie(COOKIE_NAME, clearCookieAttrs());
@@ -103,7 +118,7 @@ function mountAuthRoutes(app, store) {
         expiresIn: JWT_TTL
       });
       res.cookie(COOKIE_NAME, token, cookieOptions());
-      return res.status(201).json({ user });
+      return res.status(201).json({ user, token });
     } catch (err) {
       console.error('auth/register', err && err.stack ? err.stack : err);
       return res.status(500).json({ error: 'שגיאת שרת' });
@@ -129,7 +144,7 @@ function mountAuthRoutes(app, store) {
         expiresIn: JWT_TTL
       });
       res.cookie(COOKIE_NAME, token, cookieOptions());
-      return res.json({ user });
+      return res.json({ user, token });
     } catch (err) {
       console.error('auth/login', err && err.stack ? err.stack : err);
       return res.status(500).json({ error: 'שגיאת שרת' });
@@ -142,4 +157,4 @@ function mountAuthRoutes(app, store) {
   });
 }
 
-module.exports = { mountAuthRoutes, getJwtSecret, COOKIE_NAME };
+module.exports = { mountAuthRoutes, getJwtSecret, COOKIE_NAME, readAuthUserFromRequest };

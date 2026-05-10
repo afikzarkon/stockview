@@ -9,6 +9,7 @@ import AmericanStocksTable from './components/AmericanStocksTable';
 import FinancialAccountsTables from './components/FinancialAccountsTables';
 import AuthView from './components/AuthView';
 import { apiUrl } from './apiBase';
+import { clearAuthToken, getAuthToken, setAuthToken } from './authToken';
 
 function normalizeIsraeliStocksFromStorage(parsed) {
   if (!Array.isArray(parsed)) return [];
@@ -116,6 +117,10 @@ function App() {
   const [legacyImportCompleted, setLegacyImportCompleted] = useState(false);
   const [legacyImportLoading, setLegacyImportLoading] = useState(false);
   const [legacyImportBanner, setLegacyImportBanner] = useState('');
+  const authHeader = () => {
+    const token = getAuthToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   useEffect(() => {
     if (!user || !user.id) {
@@ -129,7 +134,10 @@ function App() {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(apiUrl('/api/auth/me'), { credentials: 'include' });
+        const r = await fetch(apiUrl('/api/auth/me'), {
+          credentials: 'include',
+          headers: { ...authHeader() }
+        });
         const d = await r.json();
         if (!cancelled) setUser(d.user || null);
       } catch {
@@ -154,7 +162,10 @@ function App() {
     setPortfolioReady(false);
     (async () => {
       try {
-        const r = await fetch(apiUrl('/api/portfolio'), { credentials: 'include' });
+        const r = await fetch(apiUrl('/api/portfolio'), {
+          credentials: 'include',
+          headers: { ...authHeader() }
+        });
         if (!r.ok) throw new Error('load failed');
         const d = await r.json();
         if (cancelled) return;
@@ -327,14 +338,18 @@ function App() {
         cashFunds: cashData
       });
       try {
-        await fetch(apiUrl('/api/portfolio'), {
+        const r = await fetch(apiUrl('/api/portfolio'), {
           method: 'PUT',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
           body
         });
-      } catch {
-        /* רשת/שרת — יישמר בפעם הבאה או אחרי ריענון */
+        if (!r.ok) {
+          const msg = await r.text().catch(() => '');
+          console.warn('שמירת תיק נכשלה:', r.status, msg || r.statusText);
+        }
+      } catch (e) {
+        console.warn('שמירת תיק — שגיאת רשת', e);
       }
     }, 450);
   };
@@ -406,10 +421,15 @@ function App() {
       persistTimerRef.current = null;
     }
     try {
-      await fetch(apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include' });
+      await fetch(apiUrl('/api/auth/logout'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { ...authHeader() }
+      });
     } catch {
       /* ignore */
     }
+    clearAuthToken();
     setShowForm(false);
     setShowAnalysis(false);
     setIsraeliStocks([]);
@@ -446,7 +466,7 @@ function App() {
       const r = await fetch(apiUrl('/api/portfolio'), {
         method: 'PUT',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({
           israeliStocks: snapshot.israeliStocks,
           americanStocks: snapshot.americanStocks,
@@ -1236,7 +1256,12 @@ function App() {
   if (!user) {
     return (
       <div className="App">
-        <AuthView onAuthenticated={setUser} />
+        <AuthView
+          onAuthenticated={(authenticatedUser, token) => {
+            if (token) setAuthToken(token);
+            setUser(authenticatedUser);
+          }}
+        />
       </div>
     );
   }

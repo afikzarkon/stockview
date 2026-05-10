@@ -1,5 +1,4 @@
-const jwt = require('jsonwebtoken');
-const { getJwtSecret, COOKIE_NAME } = require('./authRoutes');
+const { readAuthUserFromRequest, getJwtSecret } = require('./authRoutes');
 
 const emptyPortfolio = () => ({
   israeliStocks: [],
@@ -10,13 +9,10 @@ const emptyPortfolio = () => ({
 });
 
 function requireAuth(req, res, next) {
-  const token = req.cookies && req.cookies[COOKIE_NAME];
-  if (!token) {
-    return res.status(401).json({ error: 'נדרשת התחברות' });
-  }
   try {
-    const payload = jwt.verify(token, getJwtSecret());
-    req.user = { id: payload.sub, email: payload.email };
+    const authUser = readAuthUserFromRequest(req, getJwtSecret());
+    if (!authUser) return res.status(401).json({ error: 'נדרשת התחברות' });
+    req.user = { id: authUser.id, email: authUser.email };
     next();
   } catch {
     return res.status(401).json({ error: 'פג תוקף או טוקן לא תקין' });

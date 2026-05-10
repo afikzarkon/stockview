@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { apiUrl, getApiBase } from '../apiBase';
+import { setAuthToken } from '../authToken';
 
 const defaultError = '';
 
@@ -45,7 +46,8 @@ function AuthView({ onAuthenticated }) {
         return;
       }
       if (data.user) {
-        onAuthenticated(data.user);
+        if (data.token) setAuthToken(data.token);
+        onAuthenticated(data.user, data.token || '');
       } else {
         setError('תגובת שרת לא תקינה. נסה שוב או בדוק הגדרות API.' + vercelMissingApiHint());
       }
