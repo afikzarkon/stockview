@@ -4,9 +4,9 @@ function PortfolioSummary({ summary, formatPriceWithSign }) {
   return (
     <div className="portfolio-summary">
       <h2 className="portfolio-summary-title">סיכום התיק</h2>
-      <div className="summary-grid" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'stretch' }}>
-          <div className="summary-section" style={{ flex: 1 }}>
+      <div className="summary-grid-custom">
+        <div className="summary-row">
+          <div className="summary-section summary-col">
             <h3 className="summary-section-title"> בורסה ישראל - השקעה בש''ח(₪)</h3>
             <div className="summary-item"><span className="summary-label">סה"כ השקעה:</span><span className="summary-value">{formatPriceWithSign(summary.israeliOnlyPurchaseILS)} ₪</span></div>
             <div className="summary-item"><span className="summary-label">סה"כ שווי:</span><span className="summary-value">{formatPriceWithSign(summary.israeliOnlyCurrentValueILS)} ₪</span></div>
@@ -16,7 +16,7 @@ function PortfolioSummary({ summary, formatPriceWithSign }) {
             <div className="summary-item"><span className="summary-label">רווח/הפסד יומי:</span><span className={`summary-value ${summary.israeliOnlyDailyProfitILS >= 0 ? 'profit-positive' : 'profit-negative'}`}>{formatPriceWithSign(summary.israeliOnlyDailyProfitILS)} ₪</span></div>
           </div>
 
-          <div className="summary-section" style={{ flex: 1 }}>
+          <div className="summary-section summary-col">
             <h3 className="summary-section-title">בורסה אמריקאית - השקעה בדולר ($)</h3>
             <div className="summary-item"><span className="summary-label">סה"כ השקעה:</span><span className="summary-value">{formatPriceWithSign(summary.totalPurchaseUSD)} $</span></div>
             <div className="summary-item"><span className="summary-label">סה"כ שווי:</span><span className="summary-value">{formatPriceWithSign(summary.totalCurrentValueUSD)} $</span></div>
@@ -28,8 +28,8 @@ function PortfolioSummary({ summary, formatPriceWithSign }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'stretch' }}>
-          <div className="summary-section" style={{ flex: 1 }}>
+        <div className="summary-row">
+          <div className="summary-section summary-col">
             <h3 className="summary-section-title">סה"כ מצב ההון</h3>
             <div className="summary-item"><span className="summary-label">בורסה ישראלית:</span><span className="summary-value">{formatPriceWithSign(summary.capitalIsraeliILS)} ₪</span></div>
             <div className="summary-item"><span className="summary-label">בורסה אמריקאית:</span><span className="summary-value">{formatPriceWithSign(summary.capitalAmericanILS)} ₪</span></div>
@@ -39,7 +39,7 @@ function PortfolioSummary({ summary, formatPriceWithSign }) {
             <div className="summary-item"><span className="summary-label">סה"כ מצב ההון:</span><span className="summary-value">{formatPriceWithSign(summary.capitalTotalILS)} ₪</span></div>
           </div>
 
-          <div className="summary-section" style={{ flex: 1 }}>
+          <div className="summary-section summary-col">
             <h3 className="summary-section-title">קופות גמל - השקעה בש''ח(₪)</h3>
             <div className="summary-item"><span className="summary-label">סה"כ השקעה:</span><span className="summary-value">{formatPriceWithSign(summary.pensionInitialInvestmentILS)} ₪</span></div>
             <div className="summary-item"><span className="summary-label">סה"כ שווי כיום:</span><span className="summary-value">{formatPriceWithSign(summary.pensionCurrentValueILS)} ₪</span></div>
@@ -50,8 +50,8 @@ function PortfolioSummary({ summary, formatPriceWithSign }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'stretch', marginTop: '15px' }}>
-          <div className="summary-section" style={{ flex: 1 }}>
+        <div className="summary-row summary-row-single">
+          <div className="summary-section summary-col">
             <h3 className="summary-section-title">סיכום השקעות נטו (₪)</h3>
             <div className="summary-item"><span className="summary-label">סה"כ השקעה בש"ח:</span><span className="summary-value">{formatPriceWithSign(summary.totalPurchaseILS)} ₪</span></div>
             <div className="summary-item"><span className="summary-label">סה"כ שווי בש"ח:</span><span className="summary-value">{formatPriceWithSign(summary.totalCurrentValueILS)} ₪</span></div>
