@@ -1066,7 +1066,18 @@ function App() {
       return sum + metrics.totalCurrentValueILS;
     }, 0);
 
-    const totalValueILS = israeliTotalValue + americanTotalValueILS;
+    const pensionTotalValueILS = pensionFunds.reduce(
+      (sum, item) => sum + toNum(item.currentValue != null ? item.currentValue : item.amount),
+      0
+    );
+    const cashFundsTotalValueILS = cashFunds.reduce((sum, item) => sum + toNum(item.amount), 0);
+    const bankTotalValueILS = bankBalances.reduce((sum, item) => sum + toNum(item.amount), 0);
+    const totalValueILS =
+      israeliTotalValue +
+      americanTotalValueILS +
+      pensionTotalValueILS +
+      cashFundsTotalValueILS +
+      bankTotalValueILS;
 
     // ניתוח פיזור לפי מניות
     const stockDistribution = {};
@@ -1219,15 +1230,27 @@ function App() {
       const metrics = calculateAmericanStockMetrics(stock);
       addDateBucket(stock, metrics.totalCurrentValueILS);
     });
+    pensionFunds.forEach((item) => {
+      const value = toNum(item.currentValue != null ? item.currentValue : item.amount);
+      addDateBucket({ purchaseDate: item.updateDate }, value);
+    });
+    cashFunds.forEach((item) => {
+      addDateBucket({ purchaseDate: item.updateDate }, toNum(item.amount));
+    });
+    bankBalances.forEach((item) => {
+      addDateBucket({ purchaseDate: item.updateDate }, toNum(item.amount));
+    });
 
     const stockList = Object.values(stockDistribution);
 
     // דוחות מפורטים
     const topPerformers = [...stockList]
+      .filter((s) => s.profit > 0)
       .sort((a, b) => b.profit - a.profit)
       .slice(0, 5);
 
     const worstPerformers = [...stockList]
+      .filter((s) => s.profit < 0)
       .sort((a, b) => a.profit - b.profit)
       .slice(0, 5);
 
@@ -1258,6 +1281,8 @@ function App() {
     }, 0);
     const israeliPositions = stockList.filter((s) => s.exchange === 'israeli').length;
     const americanPositions = stockList.filter((s) => s.exchange === 'american').length;
+    const nonStockTotalValueILS =
+      pensionTotalValueILS + cashFundsTotalValueILS + bankTotalValueILS;
 
     return {
       // פיזור לפי בורסות
@@ -1269,6 +1294,18 @@ function App() {
         american: {
           value: americanTotalValueILS,
           percentage: totalValueILS > 0 ? (americanTotalValueILS / totalValueILS) * 100 : 0
+        },
+        pension: {
+          value: pensionTotalValueILS,
+          percentage: totalValueILS > 0 ? (pensionTotalValueILS / totalValueILS) * 100 : 0
+        },
+        cashFunds: {
+          value: cashFundsTotalValueILS,
+          percentage: totalValueILS > 0 ? (cashFundsTotalValueILS / totalValueILS) * 100 : 0
+        },
+        bank: {
+          value: bankTotalValueILS,
+          percentage: totalValueILS > 0 ? (bankTotalValueILS / totalValueILS) * 100 : 0
         },
         total: totalValueILS
       },
@@ -1292,16 +1329,25 @@ function App() {
         largestPositions
       },
       summaryMetrics: {
-        positionsCount: stockList.length,
+        positionsCount:
+          stockList.length + pensionFunds.length + cashFunds.length + bankBalances.length,
         israeliPositions,
         americanPositions,
+        pensionPositions: pensionFunds.length,
+        cashFundsPositions: cashFunds.length,
+        bankPositions: bankBalances.length,
         totalPurchaseILS,
         totalProfitILS,
         weightedDailyChangePercent,
         weightedAnnualizedReturnPercent,
         concentrationTop3Percent,
         averageHoldingDays,
-        americanFxImpactILS
+        americanFxImpactILS,
+        pensionTotalValueILS,
+        cashFundsTotalValueILS,
+        bankTotalValueILS,
+        nonStockTotalValueILS,
+        overallTotalValueILS: totalValueILS
       }
     };
   };

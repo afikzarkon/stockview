@@ -21,6 +21,9 @@ function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
                 <div className="distribution-percentage">
                   ישראליות: {analysis.summaryMetrics.israeliPositions} | אמריקאיות: {analysis.summaryMetrics.americanPositions}
                 </div>
+                <div className="distribution-percentage">
+                  גמל: {analysis.summaryMetrics.pensionPositions} | כספית: {analysis.summaryMetrics.cashFundsPositions} | עו"ש: {analysis.summaryMetrics.bankPositions}
+                </div>
               </div>
               <div className="distribution-card">
                 <h3>רווח/הפסד לא ממומש</h3>
@@ -58,11 +61,20 @@ function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
                   מחושב על שווי נוכחי של הפוזיציות האמריקאיות
                 </div>
               </div>
+              <div className="distribution-card">
+                <h3>סה"כ שווי תיק מלא</h3>
+                <div className="distribution-value">
+                  {formatPriceWithSign(analysis.summaryMetrics.overallTotalValueILS)} ₪
+                </div>
+                <div className="distribution-percentage">
+                  לא מנייתי: {formatPriceWithSign(analysis.summaryMetrics.nonStockTotalValueILS)} ₪
+                </div>
+              </div>
             </div>
           </div>
 
           <div className="analysis-section">
-            <h2 className="section-title">פיזור לפי בורסות</h2>
+            <h2 className="section-title">פיזור לפי רכיבי תיק</h2>
             <div className="distribution-grid">
               <div className="distribution-card">
                 <h3>בורסה ישראלית</h3>
@@ -80,6 +92,33 @@ function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
                 </div>
                 <div className="distribution-percentage">
                   {analysis.exchangeDistribution.american.percentage.toFixed(1)}%
+                </div>
+              </div>
+              <div className="distribution-card">
+                <h3>קופות גמל</h3>
+                <div className="distribution-value">
+                  {formatPriceWithSign(analysis.exchangeDistribution.pension.value)} ₪
+                </div>
+                <div className="distribution-percentage">
+                  {analysis.exchangeDistribution.pension.percentage.toFixed(1)}%
+                </div>
+              </div>
+              <div className="distribution-card">
+                <h3>קרנות כספיות</h3>
+                <div className="distribution-value">
+                  {formatPriceWithSign(analysis.exchangeDistribution.cashFunds.value)} ₪
+                </div>
+                <div className="distribution-percentage">
+                  {analysis.exchangeDistribution.cashFunds.percentage.toFixed(1)}%
+                </div>
+              </div>
+              <div className="distribution-card">
+                <h3>עו"ש</h3>
+                <div className="distribution-value">
+                  {formatPriceWithSign(analysis.exchangeDistribution.bank.value)} ₪
+                </div>
+                <div className="distribution-percentage">
+                  {analysis.exchangeDistribution.bank.percentage.toFixed(1)}%
                 </div>
               </div>
             </div>
@@ -103,6 +142,21 @@ function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
                           name: 'בורסה אמריקאית',
                           value: analysis.exchangeDistribution.american.value,
                           percentage: analysis.exchangeDistribution.american.percentage
+                        },
+                        {
+                          name: 'קופות גמל',
+                          value: analysis.exchangeDistribution.pension.value,
+                          percentage: analysis.exchangeDistribution.pension.percentage
+                        },
+                        {
+                          name: 'קרנות כספיות',
+                          value: analysis.exchangeDistribution.cashFunds.value,
+                          percentage: analysis.exchangeDistribution.cashFunds.percentage
+                        },
+                        {
+                          name: 'עו"ש',
+                          value: analysis.exchangeDistribution.bank.value,
+                          percentage: analysis.exchangeDistribution.bank.percentage
                         }
                       ]}
                       cx="50%"
@@ -113,6 +167,9 @@ function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
                     >
                       <Cell fill="#667eea" />
                       <Cell fill="#764ba2" />
+                      <Cell fill="#16a34a" />
+                      <Cell fill="#f59e0b" />
+                      <Cell fill="#0ea5e9" />
                     </Pie>
                   </PieChart>
                 </ResponsiveContainer>
@@ -134,6 +191,30 @@ function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
                       <div className="label-percentage">{analysis.exchangeDistribution.american.percentage.toFixed(1)}%</div>
                     </div>
                   </div>
+                  <div className="pie-label-item">
+                    <div className="label-color" style={{ backgroundColor: '#16a34a' }}></div>
+                    <div className="label-content">
+                      <div className="label-name">קופות גמל</div>
+                      <div className="label-value">{formatPriceWithSign(analysis.exchangeDistribution.pension.value)} ₪</div>
+                      <div className="label-percentage">{analysis.exchangeDistribution.pension.percentage.toFixed(1)}%</div>
+                    </div>
+                  </div>
+                  <div className="pie-label-item">
+                    <div className="label-color" style={{ backgroundColor: '#f59e0b' }}></div>
+                    <div className="label-content">
+                      <div className="label-name">קרנות כספיות</div>
+                      <div className="label-value">{formatPriceWithSign(analysis.exchangeDistribution.cashFunds.value)} ₪</div>
+                      <div className="label-percentage">{analysis.exchangeDistribution.cashFunds.percentage.toFixed(1)}%</div>
+                    </div>
+                  </div>
+                  <div className="pie-label-item">
+                    <div className="label-color" style={{ backgroundColor: '#0ea5e9' }}></div>
+                    <div className="label-content">
+                      <div className="label-name">עו"ש</div>
+                      <div className="label-value">{formatPriceWithSign(analysis.exchangeDistribution.bank.value)} ₪</div>
+                      <div className="label-percentage">{analysis.exchangeDistribution.bank.percentage.toFixed(1)}%</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -153,7 +234,6 @@ function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
                     <th>אחוז רווח/הפסד</th>
                     <th>זמן החזקה</th>
                     <th>תשואה שנתית</th>
-                    <th>וולטיליות</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -172,11 +252,6 @@ function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
                       <td>{stock.daysHeld > 365 ? `${stock.yearsHeld.toFixed(1)} שנים` : `${stock.daysHeld} ימים`}</td>
                       <td className={stock.annualizedReturn >= 0 ? 'profit-positive' : 'profit-negative'}>
                         {(stock.annualizedReturn * 100).toFixed(1)}%
-                      </td>
-                      <td>
-                        <span className={`volatility-indicator ${stock.volatility > 3 ? 'high' : stock.volatility > 1.5 ? 'medium' : 'low'}`}>
-                          {stock.volatility.toFixed(1)}%
-                        </span>
                       </td>
                     </tr>
                   ))}
@@ -221,27 +296,39 @@ function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
               <div className="report-card">
                 <h3>המניות הכי רווחיות</h3>
                 <div className="report-list">
-                  {analysis.reports.topPerformers.map((stock, index) => (
-                    <div key={index} className="report-item">
-                      <span className="report-name">{stock.name}</span>
-                      <span className="report-profit profit-positive">
-                        {formatPriceWithSign(stock.profit)} ₪
-                      </span>
+                  {analysis.reports.topPerformers.length === 0 ? (
+                    <div className="report-item">
+                      <span className="report-name">אין כרגע מניות ברווח</span>
                     </div>
-                  ))}
+                  ) : (
+                    analysis.reports.topPerformers.map((stock, index) => (
+                      <div key={index} className="report-item">
+                        <span className="report-name">{stock.name}</span>
+                        <span className="report-profit profit-positive">
+                          {formatPriceWithSign(stock.profit)} ₪
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
               <div className="report-card">
                 <h3>המניות הכי מפסידות</h3>
                 <div className="report-list">
-                  {analysis.reports.worstPerformers.map((stock, index) => (
-                    <div key={index} className="report-item">
-                      <span className="report-name">{stock.name}</span>
-                      <span className="report-profit profit-negative">
-                        {formatPriceWithSign(stock.profit)} ₪
-                      </span>
+                  {analysis.reports.worstPerformers.length === 0 ? (
+                    <div className="report-item">
+                      <span className="report-name">אין כרגע מניות בהפסד</span>
                     </div>
-                  ))}
+                  ) : (
+                    analysis.reports.worstPerformers.map((stock, index) => (
+                      <div key={index} className="report-item">
+                        <span className="report-name">{stock.name}</span>
+                        <span className="report-profit profit-negative">
+                          {formatPriceWithSign(stock.profit)} ₪
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
               <div className="report-card">
