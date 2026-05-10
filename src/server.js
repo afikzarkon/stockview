@@ -6,7 +6,7 @@ const cheerio = require('cheerio');
 const puppeteer = require('puppeteer');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const { initDb } = require('./server/database');
+const { initDataStore } = require('./server/dataStore');
 const { mountAuthRoutes } = require('./server/authRoutes');
 const { mountPortfolioRoutes } = require('./server/portfolioRoutes');
 
@@ -14,10 +14,6 @@ const app = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
-
-const db = initDb();
-mountAuthRoutes(app, db);
-mountPortfolioRoutes(app, db);
 
 async function scrapeTaseWithPuppeteer(taseUrl) {
   const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox','--disable-setuid-sandbox'] });
@@ -185,6 +181,17 @@ app.get('/api/israeli-stock/:id', async (req, res) => {
 // Debug route removed by request
 
 const PORT = Number(process.env.PORT) || 5000;
-app.listen(PORT, () => {
-  console.log(`StockView API http://localhost:${PORT}`);
-});
+
+initDataStore()
+  .then((store) => {
+    mountAuthRoutes(app, store);
+    mountPortfolioRoutes(app, store);
+    console.log(`DB: ${store.kind === 'postgres' ? 'PostgreSQL (DATABASE_URL)' : 'SQLite local file'}`);
+    app.listen(PORT, () => {
+      console.log(`StockView API http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Failed to init database:', err);
+    process.exit(1);
+  });

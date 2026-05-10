@@ -23,16 +23,14 @@ function requireAuth(req, res, next) {
   }
 }
 
-function mountPortfolioRoutes(app, db) {
-  app.get('/api/portfolio', requireAuth, (req, res) => {
+function mountPortfolioRoutes(app, store) {
+  app.get('/api/portfolio', requireAuth, async (req, res) => {
     try {
-      const row = db
-        .prepare('SELECT payload FROM user_portfolios WHERE user_id = ?')
-        .get(req.user.id);
-      if (!row || !row.payload) {
+      const raw = await store.getPortfolioPayload(req.user.id);
+      if (!raw) {
         return res.json(emptyPortfolio());
       }
-      const data = JSON.parse(row.payload);
+      const data = JSON.parse(raw);
       return res.json({
         israeliStocks: Array.isArray(data.israeliStocks) ? data.israeliStocks : [],
         americanStocks: Array.isArray(data.americanStocks) ? data.americanStocks : [],
@@ -45,7 +43,7 @@ function mountPortfolioRoutes(app, db) {
     }
   });
 
-  app.put('/api/portfolio', requireAuth, (req, res) => {
+  app.put('/api/portfolio', requireAuth, async (req, res) => {
     try {
       const body = req.body || {};
       const snapshot = {
@@ -56,13 +54,7 @@ function mountPortfolioRoutes(app, db) {
         cashFunds: Array.isArray(body.cashFunds) ? body.cashFunds : []
       };
       const payload = JSON.stringify(snapshot);
-      db.prepare(
-        `INSERT INTO user_portfolios (user_id, payload, updated_at)
-         VALUES (?, ?, datetime('now'))
-         ON CONFLICT(user_id) DO UPDATE SET
-           payload = excluded.payload,
-           updated_at = datetime('now')`
-      ).run(req.user.id, payload);
+      await store.upsertPortfolio(req.user.id, payload);
       return res.json({ ok: true });
     } catch {
       return res.status(500).json({ error: 'שגיאת שרת' });
