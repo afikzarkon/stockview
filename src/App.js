@@ -1043,15 +1043,27 @@ function App() {
 
   // פונקציות לניתוח התיק
   const calculatePortfolioAnalysis = () => {
+    const toNum = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const now = new Date();
+    const daysBetween = (rawDate) => {
+      const d = new Date(rawDate);
+      if (Number.isNaN(d.getTime())) return 0;
+      const days = Math.floor((now - d) / (1000 * 60 * 60 * 24));
+      return Math.max(days, 0);
+    };
+
     // ניתוח פיזור לפי בורסות
     const israeliTotalValue = israeliStocks.reduce((sum, stock) => {
       const normalizedPrice = normalizeIsraeliPrice(stock.currentPrice);
-      return sum + ((normalizedPrice || 0) * (stock.quantity || 0));
+      return sum + (toNum(normalizedPrice) * toNum(stock.quantity));
     }, 0);
 
     const americanTotalValueILS = americanStocks.reduce((sum, stock) => {
-      const currentExchangeRate = stock.currentExchangeRate || stock.exchangeRate || 0;
-      return sum + ((stock.currentPrice || 0) * (stock.quantity || 0) * currentExchangeRate);
+      const metrics = calculateAmericanStockMetrics(stock);
+      return sum + metrics.totalCurrentValueILS;
     }, 0);
 
     const totalValueILS = israeliTotalValue + americanTotalValueILS;
@@ -1061,14 +1073,12 @@ function App() {
     
     // מניות ישראליות
     israeliStocks.forEach(stock => {
-      const value = normalizeIsraeliPrice(stock.currentPrice) * (stock.quantity || 0);
-      const purchaseValue = (stock.purchasePrice || 0) * (stock.quantity || 0);
+      const value = toNum(normalizeIsraeliPrice(stock.currentPrice)) * toNum(stock.quantity);
+      const purchaseValue = toNum(stock.purchasePrice) * toNum(stock.quantity);
       const profit = value - purchaseValue;
       
       // חישוב זמן החזקה
-      const purchaseDate = new Date(stock.purchaseDate);
-      const currentDate = new Date();
-      const daysHeld = Math.floor((currentDate - purchaseDate) / (1000 * 60 * 60 * 24));
+      const daysHeld = daysBetween(stock.purchaseDate);
       const yearsHeld = daysHeld / 365;
       
       
@@ -1083,6 +1093,8 @@ function App() {
           totalQuantity: 0,
           avgPurchasePrice: 0,
           totalPurchaseValue: 0,
+          totalWeightForYears: 0,
+          weightedYearsNumerator: 0,
           daysHeld: 0,
           yearsHeld: 0,
           annualizedReturn: 0,
@@ -1093,11 +1105,13 @@ function App() {
       
       stockDistribution[stock.stockName].value += value;
       stockDistribution[stock.stockName].profit += profit;
-      stockDistribution[stock.stockName].totalQuantity += (stock.quantity || 0);
+      stockDistribution[stock.stockName].totalQuantity += toNum(stock.quantity);
       stockDistribution[stock.stockName].totalPurchaseValue += purchaseValue;
+      stockDistribution[stock.stockName].totalWeightForYears += purchaseValue;
+      stockDistribution[stock.stockName].weightedYearsNumerator += yearsHeld * purchaseValue;
       stockDistribution[stock.stockName].daysHeld = Math.max(stockDistribution[stock.stockName].daysHeld, daysHeld);
       stockDistribution[stock.stockName].yearsHeld = Math.max(stockDistribution[stock.stockName].yearsHeld, yearsHeld);
-      stockDistribution[stock.stockName].dailyChange = stock.dailyChangePercent || 0;
+      stockDistribution[stock.stockName].dailyChange = toNum(stock.dailyChangePercent);
       
       // חישוב תשואה שנתית
       if (yearsHeld > 0 && purchaseValue > 0) {
@@ -1108,15 +1122,13 @@ function App() {
 
     // מניות אמריקאיות
     americanStocks.forEach(stock => {
-      const currentExchangeRate = stock.currentExchangeRate || stock.exchangeRate || 0;
-      const value = (stock.currentPrice || 0) * (stock.quantity || 0) * currentExchangeRate;
-      const purchaseValue = (stock.purchasePrice || 0) * (stock.quantity || 0) * currentExchangeRate;
-      const profit = value - purchaseValue;
+      const metrics = calculateAmericanStockMetrics(stock);
+      const value = metrics.totalCurrentValueILS;
+      const purchaseValue = metrics.totalPurchaseILS;
+      const profit = metrics.profitILS;
       
       // חישוב זמן החזקה
-      const purchaseDate = new Date(stock.purchaseDate);
-      const currentDate = new Date();
-      const daysHeld = Math.floor((currentDate - purchaseDate) / (1000 * 60 * 60 * 24));
+      const daysHeld = daysBetween(stock.purchaseDate);
       const yearsHeld = daysHeld / 365;
       
       
@@ -1131,6 +1143,8 @@ function App() {
           totalQuantity: 0,
           avgPurchasePrice: 0,
           totalPurchaseValue: 0,
+          totalWeightForYears: 0,
+          weightedYearsNumerator: 0,
           daysHeld: 0,
           yearsHeld: 0,
           annualizedReturn: 0,
@@ -1141,11 +1155,13 @@ function App() {
       
       stockDistribution[stock.stockName].value += value;
       stockDistribution[stock.stockName].profit += profit;
-      stockDistribution[stock.stockName].totalQuantity += (stock.quantity || 0);
+      stockDistribution[stock.stockName].totalQuantity += toNum(stock.quantity);
       stockDistribution[stock.stockName].totalPurchaseValue += purchaseValue;
+      stockDistribution[stock.stockName].totalWeightForYears += purchaseValue;
+      stockDistribution[stock.stockName].weightedYearsNumerator += yearsHeld * purchaseValue;
       stockDistribution[stock.stockName].daysHeld = Math.max(stockDistribution[stock.stockName].daysHeld, daysHeld);
       stockDistribution[stock.stockName].yearsHeld = Math.max(stockDistribution[stock.stockName].yearsHeld, yearsHeld);
-      stockDistribution[stock.stockName].dailyChange = stock.dailyChangePercent || 0;
+      stockDistribution[stock.stockName].dailyChange = toNum(stock.dailyChangePercent);
       
       // חישוב תשואה שנתית
       if (yearsHeld > 0 && purchaseValue > 0) {
@@ -1159,6 +1175,10 @@ function App() {
       stock.percentage = totalValueILS > 0 ? (stock.value / totalValueILS) * 100 : 0;
       stock.profitPercentage = stock.totalPurchaseValue > 0 ? (stock.profit / stock.totalPurchaseValue) * 100 : 0;
       stock.avgPurchasePrice = stock.totalQuantity > 0 ? stock.totalPurchaseValue / stock.totalQuantity : 0;
+      stock.yearsHeld = stock.totalWeightForYears > 0
+        ? stock.weightedYearsNumerator / stock.totalWeightForYears
+        : stock.yearsHeld;
+      stock.daysHeld = Math.round(stock.yearsHeld * 365);
       
       // חישוב תשואה שנתית כוללת
       if (stock.yearsHeld > 0 && stock.totalPurchaseValue > 0) {
@@ -1173,15 +1193,11 @@ function App() {
     const monthlyDistribution = {};
     const yearlyDistribution = {};
     
-    [...israeliStocks, ...americanStocks].forEach(stock => {
+    const addDateBucket = (stock, value) => {
       const date = new Date(stock.purchaseDate);
+      if (Number.isNaN(date.getTime())) return;
       const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const year = date.getFullYear();
-      
-      const value = stock.exchange === 'israeli' 
-        ? normalizeIsraeliPrice(stock.currentPrice) * (stock.quantity || 0)
-        : (stock.currentPrice || 0) * (stock.quantity || 0) * (stock.currentExchangeRate || stock.exchangeRate || 0);
-      
       if (!monthlyDistribution[month]) {
         monthlyDistribution[month] = { value: 0, count: 0 };
       }
@@ -1193,6 +1209,15 @@ function App() {
       }
       yearlyDistribution[year].value += value;
       yearlyDistribution[year].count += 1;
+    };
+    
+    israeliStocks.forEach((stock) => {
+      const value = toNum(normalizeIsraeliPrice(stock.currentPrice)) * toNum(stock.quantity);
+      addDateBucket(stock, value);
+    });
+    americanStocks.forEach((stock) => {
+      const metrics = calculateAmericanStockMetrics(stock);
+      addDateBucket(stock, metrics.totalCurrentValueILS);
     });
 
     // דוחות מפורטים
