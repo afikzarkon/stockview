@@ -2,15 +2,23 @@
   "name": "stockview",
   "version": "0.1.0",
   "private": true,
+  "proxy": "http://127.0.0.1:5000",
   "dependencies": {
+    "@supabase/supabase-js": "^2.105.4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.12.2",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.9.0",
     "cheerio": "^1.1.2",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "express": "^5.1.0",
+    "http-proxy-middleware": "^4.0.0",
+    "jsonwebtoken": "^9.0.3",
     "puppeteer": "^24.20.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
@@ -20,9 +28,11 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "dev": "concurrently -n api,web \"node src/server.js\" \"wait-on -t 90000 tcp:127.0.0.1:5000 && npm start\"",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "db:users": "node scripts/list-users.js"
   },
   "eslintConfig": {
     "extends": [
@@ -41,5 +51,9 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "wait-on": "^9.0.5"
   }
 }

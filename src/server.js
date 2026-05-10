@@ -1,12 +1,23 @@
 // server.js
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const puppeteer = require('puppeteer');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
+const { initDb } = require('./server/database');
+const { mountAuthRoutes } = require('./server/authRoutes');
+const { mountPortfolioRoutes } = require('./server/portfolioRoutes');
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(cookieParser());
+
+const db = initDb();
+mountAuthRoutes(app, db);
+mountPortfolioRoutes(app, db);
 
 async function scrapeTaseWithPuppeteer(taseUrl) {
   const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox','--disable-setuid-sandbox'] });
@@ -36,11 +47,24 @@ async function scrapeTaseWithPuppeteer(taseUrl) {
       const val = parseFloat(numMatch[0]);
       return isNegative ? -val : val;
     };
+    const parsePriceToken = (token) => {
+      if (!token) return null;
+      // remove bidi/control chars and whitespace, drop thousands separators
+      const cleaned = token
+        .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+        .replace(/\s+/g, '')
+        .replace(/,/g, '');
+      const num = parseFloat(cleaned);
+      if (!Number.isFinite(num)) return null;
+      // return price in agorot (multiply by 100)
+      return Math.round(num * 100);
+    };
 
     const text = normalizeText(document.body.innerText || '');
-    const priceRx = /שווי\s*יחידה[^\d]{0,50}(\d{2,3}[\s,]?\d{3})/;
-    const lastPriceRx = /שער\s*אחרון[^\d]{0,50}(\d{2,3}[\s,]?\d{3})/;
-    const openRx = /שער\s*פתיחה[^\d]{0,50}(\d{2,3}[\s,]?\d{3})/;
+    const priceNumberRx = '(\\d[\\d\\s,.]*)';
+    const priceRx = new RegExp(`שווי\\s*יחידה[^\\d]{0,80}${priceNumberRx}`);
+    const lastPriceRx = new RegExp(`שער\\s*אחרון[^\\d]{0,80}${priceNumberRx}`);
+    const openRx = new RegExp(`שער\\s*פתיחה[^\\d]{0,80}${priceNumberRx}`);
     // Capture flexible percent token (handles trailing minus and parentheses)
     const percentToken = '([()\\-\\u2212\\d.\u2012\u2013\u2014\u200E\u200F]+?)';
     const changeDailyRx = new RegExp(`שינוי\\s*יומי[^%]{0,30}${percentToken}%`);
@@ -49,7 +73,7 @@ async function scrapeTaseWithPuppeteer(taseUrl) {
     let priceMatch = text.match(lastPriceRx) || text.match(priceRx) || text.match(openRx);
     let percentMatch = text.match(changeDailyRx) || text.match(anyPercentRx);
 
-    const priceAgorot = priceMatch ? parseInt(priceMatch[1].replace(/[^\d]/g, ''), 10) : null;
+    const priceAgorot = priceMatch ? parsePriceToken(priceMatch[1]) : null;
     const currentPrice = priceAgorot !== null ? priceAgorot : null; // return in agorot
     const rawToken = percentMatch ? percentMatch[1] : null;
     // find context around token for debugging (not returned to client, only for server log)
@@ -107,10 +131,24 @@ async function scrapeTaseFallbackWithAxios(taseUrl) {
     .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
     .replace(/\s+/g, ' ');
   const fullText = normalizeText($('body').text());
-  const priceMatch = fullText.match(/שווי\s*יחידה[^\d]{0,50}(\d{2,3}[\s,]?\d{3})/) || fullText.match(/שער\s*פתיחה[^\d]{0,50}(\d{2,3}[\s,]?\d{3})/);
+  const priceNumberRx = '(\\d[\\d\\s,.]*)';
+  const priceMatch =
+    fullText.match(new RegExp(`שער\\s*אחרון[^\\d]{0,80}${priceNumberRx}`)) ||
+    fullText.match(new RegExp(`שווי\\s*יחידה[^\\d]{0,80}${priceNumberRx}`)) ||
+    fullText.match(new RegExp(`שער\\s*פתיחה[^\\d]{0,80}${priceNumberRx}`));
   const percentToken = '([()\\-\\u2212\\d.\u2012\u2013\u2014\u200E\u200F]+?)';
   const percentMatch = fullText.match(new RegExp(`שינוי\\s*יומי[^%]{0,30}${percentToken}%`)) || fullText.match(new RegExp(`${percentToken}%`));
-  const currentPrice = priceMatch ? parseInt(priceMatch[1].replace(/[^\d]/g, ''), 10) : null;
+  const parsePriceToken = (token) => {
+    if (!token) return null;
+    const cleaned = token
+      .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+      .replace(/\s+/g, '')
+      .replace(/,/g, '');
+    const num = parseFloat(cleaned);
+    if (!Number.isFinite(num)) return null;
+    return Math.round(num * 100);
+  };
+  const currentPrice = priceMatch ? parsePriceToken(priceMatch[1]) : null;
   const parsePercentToken = (token) => {
     if (!token) return null;
     const s = token.replace(/[\u2212\u2012\u2013\u2014]/g, '-');
@@ -146,5 +184,7 @@ app.get('/api/israeli-stock/:id', async (req, res) => {
 // נתיב דיבאג להחזרת דוגמת טקסט מהדף (לעזור בכיול רג'קס)
 // Debug route removed by request
 
-app.listen(5000, () => {
+const PORT = Number(process.env.PORT) || 5000;
+app.listen(PORT, () => {
+  console.log(`StockView API http://localhost:${PORT}`);
 });
