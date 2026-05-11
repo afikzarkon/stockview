@@ -1,3 +1,5 @@
+# TASE scraping uses Puppeteer (Chrome). Free instances (~512MB RAM) often OOM or kill Chrome;
+# if quotes still fail after deploy, upgrade this service to Starter or higher.
 services:
   - type: web
     name: stockview-api

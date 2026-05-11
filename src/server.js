@@ -19,6 +19,19 @@ const TASE_CACHE_TTL_MS = 60 * 1000;
 const taseQuoteCache = new Map();
 const taseInFlight = new Map();
 let browserPromise = null;
+/** Render/Linux containers: small /dev/shm often crashes Chrome without this flag. */
+const TASE_PUPPETEER_GOTO_MS = Number(process.env.TASE_PUPPETEER_GOTO_MS) || 30000;
+const TASE_PUPPETEER_WAIT_MS = Number(process.env.TASE_PUPPETEER_WAIT_MS) || 12000;
+
+function getPuppeteerExecutablePath() {
+  const fromEnv = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_BIN;
+  if (fromEnv) return fromEnv;
+  try {
+    return puppeteer.executablePath();
+  } catch {
+    return undefined;
+  }
+}
 const YAHOO_CACHE_TTL_MS = 15 * 1000;
 const yahooChartCache = new Map();
 const yahooInFlight = new Map();
@@ -57,10 +70,20 @@ function isUsableTasePayload(payload) {
 
 async function getBrowser() {
   if (!browserPromise) {
-    browserPromise = puppeteer.launch({
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+    const executablePath = getPuppeteerExecutablePath();
+    const launchOpts = {
+      headless: process.env.PUPPETEER_HEADLESS === '0' ? false : 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-default-browser-check'
+      ]
+    };
+    if (executablePath) launchOpts.executablePath = executablePath;
+    browserPromise = puppeteer.launch(launchOpts);
   }
   try {
     return await browserPromise;
@@ -147,9 +170,13 @@ async function scrapeTaseWithPuppeteer(taseUrl) {
   const page = await browser.newPage();
   try {
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-    await page.goto(taseUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.goto(taseUrl, { waitUntil: 'domcontentloaded', timeout: TASE_PUPPETEER_GOTO_MS });
     try {
-      await page.waitForFunction(() => /שווי\s*יחידה|%/.test((document.body.innerText || '').replace(/\s+/g, ' ')), { timeout: 7000 });
+      await page.waitForFunction(
+        () =>
+          /שער\s*אחרון|שווי\s*יחידה|%/.test((document.body.innerText || '').replace(/\s+/g, ' ')),
+        { timeout: TASE_PUPPETEER_WAIT_MS }
+      );
     } catch (_) {
       await new Promise((r) => setTimeout(r, 1000));
     }
@@ -235,15 +262,22 @@ async function scrapeTaseWithPuppeteer(taseUrl) {
   }
 }
 
+function axiosBodyToHtmlString(data) {
+  if (typeof data === 'string') return data;
+  if (Buffer.isBuffer(data)) return data.toString('utf8');
+  return '';
+}
+
 async function scrapeTaseFallbackWithAxios(taseUrl) {
   const { data } = await axios.get(taseUrl, {
+    responseType: 'text',
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7',
     },
     timeout: 12000
   });
-  const $ = cheerio.load(typeof data === 'string' ? data : '');
+  const $ = cheerio.load(axiosBodyToHtmlString(data));
   const normalizeText = (t) => (t || '')
     .replace(/[\u2212\u2012\u2013\u2014]/g, '-')
     .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
