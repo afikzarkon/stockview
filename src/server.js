@@ -46,6 +46,15 @@ function writeCachedTaseQuote(stockId, data) {
   taseQuoteCache.set(stockId, { data, ts: Date.now() });
 }
 
+function isFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isUsableTasePayload(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  return isFiniteNumber(payload.currentPrice) && isFiniteNumber(payload.changePercent);
+}
+
 async function getBrowser() {
   if (!browserPromise) {
     browserPromise = puppeteer.launch({
@@ -307,8 +316,9 @@ app.get('/api/israeli-stock/:id', async (req, res) => {
     try {
       const result = await scrapeTaseWithPuppeteer(taseUrl);
       const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
-      if (payload.currentPrice === null || payload.changePercent === null) {
-        console.warn('[tase] puppeteer returned partial/empty data', { stockId, payload });
+      if (!isUsableTasePayload(payload)) {
+        console.warn('[tase] puppeteer returned unusable payload', { stockId, payload });
+        throw new Error('puppeteer returned unusable payload');
       }
       writeCachedTaseQuote(stockId, payload);
       return payload;
@@ -320,8 +330,9 @@ app.get('/api/israeli-stock/:id', async (req, res) => {
       try {
         const result = await scrapeTaseFallbackWithAxios(taseUrl);
         const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
-        if (payload.currentPrice === null || payload.changePercent === null) {
-          console.warn('[tase] axios fallback returned partial/empty data', { stockId, payload });
+        if (!isUsableTasePayload(payload)) {
+          console.warn('[tase] axios fallback returned unusable payload', { stockId, payload });
+          throw new Error('axios fallback returned unusable payload');
         }
         writeCachedTaseQuote(stockId, payload);
         return payload;
@@ -335,6 +346,18 @@ app.get('/api/israeli-stock/:id', async (req, res) => {
         if (stale) {
           console.warn('[tase] serving stale cached quote after failures', { stockId });
           return stale;
+        }
+        if (req.query && (req.query.debug === '1' || req.query.debug === 'true')) {
+          return {
+            currentPrice: null,
+            changePercent: null,
+            _debug: {
+              stockId,
+              taseUrl,
+              puppeteerError: errMessage(err),
+              fallbackError: errMessage(e2)
+            }
+          };
         }
         return { currentPrice: null, changePercent: null };
       }
