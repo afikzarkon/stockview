@@ -47,9 +47,7 @@ function AmericanStocksTable({
                   <th>אחוז שינוי יומי</th>
                   <th>רווח/הפסד יומי בדולר</th>
                   {showAmericanColumns && <th>השפעת שער חליפין</th>}
-                  {showAmericanColumns && <th>מס רווח הון ($)</th>}
                   {showAmericanColumns && <th>מס רווח הון (₪)</th>}
-                  {showAmericanColumns && <th>רווח לאחר מס ($)</th>}
                   {showAmericanColumns && <th>רווח לאחר מס (₪)</th>}
                   {isEditMode && <th>פעולות</th>}
                 </tr>
@@ -69,9 +67,7 @@ function AmericanStocksTable({
                       totalCurrentValueILS,
                       profitUSD,
                       profitILS,
-                      taxUSD,
                       taxILS,
-                      afterTaxUSD,
                       afterTaxILS,
                       exchangeRateImpact
                     } = calculateAmericanStockMetrics(stock);
@@ -165,9 +161,7 @@ function AmericanStocksTable({
                         <td className={(stock.dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{stock.dailyChangePercent ? stock.dailyChangePercent.toFixed(2) : '0.00'}%</td>
                         <td className={(stock.dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(((stock.dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $</td>
                         {showAmericanColumns && <td className={exchangeRateImpact >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(exchangeRateImpact)} ₪</td>}
-                        {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-taxUSD)} $</td>}
                         {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-taxILS)} ₪</td>}
-                        {showAmericanColumns && <td className={afterTaxUSD >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(afterTaxUSD)} $</td>}
                         {showAmericanColumns && <td className={afterTaxILS >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(afterTaxILS)} ₪</td>}
                         {isEditMode && (
                           <td>
@@ -192,7 +186,6 @@ function AmericanStocksTable({
                   const totalProfitILS = totalProfitUSD * (stocks[0].currentExchangeRate || stocks[0].exchangeRate || 0);
                   const totalTaxUSD = totalProfitUSD > 0 ? totalProfitUSD * TAX_RATE : 0;
                   const totalTaxILS = totalTaxUSD * (stocks[0].currentExchangeRate || stocks[0].exchangeRate || 0);
-                  const totalAfterTaxUSD = totalProfitUSD - totalTaxUSD;
                   const totalAfterTaxILS = totalProfitILS - totalTaxILS;
                   const totalExchangeRateImpact = stocks.reduce((sum, stock) => {
                     const stockPurchaseUSD = (stock.purchasePrice || 0) * (stock.quantity || 0);
@@ -226,9 +219,7 @@ function AmericanStocksTable({
                         <td className={(stocks[0].dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{stocks[0].dailyChangePercent ? stocks[0].dailyChangePercent.toFixed(2) : '0.00'}%</td>
                         <td className={(stocks[0].dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(((stocks[0].dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $</td>
                         {showAmericanColumns && <td className={totalExchangeRateImpact >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(totalExchangeRateImpact)} ₪</td>}
-                        {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-totalTaxUSD)} $</td>}
                         {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-totalTaxILS)} ₪</td>}
-                        {showAmericanColumns && <td className={totalAfterTaxUSD >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(totalAfterTaxUSD)} $</td>}
                         {showAmericanColumns && <td className={totalAfterTaxILS >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(totalAfterTaxILS)} ₪</td>}
                         {isEditMode && <td></td>}
                       </tr>
@@ -242,9 +233,7 @@ function AmericanStocksTable({
                           totalCurrentValueILS,
                           profitUSD,
                           profitILS,
-                          taxUSD,
                           taxILS,
-                          afterTaxUSD,
                           afterTaxILS,
                           exchangeRateImpact
                         } = calculateAmericanStockMetrics(stock);
@@ -335,9 +324,7 @@ function AmericanStocksTable({
                             <td className={(stock.dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{stock.dailyChangePercent ? stock.dailyChangePercent.toFixed(2) : '0.00'}%</td>
                             <td className={(stock.dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(((stock.dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $</td>
                             {showAmericanColumns && <td className={exchangeRateImpact >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(exchangeRateImpact)} ₪</td>}
-                            {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-taxUSD)} $</td>}
                             {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-taxILS)} ₪</td>}
-                            {showAmericanColumns && <td className={afterTaxUSD >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(afterTaxUSD)} $</td>}
                             {showAmericanColumns && <td className={afterTaxILS >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(afterTaxILS)} ₪</td>}
                             {isEditMode && (
                               <td>
