@@ -349,14 +349,12 @@ async function pgStore(connectionString) {
     async getPortfolioPayload(userId) {
       const client = await pool.connect();
       try {
-        const [israeliStocks, americanStocks, pensionFunds, bankBalances, cashFunds] =
-          await Promise.all([
-            readItems(client, 'user_israeli_stocks', userId),
-            readItems(client, 'user_american_stocks', userId),
-            readItems(client, 'user_pension_funds', userId),
-            readItems(client, 'user_bank_balances', userId),
-            readItems(client, 'user_cash_funds', userId)
-          ]);
+        // Important: do not run concurrent queries on the same pg client.
+        const israeliStocks = await readItems(client, 'user_israeli_stocks', userId);
+        const americanStocks = await readItems(client, 'user_american_stocks', userId);
+        const pensionFunds = await readItems(client, 'user_pension_funds', userId);
+        const bankBalances = await readItems(client, 'user_bank_balances', userId);
+        const cashFunds = await readItems(client, 'user_cash_funds', userId);
         const normalized = {
           israeliStocks,
           americanStocks,
