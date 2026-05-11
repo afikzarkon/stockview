@@ -352,6 +352,45 @@ function App() {
     }, 450);
   };
 
+  /** שמירת תיק מיידית (ללא debounce) — חשוב לפעולות הרסניות כמו מחיקה */
+  const persistPortfolioNow = async (
+    israeliData,
+    americanData,
+    pensionData = pensionFunds,
+    bankData = bankBalances,
+    cashData = cashFunds
+  ) => {
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    if (!userRef.current) return false;
+    const body = JSON.stringify({
+      israeliStocks: israeliData,
+      americanStocks: americanData,
+      pensionFunds: pensionData,
+      bankBalances: bankData,
+      cashFunds: cashData
+    });
+    try {
+      const r = await fetch(apiUrl('/api/portfolio'), {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body
+      });
+      if (!r.ok) {
+        const msg = await r.text().catch(() => '');
+        console.warn('שמירת תיק (מיידית) נכשלה:', r.status, msg || r.statusText);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.warn('שמירת תיק (מיידית) — שגיאת רשת', e);
+      return false;
+    }
+  };
+
   // פונקציה לקבלת מחיר נוכחי ואחוז שינוי יומי מ-Yahoo Finance דרך proxy
   const fetchCurrentPrice = async (stockSymbol) => {
     try {
@@ -591,27 +630,34 @@ function App() {
 
   // פונקציה למחיקת מנייה
   const handleDelete = (id, exchange) => {
-    if (exchange === 'israeli') {
-      const updatedIsraeliStocks = israeliStocks.filter(stock => stock.id !== id);
-      setIsraeliStocks(updatedIsraeliStocks);
-      persistPortfolio(updatedIsraeliStocks, americanStocks);
-    } else if (exchange === 'american') {
-      const updatedAmericanStocks = americanStocks.filter(stock => stock.id !== id);
-      setAmericanStocks(updatedAmericanStocks);
-      persistPortfolio(israeliStocks, updatedAmericanStocks);
-    } else if (exchange === 'pension') {
-      const updatedPensionFunds = pensionFunds.filter(item => item.id !== id);
-      setPensionFunds(updatedPensionFunds);
-      persistPortfolio(israeliStocks, americanStocks, updatedPensionFunds, bankBalances);
-    } else if (exchange === 'bank') {
-      const updatedBankBalances = bankBalances.filter(item => item.id !== id);
-      setBankBalances(updatedBankBalances);
-      persistPortfolio(israeliStocks, americanStocks, pensionFunds, updatedBankBalances);
-    } else if (exchange === 'cash_fund') {
-      const updatedCashFunds = cashFunds.filter(item => item.id !== id);
-      setCashFunds(updatedCashFunds);
-      persistPortfolio(israeliStocks, americanStocks, pensionFunds, bankBalances, updatedCashFunds);
-    }
+    (async () => {
+      if (exchange === 'israeli') {
+        const updatedIsraeliStocks = israeliStocks.filter(stock => stock.id !== id);
+        setIsraeliStocks(updatedIsraeliStocks);
+        const ok = await persistPortfolioNow(updatedIsraeliStocks, americanStocks);
+        if (!ok) window.alert('המחיקה בוצעה במסך, אבל שמירה לשרת נכשלה. נסה לרענן ולהתחבר מחדש.');
+      } else if (exchange === 'american') {
+        const updatedAmericanStocks = americanStocks.filter(stock => stock.id !== id);
+        setAmericanStocks(updatedAmericanStocks);
+        const ok = await persistPortfolioNow(israeliStocks, updatedAmericanStocks);
+        if (!ok) window.alert('המחיקה בוצעה במסך, אבל שמירה לשרת נכשלה. נסה לרענן ולהתחבר מחדש.');
+      } else if (exchange === 'pension') {
+        const updatedPensionFunds = pensionFunds.filter(item => item.id !== id);
+        setPensionFunds(updatedPensionFunds);
+        const ok = await persistPortfolioNow(israeliStocks, americanStocks, updatedPensionFunds, bankBalances);
+        if (!ok) window.alert('המחיקה בוצעה במסך, אבל שמירה לשרת נכשלה. נסה לרענן ולהתחבר מחדש.');
+      } else if (exchange === 'bank') {
+        const updatedBankBalances = bankBalances.filter(item => item.id !== id);
+        setBankBalances(updatedBankBalances);
+        const ok = await persistPortfolioNow(israeliStocks, americanStocks, pensionFunds, updatedBankBalances);
+        if (!ok) window.alert('המחיקה בוצעה במסך, אבל שמירה לשרת נכשלה. נסה לרענן ולהתחבר מחדש.');
+      } else if (exchange === 'cash_fund') {
+        const updatedCashFunds = cashFunds.filter(item => item.id !== id);
+        setCashFunds(updatedCashFunds);
+        const ok = await persistPortfolioNow(israeliStocks, americanStocks, pensionFunds, bankBalances, updatedCashFunds);
+        if (!ok) window.alert('המחיקה בוצעה במסך, אבל שמירה לשרת נכשלה. נסה לרענן ולהתחבר מחדש.');
+      }
+    })();
   };
 
 
