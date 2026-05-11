@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: stockview-api
+    env: node
+    plan: free
+    rootDir: .
+    buildCommand: npm run render:build
+    startCommand: node src/server.js
+    envVars:
+      - key: PUPPETEER_CACHE_DIR
+        value: /opt/render/.cache/puppeteer

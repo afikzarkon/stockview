@@ -30,6 +30,7 @@
   "scripts": {
     "start": "react-scripts start",
     "dev": "concurrently -n api,web \"node src/server.js\" \"wait-on -t 90000 tcp:127.0.0.1:5000 && npm start\"",
+    "render:build": "npm ci && npx puppeteer browsers install chrome",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
