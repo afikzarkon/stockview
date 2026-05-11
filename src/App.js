@@ -1424,7 +1424,7 @@ function App() {
         <div className="user-bar">
           <button
             type="button"
-            className={`btn ${hasUnsavedChanges ? 'btn-success' : 'btn-secondary'}`}
+            className="btn portfolio-save-btn"
             onClick={savePortfolio}
             disabled={!hasUnsavedChanges || saveLoading}
           >
