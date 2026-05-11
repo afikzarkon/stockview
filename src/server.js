@@ -15,102 +15,208 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
-async function scrapeTaseWithPuppeteer(taseUrl) {
-  const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox','--disable-setuid-sandbox'] });
-  const page = await browser.newPage();
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-  await page.goto(taseUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-  try {
-    await page.waitForFunction(() => /שווי\s*יחידה|%/.test((document.body.innerText || '').replace(/\s+/g, ' ')), { timeout: 20000 });
-  } catch (_) {
-    await new Promise((r) => setTimeout(r, 2000));
+const TASE_CACHE_TTL_MS = 60 * 1000;
+const taseQuoteCache = new Map();
+const taseInFlight = new Map();
+let browserPromise = null;
+const YAHOO_CACHE_TTL_MS = 15 * 1000;
+const yahooChartCache = new Map();
+const yahooInFlight = new Map();
+
+function readCachedTaseQuote(stockId) {
+  const cached = taseQuoteCache.get(stockId);
+  if (!cached) return null;
+  if (Date.now() - cached.ts > TASE_CACHE_TTL_MS) return null;
+  return cached.data;
+}
+
+function readStaleTaseQuote(stockId) {
+  const cached = taseQuoteCache.get(stockId);
+  return cached ? cached.data : null;
+}
+
+function writeCachedTaseQuote(stockId, data) {
+  taseQuoteCache.set(stockId, { data, ts: Date.now() });
+}
+
+async function getBrowser() {
+  if (!browserPromise) {
+    browserPromise = puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
   }
-  const result = await page.evaluate(() => {
-    // Normalize Unicode minus (U+2212) to ASCII '-', remove bidi/control chars
-    const normalizeText = (t) => (t || '')
-      .replace(/[\u2212\u2012\u2013\u2014]/g, '-')
-      .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
-      .replace(/\s+/g, ' ');
+  try {
+    return await browserPromise;
+  } catch (err) {
+    browserPromise = null;
+    throw err;
+  }
+}
 
-    const parsePercentToken = (token) => {
-      if (!token) return null;
-      const s = token.replace(/[\u2212\u2012\u2013\u2014]/g, '-');
-      // Detect minus anywhere (prefix or suffix or inside parentheses)
-      const isNegative = /-/.test(s) || /\(\s*\d/.test(s) && /\)/.test(s) && /-/.test(s);
-      // Extract numeric part
-      const numMatch = s.match(/\d+(?:\.\d+)?/);
-      if (!numMatch) return null;
-      const val = parseFloat(numMatch[0]);
-      return isNegative ? -val : val;
-    };
-    const parsePriceToken = (token) => {
-      if (!token) return null;
-      // remove bidi/control chars and whitespace, drop thousands separators
-      const cleaned = token
-        .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
-        .replace(/\s+/g, '')
-        .replace(/,/g, '');
-      const num = parseFloat(cleaned);
-      if (!Number.isFinite(num)) return null;
-      // return price in agorot (multiply by 100)
-      return Math.round(num * 100);
-    };
+function readCachedYahoo(symbol) {
+  const cached = yahooChartCache.get(symbol);
+  if (!cached) return null;
+  if (Date.now() - cached.ts > YAHOO_CACHE_TTL_MS) return null;
+  return cached.data;
+}
 
-    const text = normalizeText(document.body.innerText || '');
-    const priceNumberRx = '(\\d[\\d\\s,.]*)';
-    const priceRx = new RegExp(`שווי\\s*יחידה[^\\d]{0,80}${priceNumberRx}`);
-    const lastPriceRx = new RegExp(`שער\\s*אחרון[^\\d]{0,80}${priceNumberRx}`);
-    const openRx = new RegExp(`שער\\s*פתיחה[^\\d]{0,80}${priceNumberRx}`);
-    // Capture flexible percent token (handles trailing minus and parentheses)
-    const percentToken = '([()\\-\\u2212\\d.\u2012\u2013\u2014\u200E\u200F]+?)';
-    const changeDailyRx = new RegExp(`שינוי\\s*יומי[^%]{0,30}${percentToken}%`);
-    const anyPercentRx = new RegExp(`${percentToken}%`);
+function writeCachedYahoo(symbol, data) {
+  yahooChartCache.set(symbol, { data, ts: Date.now() });
+}
 
-    let priceMatch = text.match(lastPriceRx) || text.match(priceRx) || text.match(openRx);
-    let percentMatch = text.match(changeDailyRx) || text.match(anyPercentRx);
-
-    const priceAgorot = priceMatch ? parsePriceToken(priceMatch[1]) : null;
-    const currentPrice = priceAgorot !== null ? priceAgorot : null; // return in agorot
-    const rawToken = percentMatch ? percentMatch[1] : null;
-    // find context around token for debugging (not returned to client, only for server log)
-    let context = null;
-    if (percentMatch && percentMatch.index !== undefined) {
-      const start = Math.max(0, percentMatch.index - 40);
-      const end = Math.min(text.length, percentMatch.index + (percentMatch[0] ? percentMatch[0].length : 0) + 40);
-      context = text.slice(start, end);
+async function fetchYahooChartMeta(symbol) {
+  const encoded = encodeURIComponent(symbol);
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}`;
+  const response = await axios.get(yahooUrl, {
+    timeout: 12000,
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'application/json'
     }
-    let changePercent = percentMatch ? parsePercentToken(rawToken) : null;
-
-    // Heuristic: if no explicit minus parsed but DOM styling suggests negative, flip sign
-    if (changePercent !== null && changePercent > 0 && rawToken && !/-/.test(rawToken)) {
-      try {
-        const needle = (rawToken + '%').replace(/\s+/g, '');
-        const candidates = Array.from(document.querySelectorAll('*'))
-          .filter(el => el.childElementCount === 0 && /%/.test(el.textContent || ''))
-          .map(el => ({ el, txt: (el.textContent || '').replace(/\s+/g, '') }))
-          .filter(item => item.txt.includes(needle));
-        const looksNegative = (el) => {
-          const cs = window.getComputedStyle(el);
-          const color = (cs && cs.color || '').toLowerCase();
-          const cls = (el.className || '').toString().toLowerCase();
-          const title = (el.getAttribute('title') || '').toLowerCase();
-          const aria = (el.getAttribute('aria-label') || '').toLowerCase();
-          const text = (el.textContent || '').toLowerCase();
-          const negWord = /(ירידה|שלילי|minus|neg|down|ירד|אדום)/.test(cls + ' ' + title + ' ' + aria + ' ' + text);
-          const redish = /rgb\(\s*(1?5\d|2[0-5]\d)\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)/.test(color) || /#(d[0-9a-f]{5}|c[0-9a-f]{5})/.test(color);
-          return negWord || redish;
-        };
-        const negByStyle = candidates.some(c => looksNegative(c.el) || (c.el.parentElement && looksNegative(c.el.parentElement)));
-        if (negByStyle) {
-          changePercent = -Math.abs(changePercent);
-        }
-      } catch (_) {}
-    }
-
-    return { currentPrice, changePercent };
   });
-  await browser.close();
-  return result;
+
+  const result = response?.data?.chart?.result;
+  if (!Array.isArray(result) || result.length === 0 || !result[0]?.meta) {
+    throw new Error('missing yahoo chart data');
+  }
+
+  return result[0].meta;
+}
+
+async function getYahooPayload(symbol) {
+  const cached = readCachedYahoo(symbol);
+  if (cached) return cached;
+
+  const inFlight = yahooInFlight.get(symbol);
+  if (inFlight) return inFlight;
+
+  const requestPromise = (async () => {
+    const meta = await fetchYahooChartMeta(symbol);
+    const currentPrice = Number(meta.regularMarketPrice);
+    const rawChange =
+      meta.regularMarketChangePercent ??
+      meta.changePercent ??
+      meta.regularMarketChange ??
+      meta.change ??
+      0;
+
+    let finalChangePercent = 0;
+    if (rawChange && rawChange !== 0) {
+      finalChangePercent = Number(rawChange) * 100;
+    } else if (meta.previousClose && meta.regularMarketPrice) {
+      const change = Number(meta.regularMarketPrice) - Number(meta.previousClose);
+      finalChangePercent = (change / Number(meta.previousClose)) * 100;
+    }
+
+    const payload = {
+      currentPrice: Number.isFinite(currentPrice) ? currentPrice : null,
+      changePercent: Number.isFinite(finalChangePercent) ? finalChangePercent : 0
+    };
+    writeCachedYahoo(symbol, payload);
+    return payload;
+  })();
+
+  yahooInFlight.set(symbol, requestPromise);
+  try {
+    return await requestPromise;
+  } finally {
+    yahooInFlight.delete(symbol);
+  }
+}
+
+async function scrapeTaseWithPuppeteer(taseUrl) {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+    await page.goto(taseUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    try {
+      await page.waitForFunction(() => /שווי\s*יחידה|%/.test((document.body.innerText || '').replace(/\s+/g, ' ')), { timeout: 7000 });
+    } catch (_) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return await page.evaluate(() => {
+      // Normalize Unicode minus (U+2212) to ASCII '-', remove bidi/control chars
+      const normalizeText = (t) => (t || '')
+        .replace(/[\u2212\u2012\u2013\u2014]/g, '-')
+        .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+        .replace(/\s+/g, ' ');
+
+      const parsePercentToken = (token) => {
+        if (!token) return null;
+        const s = token.replace(/[\u2212\u2012\u2013\u2014]/g, '-');
+        // Detect minus anywhere (prefix or suffix or inside parentheses)
+        const isNegative = /-/.test(s) || /\(\s*\d/.test(s) && /\)/.test(s) && /-/.test(s);
+        // Extract numeric part
+        const numMatch = s.match(/\d+(?:\.\d+)?/);
+        if (!numMatch) return null;
+        const val = parseFloat(numMatch[0]);
+        return isNegative ? -val : val;
+      };
+      const parsePriceToken = (token) => {
+        if (!token) return null;
+        // remove bidi/control chars and whitespace, drop thousands separators
+        const cleaned = token
+          .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+          .replace(/\s+/g, '')
+          .replace(/,/g, '');
+        const num = parseFloat(cleaned);
+        if (!Number.isFinite(num)) return null;
+        // return price in agorot (multiply by 100)
+        return Math.round(num * 100);
+      };
+
+      const text = normalizeText(document.body.innerText || '');
+      const priceNumberRx = '(\\d[\\d\\s,.]*)';
+      const priceRx = new RegExp(`שווי\\s*יחידה[^\\d]{0,80}${priceNumberRx}`);
+      const lastPriceRx = new RegExp(`שער\\s*אחרון[^\\d]{0,80}${priceNumberRx}`);
+      const openRx = new RegExp(`שער\\s*פתיחה[^\\d]{0,80}${priceNumberRx}`);
+      // Capture flexible percent token (handles trailing minus and parentheses)
+      const percentToken = '([()\\-\\u2212\\d.\u2012\u2013\u2014\u200E\u200F]+?)';
+      const changeDailyRx = new RegExp(`שינוי\\s*יומי[^%]{0,30}${percentToken}%`);
+      const anyPercentRx = new RegExp(`${percentToken}%`);
+
+      let priceMatch = text.match(lastPriceRx) || text.match(priceRx) || text.match(openRx);
+      let percentMatch = text.match(changeDailyRx) || text.match(anyPercentRx);
+
+      const priceAgorot = priceMatch ? parsePriceToken(priceMatch[1]) : null;
+      const currentPrice = priceAgorot !== null ? priceAgorot : null; // return in agorot
+      const rawToken = percentMatch ? percentMatch[1] : null;
+      let changePercent = percentMatch ? parsePercentToken(rawToken) : null;
+
+      // Heuristic: if no explicit minus parsed but DOM styling suggests negative, flip sign
+      if (changePercent !== null && changePercent > 0 && rawToken && !/-/.test(rawToken)) {
+        try {
+          const needle = (rawToken + '%').replace(/\s+/g, '');
+          const candidates = Array.from(document.querySelectorAll('*'))
+            .filter(el => el.childElementCount === 0 && /%/.test(el.textContent || ''))
+            .map(el => ({ el, txt: (el.textContent || '').replace(/\s+/g, '') }))
+            .filter(item => item.txt.includes(needle));
+          const looksNegative = (el) => {
+            const cs = window.getComputedStyle(el);
+            const color = (cs && cs.color || '').toLowerCase();
+            const cls = (el.className || '').toString().toLowerCase();
+            const title = (el.getAttribute('title') || '').toLowerCase();
+            const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+            const txt = (el.textContent || '').toLowerCase();
+            const negWord = /(ירידה|שלילי|minus|neg|down|ירד|אדום)/.test(cls + ' ' + title + ' ' + aria + ' ' + txt);
+            const redish = /rgb\(\s*(1?5\d|2[0-5]\d)\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)/.test(color) || /#(d[0-9a-f]{5}|c[0-9a-f]{5})/.test(color);
+            return negWord || redish;
+          };
+          const negByStyle = candidates.some(c => looksNegative(c.el) || (c.el.parentElement && looksNegative(c.el.parentElement)));
+          if (negByStyle) {
+            changePercent = -Math.abs(changePercent);
+          }
+        } catch (_) {}
+      }
+
+      return { currentPrice, changePercent };
+    });
+  } finally {
+    await page.close().catch(() => {});
+  }
 }
 
 async function scrapeTaseFallbackWithAxios(taseUrl) {
@@ -163,17 +269,76 @@ async function scrapeTaseFallbackWithAxios(taseUrl) {
 
 app.get('/api/israeli-stock/:id', async (req, res) => {
   const stockId = req.params.id;
-  const taseUrl = `https://market.tase.co.il/he/market_data/security/${stockId}/major_data`;
-  try {
-    const result = await scrapeTaseWithPuppeteer(taseUrl);
-    return res.json({ currentPrice: result.currentPrice, changePercent: result.changePercent });
-  } catch (err) {
+  if (!/^\d+$/.test(stockId)) {
+    return res.status(400).json({ error: 'invalid stock id' });
+  }
+
+  const cached = readCachedTaseQuote(stockId);
+  if (cached) {
+    return res.json(cached);
+  }
+
+  const existingInFlight = taseInFlight.get(stockId);
+  if (existingInFlight) {
     try {
-      const result = await scrapeTaseFallbackWithAxios(taseUrl);
-      return res.json({ currentPrice: result.currentPrice, changePercent: result.changePercent });
-    } catch (e2) {
+      const sharedResult = await existingInFlight;
+      return res.json(sharedResult);
+    } catch {
+      const stale = readStaleTaseQuote(stockId);
+      if (stale) return res.json(stale);
       return res.json({ currentPrice: null, changePercent: null });
     }
+  }
+
+  const taseUrl = `https://market.tase.co.il/he/market_data/security/${stockId}/major_data`;
+  const quotePromise = (async () => {
+    try {
+      const result = await scrapeTaseWithPuppeteer(taseUrl);
+      const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
+      writeCachedTaseQuote(stockId, payload);
+      return payload;
+    } catch (err) {
+      try {
+        const result = await scrapeTaseFallbackWithAxios(taseUrl);
+        const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
+        writeCachedTaseQuote(stockId, payload);
+        return payload;
+      } catch (e2) {
+        const stale = readStaleTaseQuote(stockId);
+        if (stale) return stale;
+        return { currentPrice: null, changePercent: null };
+      }
+    }
+  })();
+
+  taseInFlight.set(stockId, quotePromise);
+  try {
+    const payload = await quotePromise;
+    return res.json(payload);
+  } finally {
+    taseInFlight.delete(stockId);
+  }
+});
+
+app.get('/api/american-stock/:symbol', async (req, res) => {
+  const symbol = (req.params.symbol || '').trim();
+  if (!symbol) {
+    return res.status(400).json({ error: 'invalid symbol' });
+  }
+  try {
+    const payload = await getYahooPayload(symbol);
+    return res.json(payload);
+  } catch (err) {
+    return res.json({ currentPrice: null, changePercent: 0 });
+  }
+});
+
+app.get('/api/exchange-rate', async (req, res) => {
+  try {
+    const payload = await getYahooPayload('USDILS=X');
+    return res.json({ rate: payload.currentPrice });
+  } catch (err) {
+    return res.json({ rate: null });
   }
 });
 

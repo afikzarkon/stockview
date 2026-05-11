@@ -78,8 +78,6 @@ function clearLegacyPortfolioKeys() {
 
 function App() {
   const POLLING_INTERVAL_MS = 10000;
-  const YAHOO_PROXY_URL = 'https://api.allorigins.win/raw?url=';
-  const YAHOO_CHART_BASE_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/';
 
   const [showForm, setShowForm] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
@@ -357,49 +355,27 @@ function App() {
   // פונקציה לקבלת מחיר נוכחי ואחוז שינוי יומי מ-Yahoo Finance דרך proxy
   const fetchCurrentPrice = async (stockSymbol) => {
     try {
-      const yahooUrl = `${YAHOO_CHART_BASE_URL}${stockSymbol}`;
-      const response = await fetch(YAHOO_PROXY_URL + encodeURIComponent(yahooUrl));
+      const response = await fetch(apiUrl(`/api/american-stock/${encodeURIComponent(stockSymbol)}`), {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('failed to fetch american stock');
       const data = await response.json();
-      
-      if (data.chart && data.chart.result && data.chart.result.length > 0) {
-        const meta = data.chart.result[0].meta;
-        const currentPrice = meta.regularMarketPrice;
-        
-        // נסה כמה אפשרויות לאחוז שינוי
-        const changePercent = meta.regularMarketChangePercent || 
-                             meta.changePercent || 
-                             meta.regularMarketChange || 
-                             meta.change || 
-                             0;
-        
-        // אם אין אחוז שינוי, חשב אותו בעצמי
-        let finalChangePercent = 0;
-        if (changePercent && changePercent !== 0) {
-          finalChangePercent = changePercent * 100; // המרה לאחוזים
-        } else if (meta.previousClose && meta.regularMarketPrice) {
-          // חשב אחוז שינוי בעצמי
-          const change = meta.regularMarketPrice - meta.previousClose;
-          finalChangePercent = (change / meta.previousClose) * 100;
-        }
-        
-        return { currentPrice, changePercent: finalChangePercent };
-      }
+      if (data && data.currentPrice !== null && data.currentPrice !== undefined) return data;
     } catch (error) {
       return null;
     }
+    return null;
   };
 
   // פונקציה לקבלת שער החליפין הנוכחי שקל/דולר מ-Yahoo Finance
   const fetchExchangeRate = async () => {
     try {
-      const yahooUrl = `${YAHOO_CHART_BASE_URL}USDILS=X`;
-      const response = await fetch(YAHOO_PROXY_URL + encodeURIComponent(yahooUrl));
+      const response = await fetch(apiUrl('/api/exchange-rate'), {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('failed to fetch exchange rate');
       const data = await response.json();
-      
-      if (data.chart && data.chart.result && data.chart.result.length > 0) {
-        const currentRate = data.chart.result[0].meta.regularMarketPrice;
-        return currentRate;
-      }
+      return data && data.rate !== null && data.rate !== undefined ? data.rate : null;
     } catch (error) {
       return null;
     }
