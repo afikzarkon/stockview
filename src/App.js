@@ -108,6 +108,10 @@ function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [portfolioReady, setPortfolioReady] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [lastSavedAt, setLastSavedAt] = useState(null);
   const userRef = useRef(null);
   const persistTimerRef = useRef(null);
   userRef.current = user;
@@ -153,6 +157,9 @@ function App() {
   useEffect(() => {
     if (!user) {
       setPortfolioReady(false);
+      setHasUnsavedChanges(false);
+      setSaveError('');
+      setLastSavedAt(null);
       return;
     }
 
@@ -172,6 +179,9 @@ function App() {
         setPensionFunds(Array.isArray(d.pensionFunds) ? d.pensionFunds : []);
         setBankBalances(Array.isArray(d.bankBalances) ? d.bankBalances : []);
         setCashFunds(Array.isArray(d.cashFunds) ? d.cashFunds : []);
+        setHasUnsavedChanges(false);
+        setSaveError('');
+        setLastSavedAt(new Date());
       } catch {
         if (!cancelled) {
           setIsraeliStocks([]);
@@ -179,6 +189,9 @@ function App() {
           setPensionFunds([]);
           setBankBalances([]);
           setCashFunds([]);
+          setHasUnsavedChanges(false);
+          setSaveError('');
+          setLastSavedAt(null);
         }
       } finally {
         if (!cancelled) setPortfolioReady(true);
@@ -250,11 +263,6 @@ function App() {
         }
         
         setIsraeliStocks(updatedIsraeliStocks);
-        // שמירה עם המניות האמריקאיות הנוכחיות
-        setAmericanStocks(currentAmericanStocks => {
-          persistPortfolio(updatedIsraeliStocks, currentAmericanStocks);
-          return currentAmericanStocks;
-        });
       }
 
       // עדכון מניות אמריקאיות
@@ -306,73 +314,31 @@ function App() {
         }
         
         setAmericanStocks(updatedAmericanStocks);
-        // שמירה עם המניות הישראליות הנוכחיות
-        setIsraeliStocks(currentIsraeliStocks => {
-          persistPortfolio(currentIsraeliStocks, updatedAmericanStocks);
-          return currentIsraeliStocks;
-        });
       }
     }, POLLING_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [israeliStocks.length, americanStocks.length, isEditMode, isAddingNewStock]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** שמירת תיק בשרת (פר משתמש מחובר), עם debounce כדי לא לעמיס על ה-API */
-  const persistPortfolio = (
-    israeliData,
-    americanData,
-    pensionData = pensionFunds,
-    bankData = bankBalances,
-    cashData = cashFunds
-  ) => {
-    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    persistTimerRef.current = setTimeout(async () => {
-      if (!userRef.current) return;
-      const body = JSON.stringify({
-        israeliStocks: israeliData,
-        americanStocks: americanData,
-        pensionFunds: pensionData,
-        bankBalances: bankData,
-        cashFunds: cashData
-      });
-      try {
-        const r = await fetch(apiUrl('/api/portfolio'), {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...authHeader() },
-          body
-        });
-        if (!r.ok) {
-          const msg = await r.text().catch(() => '');
-          console.warn('שמירת תיק נכשלה:', r.status, msg || r.statusText);
-        }
-      } catch (e) {
-        console.warn('שמירת תיק — שגיאת רשת', e);
-      }
-    }, 450);
-  };
+  const buildCurrentPortfolioSnapshot = () => ({
+    israeliStocks,
+    americanStocks,
+    pensionFunds,
+    bankBalances,
+    cashFunds
+  });
 
-  /** שמירת תיק מיידית (ללא debounce) — חשוב לפעולות הרסניות כמו מחיקה */
-  const persistPortfolioNow = async (
-    israeliData,
-    americanData,
-    pensionData = pensionFunds,
-    bankData = bankBalances,
-    cashData = cashFunds
-  ) => {
+  const savePortfolio = async () => {
+    if (!userRef.current) return;
+    if (saveLoading) return;
+    setSaveError('');
+    setSaveLoading(true);
     if (persistTimerRef.current) {
       clearTimeout(persistTimerRef.current);
       persistTimerRef.current = null;
     }
-    if (!userRef.current) return false;
-    const body = JSON.stringify({
-      israeliStocks: israeliData,
-      americanStocks: americanData,
-      pensionFunds: pensionData,
-      bankBalances: bankData,
-      cashFunds: cashData
-    });
     try {
+      const body = JSON.stringify(buildCurrentPortfolioSnapshot());
       const r = await fetch(apiUrl('/api/portfolio'), {
         method: 'PUT',
         credentials: 'include',
@@ -381,13 +347,15 @@ function App() {
       });
       if (!r.ok) {
         const msg = await r.text().catch(() => '');
-        console.warn('שמירת תיק (מיידית) נכשלה:', r.status, msg || r.statusText);
-        return false;
+        throw new Error(msg || r.statusText || 'save failed');
       }
-      return true;
+      setHasUnsavedChanges(false);
+      setLastSavedAt(new Date());
     } catch (e) {
-      console.warn('שמירת תיק (מיידית) — שגיאת רשת', e);
-      return false;
+      setSaveError('שמירה נכשלה. בדוק התחברות/רשת ונסה שוב.');
+      console.warn('שמירת תיק — שגיאה', e);
+    } finally {
+      setSaveLoading(false);
     }
   };
 
@@ -454,6 +422,9 @@ function App() {
     setCashFunds([]);
     setPortfolioReady(false);
     setLegacyImportBanner('');
+    setHasUnsavedChanges(false);
+    setSaveError('');
+    setLastSavedAt(null);
     setUser(null);
   };
 
@@ -496,6 +467,9 @@ function App() {
       setPensionFunds(snapshot.pensionFunds);
       setBankBalances(snapshot.bankBalances);
       setCashFunds(snapshot.cashFunds);
+      setHasUnsavedChanges(false);
+      setSaveError('');
+      setLastSavedAt(new Date());
       clearLegacyPortfolioKeys();
       localStorage.setItem(legacyImportFlagKey(user.id), '1');
       setLegacyImportCompleted(true);
@@ -564,11 +538,11 @@ function App() {
       if (formData.exchange === 'israeli') {
         const updatedIsraeliStocks = [...israeliStocks, stockData];
         setIsraeliStocks(updatedIsraeliStocks);
-        persistPortfolio(updatedIsraeliStocks, americanStocks);
+        setHasUnsavedChanges(true);
       } else {
         const updatedAmericanStocks = [...americanStocks, stockData];
         setAmericanStocks(updatedAmericanStocks);
-        persistPortfolio(israeliStocks, updatedAmericanStocks);
+        setHasUnsavedChanges(true);
       }
     } else if (formData.itemType === 'cash_fund') {
       const cashItem = {
@@ -580,7 +554,7 @@ function App() {
       };
       const updatedCashFunds = [...cashFunds, cashItem];
       setCashFunds(updatedCashFunds);
-      persistPortfolio(israeliStocks, americanStocks, pensionFunds, bankBalances, updatedCashFunds);
+      setHasUnsavedChanges(true);
     } else if (formData.itemType === 'pension') {
       const pensionItem = {
         id: Date.now(),
@@ -593,7 +567,7 @@ function App() {
       };
       const updatedPensionFunds = [...pensionFunds, pensionItem];
       setPensionFunds(updatedPensionFunds);
-      persistPortfolio(israeliStocks, americanStocks, updatedPensionFunds, bankBalances);
+      setHasUnsavedChanges(true);
     } else if (formData.itemType === 'bank') {
       const bankItem = {
         id: Date.now(),
@@ -602,7 +576,7 @@ function App() {
       };
       const updatedBankBalances = [...bankBalances, bankItem];
       setBankBalances(updatedBankBalances);
-      persistPortfolio(israeliStocks, americanStocks, pensionFunds, updatedBankBalances);
+      setHasUnsavedChanges(true);
     }
 
     setShowForm(false);
@@ -630,34 +604,27 @@ function App() {
 
   // פונקציה למחיקת מנייה
   const handleDelete = (id, exchange) => {
-    (async () => {
-      if (exchange === 'israeli') {
-        const updatedIsraeliStocks = israeliStocks.filter(stock => stock.id !== id);
-        setIsraeliStocks(updatedIsraeliStocks);
-        const ok = await persistPortfolioNow(updatedIsraeliStocks, americanStocks);
-        if (!ok) window.alert('המחיקה בוצעה במסך, אבל שמירה לשרת נכשלה. נסה לרענן ולהתחבר מחדש.');
-      } else if (exchange === 'american') {
-        const updatedAmericanStocks = americanStocks.filter(stock => stock.id !== id);
-        setAmericanStocks(updatedAmericanStocks);
-        const ok = await persistPortfolioNow(israeliStocks, updatedAmericanStocks);
-        if (!ok) window.alert('המחיקה בוצעה במסך, אבל שמירה לשרת נכשלה. נסה לרענן ולהתחבר מחדש.');
-      } else if (exchange === 'pension') {
-        const updatedPensionFunds = pensionFunds.filter(item => item.id !== id);
-        setPensionFunds(updatedPensionFunds);
-        const ok = await persistPortfolioNow(israeliStocks, americanStocks, updatedPensionFunds, bankBalances);
-        if (!ok) window.alert('המחיקה בוצעה במסך, אבל שמירה לשרת נכשלה. נסה לרענן ולהתחבר מחדש.');
-      } else if (exchange === 'bank') {
-        const updatedBankBalances = bankBalances.filter(item => item.id !== id);
-        setBankBalances(updatedBankBalances);
-        const ok = await persistPortfolioNow(israeliStocks, americanStocks, pensionFunds, updatedBankBalances);
-        if (!ok) window.alert('המחיקה בוצעה במסך, אבל שמירה לשרת נכשלה. נסה לרענן ולהתחבר מחדש.');
-      } else if (exchange === 'cash_fund') {
-        const updatedCashFunds = cashFunds.filter(item => item.id !== id);
-        setCashFunds(updatedCashFunds);
-        const ok = await persistPortfolioNow(israeliStocks, americanStocks, pensionFunds, bankBalances, updatedCashFunds);
-        if (!ok) window.alert('המחיקה בוצעה במסך, אבל שמירה לשרת נכשלה. נסה לרענן ולהתחבר מחדש.');
-      }
-    })();
+    if (exchange === 'israeli') {
+      const updatedIsraeliStocks = israeliStocks.filter(stock => stock.id !== id);
+      setIsraeliStocks(updatedIsraeliStocks);
+      setHasUnsavedChanges(true);
+    } else if (exchange === 'american') {
+      const updatedAmericanStocks = americanStocks.filter(stock => stock.id !== id);
+      setAmericanStocks(updatedAmericanStocks);
+      setHasUnsavedChanges(true);
+    } else if (exchange === 'pension') {
+      const updatedPensionFunds = pensionFunds.filter(item => item.id !== id);
+      setPensionFunds(updatedPensionFunds);
+      setHasUnsavedChanges(true);
+    } else if (exchange === 'bank') {
+      const updatedBankBalances = bankBalances.filter(item => item.id !== id);
+      setBankBalances(updatedBankBalances);
+      setHasUnsavedChanges(true);
+    } else if (exchange === 'cash_fund') {
+      const updatedCashFunds = cashFunds.filter(item => item.id !== id);
+      setCashFunds(updatedCashFunds);
+      setHasUnsavedChanges(true);
+    }
   };
 
 
@@ -702,13 +669,13 @@ function App() {
         stock.id === editingStock.id ? updatedStock : stock
       );
       setIsraeliStocks(updatedIsraeliStocks);
-      persistPortfolio(updatedIsraeliStocks, americanStocks);
+      setHasUnsavedChanges(true);
     } else {
       const updatedAmericanStocks = americanStocks.map(stock => 
         stock.id === editingStock.id ? updatedStock : stock
       );
       setAmericanStocks(updatedAmericanStocks);
-      persistPortfolio(israeliStocks, updatedAmericanStocks);
+      setHasUnsavedChanges(true);
     }
     
     setIsEditMode(false);
@@ -754,31 +721,31 @@ function App() {
         stock.id === id ? { ...stock, [field]: value } : stock
       );
       setIsraeliStocks(updatedIsraeliStocks);
-      persistPortfolio(updatedIsraeliStocks, americanStocks);
+      setHasUnsavedChanges(true);
     } else if (exchange === 'american') {
       const updatedAmericanStocks = americanStocks.map(stock => 
         stock.id === id ? { ...stock, [field]: value } : stock
       );
       setAmericanStocks(updatedAmericanStocks);
-      persistPortfolio(israeliStocks, updatedAmericanStocks);
+      setHasUnsavedChanges(true);
     } else if (exchange === 'pension') {
       const updatedPensionFunds = pensionFunds.map(item => 
         item.id === id ? { ...item, [field]: value } : item
       );
       setPensionFunds(updatedPensionFunds);
-      persistPortfolio(israeliStocks, americanStocks, updatedPensionFunds, bankBalances);
+      setHasUnsavedChanges(true);
     } else if (exchange === 'bank') {
       const updatedBankBalances = bankBalances.map(item => 
         item.id === id ? { ...item, [field]: value } : item
       );
       setBankBalances(updatedBankBalances);
-      persistPortfolio(israeliStocks, americanStocks, pensionFunds, updatedBankBalances);
+      setHasUnsavedChanges(true);
     } else if (exchange === 'cash_fund') {
       const updatedCashFunds = cashFunds.map(item => 
         item.id === id ? { ...item, [field]: value } : item
       );
       setCashFunds(updatedCashFunds);
-      persistPortfolio(israeliStocks, americanStocks, pensionFunds, bankBalances, updatedCashFunds);
+      setHasUnsavedChanges(true);
     }
   };
 
@@ -1453,6 +1420,26 @@ function App() {
           <button type="button" className="user-logout" onClick={handleLogout}>
             התנתקות
           </button>
+        </div>
+        <div className="user-bar">
+          <button
+            type="button"
+            className={`btn ${hasUnsavedChanges ? 'btn-success' : 'btn-secondary'}`}
+            onClick={savePortfolio}
+            disabled={!hasUnsavedChanges || saveLoading}
+          >
+            {saveLoading ? 'שומר…' : hasUnsavedChanges ? 'שמור שינויים' : 'נשמר'}
+          </button>
+          {lastSavedAt ? (
+            <span className="user-email" style={{ fontSize: 12, opacity: 0.8 }}>
+              נשמר לאחרונה: {lastSavedAt.toLocaleTimeString('he-IL')}
+            </span>
+          ) : null}
+          {saveError ? (
+            <span className="user-email" style={{ fontSize: 12, color: '#b00020' }}>
+              {saveError}
+            </span>
+          ) : null}
         </div>
         {legacyImportBanner ? <p className="user-import-banner">{legacyImportBanner}</p> : null}
         <div className="welcome-content">
