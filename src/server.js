@@ -23,6 +23,13 @@ const YAHOO_CACHE_TTL_MS = 15 * 1000;
 const yahooChartCache = new Map();
 const yahooInFlight = new Map();
 
+function errMessage(err) {
+  if (!err) return 'unknown error';
+  if (typeof err === 'string') return err;
+  if (err.message) return err.message;
+  return String(err);
+}
+
 function readCachedTaseQuote(stockId) {
   const cached = taseQuoteCache.get(stockId);
   if (!cached) return null;
@@ -270,6 +277,7 @@ async function scrapeTaseFallbackWithAxios(taseUrl) {
 app.get('/api/israeli-stock/:id', async (req, res) => {
   const stockId = req.params.id;
   if (!/^\d+$/.test(stockId)) {
+    console.warn('[tase] invalid stock id', { stockId });
     return res.status(400).json({ error: 'invalid stock id' });
   }
 
@@ -283,7 +291,11 @@ app.get('/api/israeli-stock/:id', async (req, res) => {
     try {
       const sharedResult = await existingInFlight;
       return res.json(sharedResult);
-    } catch {
+    } catch (err) {
+      console.error('[tase] shared in-flight request failed', {
+        stockId,
+        error: errMessage(err)
+      });
       const stale = readStaleTaseQuote(stockId);
       if (stale) return res.json(stale);
       return res.json({ currentPrice: null, changePercent: null });
@@ -295,17 +307,35 @@ app.get('/api/israeli-stock/:id', async (req, res) => {
     try {
       const result = await scrapeTaseWithPuppeteer(taseUrl);
       const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
+      if (payload.currentPrice === null || payload.changePercent === null) {
+        console.warn('[tase] puppeteer returned partial/empty data', { stockId, payload });
+      }
       writeCachedTaseQuote(stockId, payload);
       return payload;
     } catch (err) {
+      console.warn('[tase] puppeteer scrape failed, trying fallback', {
+        stockId,
+        error: errMessage(err)
+      });
       try {
         const result = await scrapeTaseFallbackWithAxios(taseUrl);
         const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
+        if (payload.currentPrice === null || payload.changePercent === null) {
+          console.warn('[tase] axios fallback returned partial/empty data', { stockId, payload });
+        }
         writeCachedTaseQuote(stockId, payload);
         return payload;
       } catch (e2) {
+        console.error('[tase] both scraping methods failed', {
+          stockId,
+          puppeteerError: errMessage(err),
+          fallbackError: errMessage(e2)
+        });
         const stale = readStaleTaseQuote(stockId);
-        if (stale) return stale;
+        if (stale) {
+          console.warn('[tase] serving stale cached quote after failures', { stockId });
+          return stale;
+        }
         return { currentPrice: null, changePercent: null };
       }
     }
