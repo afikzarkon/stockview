@@ -969,7 +969,12 @@ function App() {
     const bankBalancesTotalILS = bankBalances.reduce((sum, item) => sum + (item.amount || 0), 0);
     const capitalIsraeliILS = israeliSummary.totalCurrentValueILS;
     const capitalAmericanILS = americanSummary.totalCurrentValueILS;
-    const capitalTotalILS = capitalIsraeliILS + capitalAmericanILS + cashFundsTotalILS + pensionFundsTotalILS + bankBalancesTotalILS;
+    const capitalTotalILS =
+      capitalIsraeliILS +
+      capitalAmericanILS +
+      cashFundsTotalILS +
+      pensionCurrentValueILS +
+      bankBalancesTotalILS;
 
     return {
       // סיכום בשקלים
@@ -1014,7 +1019,7 @@ function App() {
       capitalIsraeliILS,
       capitalAmericanILS,
       capitalCashFundsILS: cashFundsTotalILS,
-      capitalPensionILS: pensionFundsTotalILS,
+      capitalPensionILS: pensionCurrentValueILS,
       pensionInitialInvestmentILS,
       pensionCurrentValueILS,
       pensionPreviousValueILS,
