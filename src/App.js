@@ -955,7 +955,6 @@ function App() {
 
     // סה"כ מצב ההון לפי קטגוריות
     const cashFundsTotalILS = cashFunds.reduce((sum, item) => sum + (item.amount || 0), 0);
-    const pensionFundsTotalILS = pensionFunds.reduce((sum, item) => sum + (item.amount || 0), 0);
     const pensionInitialInvestmentILS = pensionFunds.reduce((sum, item) => sum + (item.initialInvestment ?? item.amount ?? 0), 0);
     const pensionCurrentValueILS = pensionFunds.reduce((sum, item) => sum + (item.currentValue ?? item.amount ?? 0), 0);
     const pensionPreviousValueILS = pensionFunds.reduce((sum, item) => sum + (item.previousValue ?? item.amount ?? 0), 0);
