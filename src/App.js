@@ -1,6 +1,22 @@
 import './App.css';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TAX_RATE, calculateAmericanStockMetrics } from './utils/portfolioMath';
+import {
+  formatDate,
+  formatPrice,
+  formatPriceWithSign,
+  normalizeIsraeliPrice,
+  calculateProfitPercentage,
+  normalizeIsraeliStocksFromStorage
+} from './utils/formatters';
+import { groupStocksByName, calculateGroupSummary } from './utils/stockGrouping';
+import { calculatePortfolioSummary } from './utils/portfolioSummary';
+import { calculatePortfolioAnalysis } from './utils/portfolioAnalysis';
+import { fetchCurrentPrice, fetchIsraeliStockPrice } from './api/stockPrices';
+import { apiUrl } from './apiBase';
+import { useAuth } from './hooks/useAuth';
+import { usePortfolioData } from './hooks/usePortfolioData';
+import { usePriceRefresh } from './hooks/usePriceRefresh';
 import StockFormView from './components/StockFormView';
 import PortfolioAnalysisView from './components/PortfolioAnalysisView';
 import PortfolioSummary from './components/PortfolioSummary';
@@ -8,22 +24,6 @@ import IsraeliStocksTable from './components/IsraeliStocksTable';
 import AmericanStocksTable from './components/AmericanStocksTable';
 import FinancialAccountsTables from './components/FinancialAccountsTables';
 import AuthView from './components/AuthView';
-import { apiUrl } from './apiBase';
-import { clearAuthToken, getAuthToken, setAuthToken } from './authToken';
-
-function normalizeIsraeliStocksFromStorage(parsed) {
-  if (!Array.isArray(parsed)) return [];
-  return parsed.map((stock) => {
-    const priceNum =
-      typeof stock.currentPrice === 'string' ? parseFloat(stock.currentPrice) : stock.currentPrice;
-    const needsDivide =
-      priceNum !== null && priceNum !== undefined && !isNaN(priceNum) && priceNum > 1000;
-    return {
-      ...stock,
-      currentPrice: needsDivide ? priceNum / 100 : priceNum
-    };
-  });
-}
 
 const LEGACY_KEYS = [
   'israeliStocks',
@@ -77,16 +77,32 @@ function clearLegacyPortfolioKeys() {
 }
 
 function App() {
-  const POLLING_INTERVAL_MS = 10000;
+  const { user, authLoading, authHeader, login, logout } = useAuth();
+  const {
+    israeliStocks,
+    setIsraeliStocks,
+    americanStocks,
+    setAmericanStocks,
+    pensionFunds,
+    setPensionFunds,
+    bankBalances,
+    setBankBalances,
+    cashFunds,
+    setCashFunds,
+    portfolioReady,
+    hasUnsavedChanges,
+    setHasUnsavedChanges,
+    saveLoading,
+    saveError,
+    lastSavedAt,
+    savePortfolio,
+    replacePortfolio,
+    resetPortfolio
+  } = usePortfolioData(user, authHeader);
 
   const [showForm, setShowForm] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [isAddingNewStock, setIsAddingNewStock] = useState(false);
-  const [israeliStocks, setIsraeliStocks] = useState([]);
-  const [americanStocks, setAmericanStocks] = useState([]);
-  const [pensionFunds, setPensionFunds] = useState([]);
-  const [bankBalances, setBankBalances] = useState([]);
-  const [cashFunds, setCashFunds] = useState([]);
   const [formData, setFormData] = useState({
     itemType: 'stock',
     stockName: '',
@@ -105,24 +121,20 @@ function App() {
   const [showAmericanColumns, setShowAmericanColumns] = useState(true);
   const [editingField, setEditingField] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
-  const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [portfolioReady, setPortfolioReady] = useState(false);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [saveLoading, setSaveLoading] = useState(false);
-  const [saveError, setSaveError] = useState('');
-  const [lastSavedAt, setLastSavedAt] = useState(null);
-  const userRef = useRef(null);
-  const persistTimerRef = useRef(null);
-  userRef.current = user;
 
   const [legacyImportCompleted, setLegacyImportCompleted] = useState(false);
   const [legacyImportLoading, setLegacyImportLoading] = useState(false);
   const [legacyImportBanner, setLegacyImportBanner] = useState('');
-  const authHeader = () => {
-    const token = getAuthToken();
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  };
+
+  usePriceRefresh({
+    israeliStocks,
+    americanStocks,
+    setIsraeliStocks,
+    setAmericanStocks,
+    isEditMode,
+    editingField,
+    isAddingNewStock
+  });
 
   useEffect(() => {
     if (!user || !user.id) {
@@ -132,261 +144,7 @@ function App() {
     setLegacyImportCompleted(localStorage.getItem(legacyImportFlagKey(user.id)) === '1');
   }, [user]);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(apiUrl('/api/auth/me'), {
-          credentials: 'include',
-          headers: { ...authHeader() }
-        });
-        const d = await r.json();
-        if (!cancelled) setUser(d.user || null);
-      } catch {
-        if (!cancelled) setUser(null);
-      } finally {
-        if (!cancelled) setAuthLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
-  // טעינת תיק לפי משתמש מחובר (שרת) — לא משתף נתונים בין משתמשים או לפי LocalStorage
-  useEffect(() => {
-    if (!user) {
-      setPortfolioReady(false);
-      setHasUnsavedChanges(false);
-      setSaveError('');
-      setLastSavedAt(null);
-      return;
-    }
-
-    let cancelled = false;
-    setPortfolioReady(false);
-    (async () => {
-      try {
-        const r = await fetch(apiUrl('/api/portfolio'), {
-          credentials: 'include',
-          headers: { ...authHeader() }
-        });
-        if (!r.ok) throw new Error('load failed');
-        const d = await r.json();
-        if (cancelled) return;
-        setIsraeliStocks(normalizeIsraeliStocksFromStorage(d.israeliStocks || []));
-        setAmericanStocks(Array.isArray(d.americanStocks) ? d.americanStocks : []);
-        setPensionFunds(Array.isArray(d.pensionFunds) ? d.pensionFunds : []);
-        setBankBalances(Array.isArray(d.bankBalances) ? d.bankBalances : []);
-        setCashFunds(Array.isArray(d.cashFunds) ? d.cashFunds : []);
-        setHasUnsavedChanges(false);
-        setSaveError('');
-        setLastSavedAt(new Date());
-      } catch {
-        if (!cancelled) {
-          setIsraeliStocks([]);
-          setAmericanStocks([]);
-          setPensionFunds([]);
-          setBankBalances([]);
-          setCashFunds([]);
-          setHasUnsavedChanges(false);
-          setSaveError('');
-          setLastSavedAt(null);
-        }
-      } finally {
-        if (!cancelled) setPortfolioReady(true);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
-
-  // פונקציה לקבלת מחיר נוכחי ואחוז שינוי יומי מ-TASE (דרך השרת המקומי)
-  const fetchIsraeliStockPrice = async (stockId) => {
-    try {
-      const response = await fetch(apiUrl(`/api/israeli-stock/${stockId}`), {
-        credentials: 'include'
-      });
-      if (!response.ok) throw new Error('שגיאה בקריאת נתונים מהשרת');
-      const json = await response.json();
-      return json;
-    } catch (error) {
-      return null;
-    }
-  };
-
-  // עדכון אוטומטי של מחירי מניות כל 10 שניות
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      // לא מעדכן אם המשתמש נמצא במצב עריכה או מוסיף מנייה חדשה
-      if (isEditMode || editingField || isAddingNewStock) {
-        return;
-      }
-      
-      // עדכון מניות ישראליות
-      if (israeliStocks.length > 0) {
-        // קיבוץ מניות לפי שם (ID) כדי לבצע בקשה אחת לכל מנייה
-        const stocksBySymbol = {};
-        israeliStocks.forEach(stock => {
-          if (!stocksBySymbol[stock.stockName]) {
-            stocksBySymbol[stock.stockName] = [];
-          }
-          stocksBySymbol[stock.stockName].push(stock);
-        });
-
-        const updatedIsraeliStocks = [];
-        
-        // עבור כל מנייה ייחודית, בקש נתונים פעם אחת
-        for (const [stockSymbol, stocks] of Object.entries(stocksBySymbol)) {
-          const priceData = await fetchIsraeliStockPrice(stockSymbol);
-          
-          if (priceData && priceData.currentPrice !== null) {
-            // המרה מאגורות לשקלים
-            const normalizedPrice = priceData.currentPrice / 100;
-            
-            // עדכן את כל השורות של המנייה הזו
-            stocks.forEach(stock => {
-              updatedIsraeliStocks.push({
-                ...stock,
-                currentPrice: normalizedPrice,
-                dailyChangePercent: priceData.changePercent
-              });
-            });
-          } else {
-            // אם לא התקבל מחיר, שומרים את המניות עם הנתונים הקיימים
-            stocks.forEach(stock => {
-              updatedIsraeliStocks.push(stock);
-            });
-          }
-        }
-        
-        setIsraeliStocks(updatedIsraeliStocks);
-      }
-
-      // עדכון מניות אמריקאיות
-      if (americanStocks.length > 0) {
-        // קבלת שער החליפין הנוכחי
-        const currentExchangeRate = await fetchExchangeRate();
-        
-        // קיבוץ מניות לפי שם כדי לבצע בקשה אחת לכל מנייה
-        const stocksBySymbol = {};
-        americanStocks.forEach(stock => {
-          if (!stocksBySymbol[stock.stockName]) {
-            stocksBySymbol[stock.stockName] = [];
-          }
-          stocksBySymbol[stock.stockName].push(stock);
-        });
-
-        const updatedAmericanStocks = [];
-        
-        // עבור כל מנייה ייחודית, בקש נתונים פעם אחת
-        for (const [stockSymbol, stocks] of Object.entries(stocksBySymbol)) {
-          try {
-            const priceData = await fetchCurrentPrice(stockSymbol);
-            if (priceData !== null) {
-              // עדכן את כל השורות של המנייה הזו
-              stocks.forEach(stock => {
-                updatedAmericanStocks.push({
-                  ...stock, 
-                  currentPrice: priceData.currentPrice,
-                  dailyChangePercent: priceData.changePercent,
-                  currentExchangeRate: currentExchangeRate || stock.currentExchangeRate || stock.exchangeRate
-                });
-              });
-            } else {
-              stocks.forEach(stock => {
-                updatedAmericanStocks.push({
-                  ...stock,
-                  currentExchangeRate: currentExchangeRate || stock.currentExchangeRate || stock.exchangeRate
-                });
-              });
-            }
-          } catch (error) {
-            stocks.forEach(stock => {
-              updatedAmericanStocks.push({
-                ...stock,
-                currentExchangeRate: currentExchangeRate || stock.currentExchangeRate || stock.exchangeRate
-              });
-            });
-          }
-        }
-        
-        setAmericanStocks(updatedAmericanStocks);
-      }
-    }, POLLING_INTERVAL_MS);
-
-    return () => clearInterval(interval);
-  }, [israeliStocks.length, americanStocks.length, isEditMode, isAddingNewStock]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const buildCurrentPortfolioSnapshot = () => ({
-    israeliStocks,
-    americanStocks,
-    pensionFunds,
-    bankBalances,
-    cashFunds
-  });
-
-  const savePortfolio = async () => {
-    if (!userRef.current) return;
-    if (saveLoading) return;
-    setSaveError('');
-    setSaveLoading(true);
-    if (persistTimerRef.current) {
-      clearTimeout(persistTimerRef.current);
-      persistTimerRef.current = null;
-    }
-    try {
-      const body = JSON.stringify(buildCurrentPortfolioSnapshot());
-      const r = await fetch(apiUrl('/api/portfolio'), {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body
-      });
-      if (!r.ok) {
-        const msg = await r.text().catch(() => '');
-        throw new Error(msg || r.statusText || 'save failed');
-      }
-      setHasUnsavedChanges(false);
-      setLastSavedAt(new Date());
-    } catch (e) {
-      setSaveError('שמירה נכשלה. בדוק התחברות/רשת ונסה שוב.');
-      console.warn('שמירת תיק — שגיאה', e);
-    } finally {
-      setSaveLoading(false);
-    }
-  };
-
-  // פונקציה לקבלת מחיר נוכחי ואחוז שינוי יומי מ-Yahoo Finance דרך proxy
-  const fetchCurrentPrice = async (stockSymbol) => {
-    try {
-      const response = await fetch(apiUrl(`/api/american-stock/${encodeURIComponent(stockSymbol)}`), {
-        credentials: 'include'
-      });
-      if (!response.ok) throw new Error('failed to fetch american stock');
-      const data = await response.json();
-      if (data && data.currentPrice !== null && data.currentPrice !== undefined) return data;
-    } catch (error) {
-      return null;
-    }
-    return null;
-  };
-
-  // פונקציה לקבלת שער החליפין הנוכחי שקל/דולר מ-Yahoo Finance
-  const fetchExchangeRate = async () => {
-    try {
-      const response = await fetch(apiUrl('/api/exchange-rate'), {
-        credentials: 'include'
-      });
-      if (!response.ok) throw new Error('failed to fetch exchange rate');
-      const data = await response.json();
-      return data && data.rate !== null && data.rate !== undefined ? data.rate : null;
-    } catch (error) {
-      return null;
-    }
-  };
 
 
 
@@ -399,33 +157,11 @@ function App() {
   };
 
   const handleLogout = async () => {
-    if (persistTimerRef.current) {
-      clearTimeout(persistTimerRef.current);
-      persistTimerRef.current = null;
-    }
-    try {
-      await fetch(apiUrl('/api/auth/logout'), {
-        method: 'POST',
-        credentials: 'include',
-        headers: { ...authHeader() }
-      });
-    } catch {
-      /* ignore */
-    }
-    clearAuthToken();
+    await logout();
+    resetPortfolio();
     setShowForm(false);
     setShowAnalysis(false);
-    setIsraeliStocks([]);
-    setAmericanStocks([]);
-    setPensionFunds([]);
-    setBankBalances([]);
-    setCashFunds([]);
-    setPortfolioReady(false);
     setLegacyImportBanner('');
-    setHasUnsavedChanges(false);
-    setSaveError('');
-    setLastSavedAt(null);
-    setUser(null);
   };
 
   const handleLegacyImportOnce = async () => {
@@ -444,10 +180,6 @@ function App() {
 
     setLegacyImportLoading(true);
     setLegacyImportBanner('');
-    if (persistTimerRef.current) {
-      clearTimeout(persistTimerRef.current);
-      persistTimerRef.current = null;
-    }
     try {
       const r = await fetch(apiUrl('/api/portfolio'), {
         method: 'PUT',
@@ -462,14 +194,7 @@ function App() {
         })
       });
       if (!r.ok) throw new Error('save failed');
-      setIsraeliStocks(snapshot.israeliStocks);
-      setAmericanStocks(snapshot.americanStocks);
-      setPensionFunds(snapshot.pensionFunds);
-      setBankBalances(snapshot.bankBalances);
-      setCashFunds(snapshot.cashFunds);
-      setHasUnsavedChanges(false);
-      setSaveError('');
-      setLastSavedAt(new Date());
+      replacePortfolio(snapshot);
       clearLegacyPortfolioKeys();
       localStorage.setItem(legacyImportFlagKey(user.id), '1');
       setLegacyImportCompleted(true);
@@ -773,93 +498,7 @@ function App() {
     }
   };
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('he-IL');
-  };
-
-  const formatPrice = (price) => {
-    if (price === null || price === undefined || isNaN(price)) {
-      return '0.00';
-    }
-    const formattedNumber = price.toFixed(2);
-    return parseFloat(formattedNumber).toLocaleString('he-IL', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-  };
-
-  const formatPriceWithSign = (price) => {
-    if (price === null || price === undefined || isNaN(price)) {
-      return '0.00';
-    }
-    const formattedNumber = Math.abs(price).toFixed(2);
-    const withCommas = parseFloat(formattedNumber).toLocaleString('he-IL', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-    if (price >= 0) {
-      return withCommas;
-    } else {
-      return `${withCommas}-`;
-    }
-  };
-
-  // Normalize Israeli price: if saved in agorot (big number), convert to shekels
-  const normalizeIsraeliPrice = (price) => {
-    const num = typeof price === 'string' ? parseFloat(price) : price;
-    if (num === null || num === undefined || isNaN(num)) return 0;
-    return num > 1000 ? num / 100 : num;
-  };
-
-  const calculateProfitPercentage = (purchaseValue, currentValue) => {
-    if (purchaseValue === 0 || !purchaseValue || !currentValue) return 0;
-    return ((currentValue - purchaseValue) / purchaseValue * 100).toFixed(2);
-  };
-
-  // פונקציה לקיבוץ מניות לפי שם
-  const groupStocksByName = (stocks) => {
-    const grouped = {};
-    stocks.forEach(stock => {
-      if (!grouped[stock.stockName]) {
-        grouped[stock.stockName] = [];
-      }
-      grouped[stock.stockName].push(stock);
-    });
-    return grouped;
-  };
-
-  // פונקציה לחישוב סיכומים של קיבוץ
-  const calculateGroupSummary = (stocks) => {
-    const totalQuantity = stocks.reduce((sum, stock) => sum + (stock.quantity || 0), 0);
-    const totalPurchaseValue = stocks.reduce((sum, stock) => {
-      const purchaseValue = (stock.purchasePrice || 0) * (stock.quantity || 0);
-      return sum + purchaseValue;
-    }, 0);
-    const totalCurrentValue = stocks.reduce((sum, stock) => {
-      const normalizedPrice = normalizeIsraeliPrice(stock.currentPrice);
-      const currentValue = (normalizedPrice || 0) * (stock.quantity || 0);
-      return sum + currentValue;
-    }, 0);
-    const totalProfit = totalCurrentValue - totalPurchaseValue;
-    const profitPercentage = calculateProfitPercentage(totalPurchaseValue, totalCurrentValue);
-    
-    // חישוב מחיר ממוצע משוקלל לפי הכמות
-    const averagePurchasePrice = totalQuantity > 0 ? totalPurchaseValue / totalQuantity : 0;
-    const averageCurrentPrice = totalQuantity > 0 ? totalCurrentValue / totalQuantity : 0;
-    
-    return {
-      totalQuantity,
-      totalPurchaseValue,
-      totalCurrentValue,
-      totalProfit,
-      profitPercentage,
-      averagePurchasePrice,
-      averageCurrentPrice
-    };
-  };
-
-  // פונקציה לטיפול בפתיחה/סגירה של קיבוץ
+  // Toggle expand/collapse of a grouped row (touches state, stays in App)
   const toggleGroup = (stockName, exchange) => {
     const key = `${exchange}-${stockName}`;
     setExpandedGroups(prev => ({
@@ -868,482 +507,6 @@ function App() {
     }));
   };
 
-  // פונקציה לחישוב סיכום כללי של התיק
-  const calculatePortfolioSummary = () => {
-    // חישוב מניות ישראליות
-    const israeliSummary = israeliStocks.reduce((acc, stock) => {
-      const totalPurchase = (stock.purchasePrice || 0) * (stock.quantity || 0);
-      const normalizedPrice = normalizeIsraeliPrice(stock.currentPrice);
-      const totalCurrentValue = (normalizedPrice || 0) * (stock.quantity || 0);
-      const profit = totalCurrentValue - totalPurchase;
-      
-      acc.totalPurchaseILS += totalPurchase;
-      acc.totalCurrentValueILS += totalCurrentValue;
-      acc.totalProfitILS += profit;
-      acc.totalWeight += totalCurrentValue; // משקל לחישוב אחוז שינוי יומי
-      acc.dailyChangeSum += (stock.dailyChangePercent || 0) * totalCurrentValue;
-      
-      return acc;
-    }, {
-      totalPurchaseILS: 0,
-      totalCurrentValueILS: 0,
-      totalProfitILS: 0,
-      totalWeight: 0,
-      dailyChangeSum: 0
-    });
-
-    // חישוב מניות אמריקאיות
-    const americanSummary = americanStocks.reduce((acc, stock) => {
-      const metrics = calculateAmericanStockMetrics(stock);
-      
-      acc.totalPurchaseUSD += metrics.totalPurchaseUSD;
-      acc.totalPurchaseILS += metrics.totalPurchaseILS;
-      acc.totalCurrentValueUSD += metrics.totalCurrentValueUSD;
-      acc.totalCurrentValueILS += metrics.totalCurrentValueILS;
-      acc.totalProfitUSD += metrics.profitUSD;
-      acc.totalProfitILS += metrics.profitILS;
-      acc.totalExchangeImpact += metrics.exchangeRateImpact;
-      acc.totalWeight += metrics.totalCurrentValueILS; // משקל לחישוב אחוז שינוי יומי
-      acc.dailyChangeSum += (stock.dailyChangePercent || 0) * metrics.totalCurrentValueILS;
-      
-      return acc;
-    }, {
-      totalPurchaseUSD: 0,
-      totalPurchaseILS: 0,
-      totalCurrentValueUSD: 0,
-      totalCurrentValueILS: 0,
-      totalProfitUSD: 0,
-      totalProfitILS: 0,
-      totalExchangeImpact: 0,
-      totalWeight: 0,
-      dailyChangeSum: 0
-    });
-
-    // חישוב אחוז שינוי יומי משוקלל
-    const totalWeight = israeliSummary.totalWeight + americanSummary.totalWeight;
-    const weightedDailyChange = totalWeight > 0 ? 
-      (israeliSummary.dailyChangeSum + americanSummary.dailyChangeSum) / totalWeight : 0;
-
-    // חישוב רווח יומי בשקלים ובדולרים
-    const dailyProfitILS = (weightedDailyChange / 100) * (israeliSummary.totalCurrentValueILS + americanSummary.totalCurrentValueILS);
-    const dailyProfitUSD = (weightedDailyChange / 100) * americanSummary.totalCurrentValueUSD;
-
-    // רווח יומי נפרד לכל בורסה
-    const israeliDailyProfitILS = israeliStocks.reduce((sum, stock) => {
-      const totalCurrentValue = normalizeIsraeliPrice(stock.currentPrice) * (stock.quantity || 0);
-      return sum + ((stock.dailyChangePercent || 0) / 100) * totalCurrentValue;
-    }, 0);
-
-    const americanDailyProfitUSD = americanStocks.reduce((sum, stock) => {
-      const totalCurrentValueUSD = (stock.currentPrice || 0) * (stock.quantity || 0);
-      return sum + ((stock.dailyChangePercent || 0) / 100) * totalCurrentValueUSD;
-    }, 0);
-
-    // אחוזי רווח כוללים פר בורסה
-    const israeliProfitILS = israeliSummary.totalCurrentValueILS - israeliSummary.totalPurchaseILS;
-    const israeliTaxILS = israeliProfitILS > 0 ? israeliProfitILS * TAX_RATE : 0;
-    const israeliAfterTaxILS = israeliProfitILS - israeliTaxILS;
-    const israeliProfitPercent = israeliSummary.totalPurchaseILS > 0 ? (israeliProfitILS / israeliSummary.totalPurchaseILS) * 100 : 0;
-    const israeliDailyPercent = israeliSummary.totalCurrentValueILS > 0 ? (israeliDailyProfitILS / israeliSummary.totalCurrentValueILS) * 100 : 0;
-
-    const americanProfitUSD = americanSummary.totalCurrentValueUSD - americanSummary.totalPurchaseUSD;
-    const americanTaxUSD = americanProfitUSD > 0 ? americanProfitUSD * TAX_RATE : 0;
-    const americanAfterTaxUSD = americanProfitUSD - americanTaxUSD;
-    const americanProfitPercent = americanSummary.totalPurchaseUSD > 0 ? (americanProfitUSD / americanSummary.totalPurchaseUSD) * 100 : 0;
-    const americanDailyPercent = americanSummary.totalCurrentValueUSD > 0 ? (americanDailyProfitUSD / americanSummary.totalCurrentValueUSD) * 100 : 0;
-    const americanTaxILS = americanSummary.totalCurrentValueUSD > 0 ? americanTaxUSD * (americanSummary.totalCurrentValueILS / americanSummary.totalCurrentValueUSD) : 0;
-
-    // סה"כ מצב ההון לפי קטגוריות
-    const cashFundsTotalILS = cashFunds.reduce((sum, item) => sum + (item.amount || 0), 0);
-    const pensionInitialInvestmentILS = pensionFunds.reduce((sum, item) => sum + (item.initialInvestment ?? item.amount ?? 0), 0);
-    const pensionCurrentValueILS = pensionFunds.reduce((sum, item) => sum + (item.currentValue ?? item.amount ?? 0), 0);
-    const pensionPreviousValueILS = pensionFunds.reduce((sum, item) => sum + (item.previousValue ?? item.amount ?? 0), 0);
-    const pensionProfitPercent = pensionInitialInvestmentILS > 0 ? ((pensionCurrentValueILS / pensionInitialInvestmentILS) - 1) * 100 : 0;
-    const pensionPreviousProfitPercent = pensionPreviousValueILS > 0 ? ((pensionCurrentValueILS / pensionPreviousValueILS) - 1) * 100 : (pensionInitialInvestmentILS > 0 ? ((pensionCurrentValueILS / pensionInitialInvestmentILS) - 1) * 100 : 0);
-    const pensionTotalProfitILS = pensionCurrentValueILS - pensionInitialInvestmentILS;
-    const pensionTaxILS = pensionTotalProfitILS > 0 ? pensionTotalProfitILS * TAX_RATE : 0;
-    const pensionUpdateProfitILS = pensionCurrentValueILS - pensionPreviousValueILS;
-    const totalTaxILS = israeliTaxILS + americanTaxILS + pensionTaxILS;
-    const totalProfitAfterTaxILS = (israeliSummary.totalProfitILS + americanSummary.totalProfitILS + pensionTotalProfitILS) - totalTaxILS;
-    const bankBalancesTotalILS = bankBalances.reduce((sum, item) => sum + (item.amount || 0), 0);
-    const capitalIsraeliILS = israeliSummary.totalCurrentValueILS;
-    const capitalAmericanILS = americanSummary.totalCurrentValueILS;
-    const capitalTotalILS =
-      capitalIsraeliILS +
-      capitalAmericanILS +
-      cashFundsTotalILS +
-      pensionCurrentValueILS +
-      bankBalancesTotalILS;
-
-    return {
-      // סיכום בשקלים
-      totalPurchaseILS: israeliSummary.totalPurchaseILS + americanSummary.totalPurchaseILS + pensionInitialInvestmentILS,
-      totalCurrentValueILS: israeliSummary.totalCurrentValueILS + americanSummary.totalCurrentValueILS + pensionCurrentValueILS,
-      totalProfitILS: israeliSummary.totalProfitILS + americanSummary.totalProfitILS + pensionTotalProfitILS,
-
-      // סיכום ישראלי בלבד
-      israeliOnlyPurchaseILS: israeliSummary.totalPurchaseILS,
-      israeliOnlyCurrentValueILS: israeliSummary.totalCurrentValueILS,
-      israeliOnlyProfitILS: israeliSummary.totalProfitILS,
-      israeliOnlyTaxILS: israeliTaxILS,
-      israeliOnlyAfterTaxILS: israeliAfterTaxILS,
-      israeliOnlyProfitPercent: israeliProfitPercent,
-      israeliOnlyDailyPercent: israeliDailyPercent,
-      israeliOnlyDailyProfitILS: israeliDailyProfitILS,
-      
-      // סיכום בדולרים
-      totalPurchaseUSD: americanSummary.totalPurchaseUSD,
-      totalCurrentValueUSD: americanSummary.totalCurrentValueUSD,
-      totalProfitUSD: americanSummary.totalProfitUSD,
-      americanOnlyTaxUSD: americanTaxUSD,
-      americanOnlyTaxILS: americanTaxILS,
-      americanOnlyAfterTaxUSD: americanAfterTaxUSD,
-      americanOnlyProfitPercent: americanProfitPercent,
-      americanOnlyDailyPercent: americanDailyPercent,
-      americanOnlyDailyProfitUSD: americanDailyProfitUSD,
-      
-      // אחוז שינוי יומי משוקלל
-      weightedDailyChange: weightedDailyChange,
-      
-      // רווח יומי בשקלים ובדולרים
-      dailyProfitILS: dailyProfitILS,
-      dailyProfitUSD: dailyProfitUSD,
-      israeliDailyProfitILS: israeliDailyProfitILS,
-      americanDailyProfitUSD: americanDailyProfitUSD,
-      
-      // השפעת שער חליפין כוללת
-      totalExchangeImpact: americanSummary.totalExchangeImpact,
-
-      // מצב הון
-      capitalIsraeliILS,
-      capitalAmericanILS,
-      capitalCashFundsILS: cashFundsTotalILS,
-      capitalPensionILS: pensionCurrentValueILS,
-      pensionInitialInvestmentILS,
-      pensionCurrentValueILS,
-      pensionPreviousValueILS,
-      pensionProfitPercent,
-      pensionPreviousProfitPercent,
-      pensionTotalProfitILS,
-      pensionTaxILS,
-      pensionUpdateProfitILS,
-      capitalBankILS: bankBalancesTotalILS,
-      capitalTotalILS,
-      totalTaxILS,
-      totalProfitAfterTaxILS
-    };
-  };
-
-  // פונקציות לניתוח התיק
-  const calculatePortfolioAnalysis = () => {
-    const toNum = (v) => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n : 0;
-    };
-    const now = new Date();
-    const daysBetween = (rawDate) => {
-      const d = new Date(rawDate);
-      if (Number.isNaN(d.getTime())) return 0;
-      const days = Math.floor((now - d) / (1000 * 60 * 60 * 24));
-      return Math.max(days, 0);
-    };
-
-    // ניתוח פיזור לפי בורסות
-    const israeliTotalValue = israeliStocks.reduce((sum, stock) => {
-      const normalizedPrice = normalizeIsraeliPrice(stock.currentPrice);
-      return sum + (toNum(normalizedPrice) * toNum(stock.quantity));
-    }, 0);
-
-    const americanTotalValueILS = americanStocks.reduce((sum, stock) => {
-      const metrics = calculateAmericanStockMetrics(stock);
-      return sum + metrics.totalCurrentValueILS;
-    }, 0);
-
-    const pensionTotalValueILS = pensionFunds.reduce(
-      (sum, item) => sum + toNum(item.currentValue != null ? item.currentValue : item.amount),
-      0
-    );
-    const cashFundsTotalValueILS = cashFunds.reduce((sum, item) => sum + toNum(item.amount), 0);
-    const bankTotalValueILS = bankBalances.reduce((sum, item) => sum + toNum(item.amount), 0);
-    const totalValueILS =
-      israeliTotalValue +
-      americanTotalValueILS +
-      pensionTotalValueILS +
-      cashFundsTotalValueILS +
-      bankTotalValueILS;
-
-    // ניתוח פיזור לפי מניות
-    const stockDistribution = {};
-    
-    // מניות ישראליות
-    israeliStocks.forEach(stock => {
-      const value = toNum(normalizeIsraeliPrice(stock.currentPrice)) * toNum(stock.quantity);
-      const purchaseValue = toNum(stock.purchasePrice) * toNum(stock.quantity);
-      const profit = value - purchaseValue;
-      
-      // חישוב זמן החזקה
-      const daysHeld = daysBetween(stock.purchaseDate);
-      const yearsHeld = daysHeld / 365;
-      
-      
-      if (!stockDistribution[stock.stockName]) {
-        stockDistribution[stock.stockName] = {
-          name: stock.stockName,
-          value: 0,
-          percentage: 0,
-          exchange: 'israeli',
-          profit: 0,
-          profitPercentage: 0,
-          totalQuantity: 0,
-          avgPurchasePrice: 0,
-          totalPurchaseValue: 0,
-          totalWeightForYears: 0,
-          weightedYearsNumerator: 0,
-          daysHeld: 0,
-          yearsHeld: 0,
-          annualizedReturn: 0,
-          dailyChange: 0,
-          volatility: 0
-        };
-      }
-      
-      stockDistribution[stock.stockName].value += value;
-      stockDistribution[stock.stockName].profit += profit;
-      stockDistribution[stock.stockName].totalQuantity += toNum(stock.quantity);
-      stockDistribution[stock.stockName].totalPurchaseValue += purchaseValue;
-      stockDistribution[stock.stockName].totalWeightForYears += purchaseValue;
-      stockDistribution[stock.stockName].weightedYearsNumerator += yearsHeld * purchaseValue;
-      stockDistribution[stock.stockName].daysHeld = Math.max(stockDistribution[stock.stockName].daysHeld, daysHeld);
-      stockDistribution[stock.stockName].yearsHeld = Math.max(stockDistribution[stock.stockName].yearsHeld, yearsHeld);
-      stockDistribution[stock.stockName].dailyChange = toNum(stock.dailyChangePercent);
-      
-      // חישוב תשואה שנתית
-      if (yearsHeld > 0 && purchaseValue > 0) {
-        const annualizedReturn = Math.pow((value / purchaseValue), (1 / yearsHeld)) - 1;
-        stockDistribution[stock.stockName].annualizedReturn = annualizedReturn;
-      }
-    });
-
-    // מניות אמריקאיות
-    americanStocks.forEach(stock => {
-      const metrics = calculateAmericanStockMetrics(stock);
-      const value = metrics.totalCurrentValueILS;
-      const purchaseValue = metrics.totalPurchaseILS;
-      const profit = metrics.profitILS;
-      
-      // חישוב זמן החזקה
-      const daysHeld = daysBetween(stock.purchaseDate);
-      const yearsHeld = daysHeld / 365;
-      
-      
-      if (!stockDistribution[stock.stockName]) {
-        stockDistribution[stock.stockName] = {
-          name: stock.stockName,
-          value: 0,
-          percentage: 0,
-          exchange: 'american',
-          profit: 0,
-          profitPercentage: 0,
-          totalQuantity: 0,
-          avgPurchasePrice: 0,
-          totalPurchaseValue: 0,
-          totalWeightForYears: 0,
-          weightedYearsNumerator: 0,
-          daysHeld: 0,
-          yearsHeld: 0,
-          annualizedReturn: 0,
-          dailyChange: 0,
-          volatility: 0
-        };
-      }
-      
-      stockDistribution[stock.stockName].value += value;
-      stockDistribution[stock.stockName].profit += profit;
-      stockDistribution[stock.stockName].totalQuantity += toNum(stock.quantity);
-      stockDistribution[stock.stockName].totalPurchaseValue += purchaseValue;
-      stockDistribution[stock.stockName].totalWeightForYears += purchaseValue;
-      stockDistribution[stock.stockName].weightedYearsNumerator += yearsHeld * purchaseValue;
-      stockDistribution[stock.stockName].daysHeld = Math.max(stockDistribution[stock.stockName].daysHeld, daysHeld);
-      stockDistribution[stock.stockName].yearsHeld = Math.max(stockDistribution[stock.stockName].yearsHeld, yearsHeld);
-      stockDistribution[stock.stockName].dailyChange = toNum(stock.dailyChangePercent);
-      
-      // חישוב תשואה שנתית
-      if (yearsHeld > 0 && purchaseValue > 0) {
-        const annualizedReturn = Math.pow((value / purchaseValue), (1 / yearsHeld)) - 1;
-        stockDistribution[stock.stockName].annualizedReturn = annualizedReturn;
-      }
-    });
-
-    // חישוב נתונים נוספים
-    Object.values(stockDistribution).forEach(stock => {
-      stock.percentage = totalValueILS > 0 ? (stock.value / totalValueILS) * 100 : 0;
-      stock.profitPercentage = stock.totalPurchaseValue > 0 ? (stock.profit / stock.totalPurchaseValue) * 100 : 0;
-      stock.avgPurchasePrice = stock.totalQuantity > 0 ? stock.totalPurchaseValue / stock.totalQuantity : 0;
-      stock.yearsHeld = stock.totalWeightForYears > 0
-        ? stock.weightedYearsNumerator / stock.totalWeightForYears
-        : stock.yearsHeld;
-      stock.daysHeld = Math.round(stock.yearsHeld * 365);
-      
-      // חישוב תשואה שנתית כוללת
-      if (stock.yearsHeld > 0 && stock.totalPurchaseValue > 0) {
-        stock.annualizedReturn = Math.pow((stock.value / stock.totalPurchaseValue), (1 / stock.yearsHeld)) - 1;
-      }
-      
-      // חישוב וולטיליות (פשטני)
-      stock.volatility = Math.abs(stock.dailyChange) * 1.5; // קירוב פשטני לוולטיליות
-    });
-
-    // ניתוח פיזור לפי תאריכי קנייה
-    const monthlyDistribution = {};
-    const yearlyDistribution = {};
-    
-    const addDateBucket = (stock, value) => {
-      const date = new Date(stock.purchaseDate);
-      if (Number.isNaN(date.getTime())) return;
-      const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      const year = date.getFullYear();
-      if (!monthlyDistribution[month]) {
-        monthlyDistribution[month] = { value: 0, count: 0 };
-      }
-      monthlyDistribution[month].value += value;
-      monthlyDistribution[month].count += 1;
-      
-      if (!yearlyDistribution[year]) {
-        yearlyDistribution[year] = { value: 0, count: 0 };
-      }
-      yearlyDistribution[year].value += value;
-      yearlyDistribution[year].count += 1;
-    };
-    
-    israeliStocks.forEach((stock) => {
-      const value = toNum(normalizeIsraeliPrice(stock.currentPrice)) * toNum(stock.quantity);
-      addDateBucket(stock, value);
-    });
-    americanStocks.forEach((stock) => {
-      const metrics = calculateAmericanStockMetrics(stock);
-      addDateBucket(stock, metrics.totalCurrentValueILS);
-    });
-    pensionFunds.forEach((item) => {
-      const value = toNum(item.currentValue != null ? item.currentValue : item.amount);
-      addDateBucket({ purchaseDate: item.updateDate }, value);
-    });
-    cashFunds.forEach((item) => {
-      addDateBucket({ purchaseDate: item.updateDate }, toNum(item.amount));
-    });
-    bankBalances.forEach((item) => {
-      addDateBucket({ purchaseDate: item.updateDate }, toNum(item.amount));
-    });
-
-    const stockList = Object.values(stockDistribution);
-
-    // דוחות מפורטים
-    const topPerformers = [...stockList]
-      .filter((s) => s.profit > 0)
-      .sort((a, b) => b.profit - a.profit)
-      .slice(0, 5);
-
-    const worstPerformers = [...stockList]
-      .filter((s) => s.profit < 0)
-      .sort((a, b) => a.profit - b.profit)
-      .slice(0, 5);
-
-    const largestPositions = [...stockList]
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5);
-
-    const totalPurchaseILS = stockList.reduce((sum, stock) => sum + stock.totalPurchaseValue, 0);
-    const totalProfitILS = stockList.reduce((sum, stock) => sum + stock.profit, 0);
-    const weightedDailyChangePercent = totalValueILS > 0
-      ? stockList.reduce((sum, stock) => sum + (stock.dailyChange * stock.value), 0) / totalValueILS
-      : 0;
-    const weightedAnnualizedReturnPercent = totalPurchaseILS > 0
-      ? stockList.reduce((sum, stock) => sum + ((stock.annualizedReturn || 0) * stock.totalPurchaseValue), 0) /
-        totalPurchaseILS * 100
-      : 0;
-    const concentrationTop3Percent = stockList
-      .slice()
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 3)
-      .reduce((sum, stock) => sum + stock.percentage, 0);
-    const averageHoldingDays = stockList.length
-      ? Math.round(stockList.reduce((sum, stock) => sum + stock.daysHeld, 0) / stockList.length)
-      : 0;
-    const americanFxImpactILS = americanStocks.reduce((sum, stock) => {
-      const metrics = calculateAmericanStockMetrics(stock);
-      return sum + metrics.exchangeRateImpact;
-    }, 0);
-    const israeliPositions = stockList.filter((s) => s.exchange === 'israeli').length;
-    const americanPositions = stockList.filter((s) => s.exchange === 'american').length;
-    const nonStockTotalValueILS =
-      pensionTotalValueILS + cashFundsTotalValueILS + bankTotalValueILS;
-
-    return {
-      // פיזור לפי בורסות
-      exchangeDistribution: {
-        israeli: {
-          value: israeliTotalValue,
-          percentage: totalValueILS > 0 ? (israeliTotalValue / totalValueILS) * 100 : 0
-        },
-        american: {
-          value: americanTotalValueILS,
-          percentage: totalValueILS > 0 ? (americanTotalValueILS / totalValueILS) * 100 : 0
-        },
-        pension: {
-          value: pensionTotalValueILS,
-          percentage: totalValueILS > 0 ? (pensionTotalValueILS / totalValueILS) * 100 : 0
-        },
-        cashFunds: {
-          value: cashFundsTotalValueILS,
-          percentage: totalValueILS > 0 ? (cashFundsTotalValueILS / totalValueILS) * 100 : 0
-        },
-        bank: {
-          value: bankTotalValueILS,
-          percentage: totalValueILS > 0 ? (bankTotalValueILS / totalValueILS) * 100 : 0
-        },
-        total: totalValueILS
-      },
-      
-      // פיזור לפי מניות
-      stockDistribution: [...stockList].sort((a, b) => b.value - a.value),
-      
-      // פיזור לפי תאריכים
-      monthlyDistribution: Object.entries(monthlyDistribution)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([month, data]) => ({ month, ...data })),
-      
-      yearlyDistribution: Object.entries(yearlyDistribution)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([year, data]) => ({ year, ...data })),
-      
-      // דוחות מפורטים
-      reports: {
-        topPerformers,
-        worstPerformers,
-        largestPositions
-      },
-      summaryMetrics: {
-        positionsCount:
-          stockList.length + pensionFunds.length + cashFunds.length + bankBalances.length,
-        israeliPositions,
-        americanPositions,
-        pensionPositions: pensionFunds.length,
-        cashFundsPositions: cashFunds.length,
-        bankPositions: bankBalances.length,
-        totalPurchaseILS,
-        totalProfitILS,
-        weightedDailyChangePercent,
-        weightedAnnualizedReturnPercent,
-        concentrationTop3Percent,
-        averageHoldingDays,
-        americanFxImpactILS,
-        pensionTotalValueILS,
-        cashFundsTotalValueILS,
-        bankTotalValueILS,
-        nonStockTotalValueILS,
-        overallTotalValueILS: totalValueILS
-      }
-    };
-  };
 
   if (authLoading) {
     return (
@@ -1358,12 +521,7 @@ function App() {
   if (!user) {
     return (
       <div className="App">
-        <AuthView
-          onAuthenticated={(authenticatedUser, token) => {
-            if (token) setAuthToken(token);
-            setUser(authenticatedUser);
-          }}
-        />
+        <AuthView onAuthenticated={login} />
       </div>
     );
   }
@@ -1393,7 +551,13 @@ function App() {
   }
 
   if (showAnalysis) {
-    const analysis = calculatePortfolioAnalysis();
+    const analysis = calculatePortfolioAnalysis(
+      israeliStocks,
+      americanStocks,
+      pensionFunds,
+      cashFunds,
+      bankBalances
+    );
     
     return (
       <PortfolioAnalysisView
@@ -1404,7 +568,13 @@ function App() {
     );
   }
 
-  const summary = calculatePortfolioSummary();
+  const summary = calculatePortfolioSummary(
+    israeliStocks,
+    americanStocks,
+    pensionFunds,
+    cashFunds,
+    bankBalances
+  );
 
   return (
     <div className="App">
