@@ -1,4 +1,158 @@
 import React from 'react';
+import EditableCell from './EditableCell';
+import { profitClass, formatDailyChangePercent } from '../utils/formatters';
+
+// Renders the name/date/price/quantity editable fields for one American
+// stock row — used for both the single-stock row and each expanded detail
+// row. Date/price/quantity are only shown when showAmericanColumns is on.
+function AmericanEditableFields({ stock, showAmericanColumns, editingField, isEditMode, handleCellClick, handleInlineEdit, finishInlineEdit, handleKeyDown, formatDate, formatPriceWithSign, nameCellStyle }) {
+  return (
+    <>
+      <EditableCell
+        id={stock.id}
+        field="stockName"
+        exchange="american"
+        value={stock.stockName}
+        editingField={editingField}
+        isEditMode={isEditMode}
+        handleCellClick={handleCellClick}
+        handleInlineEdit={handleInlineEdit}
+        finishInlineEdit={finishInlineEdit}
+        handleKeyDown={handleKeyDown}
+        displayValue={stock.stockName}
+        style={nameCellStyle}
+      />
+      {showAmericanColumns && (
+        <EditableCell
+          id={stock.id}
+          field="purchaseDate"
+          exchange="american"
+          value={stock.purchaseDate}
+          type="date"
+          editingField={editingField}
+          isEditMode={isEditMode}
+          handleCellClick={handleCellClick}
+          handleInlineEdit={handleInlineEdit}
+          finishInlineEdit={finishInlineEdit}
+          handleKeyDown={handleKeyDown}
+          displayValue={formatDate(stock.purchaseDate)}
+        />
+      )}
+      {showAmericanColumns && (
+        <EditableCell
+          id={stock.id}
+          field="purchasePrice"
+          exchange="american"
+          value={stock.purchasePrice}
+          type="number"
+          step="0.01"
+          parse={(raw) => parseFloat(raw)}
+          editingField={editingField}
+          isEditMode={isEditMode}
+          handleCellClick={handleCellClick}
+          handleInlineEdit={handleInlineEdit}
+          finishInlineEdit={finishInlineEdit}
+          handleKeyDown={handleKeyDown}
+          displayValue={`${formatPriceWithSign(stock.purchasePrice)} $`}
+        />
+      )}
+      {showAmericanColumns && (
+        <EditableCell
+          id={stock.id}
+          field="quantity"
+          exchange="american"
+          value={stock.quantity}
+          type="number"
+          min="1"
+          parse={(raw) => parseInt(raw)}
+          editingField={editingField}
+          isEditMode={isEditMode}
+          handleCellClick={handleCellClick}
+          handleInlineEdit={handleInlineEdit}
+          finishInlineEdit={finishInlineEdit}
+          handleKeyDown={handleKeyDown}
+          displayValue={stock.quantity}
+        />
+      )}
+    </>
+  );
+}
+
+// Renders the computed (mostly non-editable, except exchangeRate) figures
+// for one single American stock row.
+function AmericanSingleStockComputedCells({
+  stock,
+  showAmericanColumns,
+  calculateAmericanStockMetrics,
+  calculateProfitPercentage,
+  formatPrice,
+  formatPriceWithSign,
+  isEditMode,
+  editingField,
+  handleCellClick,
+  handleInlineEdit,
+  finishInlineEdit,
+  handleKeyDown,
+  handleDelete
+}) {
+  const {
+    totalPurchaseUSD,
+    totalPurchaseILS,
+    totalCurrentValueUSD,
+    currentExchangeRate,
+    totalCurrentValueILS,
+    profitUSD,
+    profitILS,
+    taxILS,
+    afterTaxILS,
+    exchangeRateImpact
+  } = calculateAmericanStockMetrics(stock);
+  const profitPercentage = calculateProfitPercentage(stock.purchasePrice || 0, stock.currentPrice || 0);
+
+  return (
+    <>
+      <td>{formatPriceWithSign(totalPurchaseUSD)} $</td>
+      {showAmericanColumns && <td>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
+      {showAmericanColumns && (
+        <EditableCell
+          id={stock.id}
+          field="exchangeRate"
+          exchange="american"
+          value={stock.exchangeRate}
+          type="number"
+          step="0.0001"
+          parse={(raw) => parseFloat(raw)}
+          editingField={editingField}
+          isEditMode={isEditMode}
+          handleCellClick={handleCellClick}
+          handleInlineEdit={handleInlineEdit}
+          finishInlineEdit={finishInlineEdit}
+          handleKeyDown={handleKeyDown}
+          displayValue={formatPrice(stock.exchangeRate)}
+        />
+      )}
+      {showAmericanColumns && <td>{formatPrice(currentExchangeRate)}</td>}
+      <td>{formatPriceWithSign(stock.currentPrice)} $</td>
+      <td>{formatPriceWithSign(totalCurrentValueUSD)} $</td>
+      {showAmericanColumns && <td>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>}
+      <td className={profitClass(profitUSD)}>{formatPriceWithSign(profitUSD)} $</td>
+      {showAmericanColumns && <td className={profitClass(profitILS)}>{formatPriceWithSign(profitILS)} ₪</td>}
+      <td className={profitClass(profitPercentage)}>{profitPercentage}%</td>
+      <td className={profitClass(stock.dailyChangePercent)}>{formatDailyChangePercent(stock.dailyChangePercent)}%</td>
+      <td className={profitClass(stock.dailyChangePercent)}>
+        {formatPriceWithSign(((stock.dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $
+      </td>
+      {showAmericanColumns && <td className={profitClass(exchangeRateImpact)}>{formatPriceWithSign(exchangeRateImpact)} ₪</td>}
+      {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-taxILS)} ₪</td>}
+      {showAmericanColumns && <td className={profitClass(afterTaxILS)}>{formatPriceWithSign(afterTaxILS)} ₪</td>}
+      {isEditMode && (
+        <td>
+          <button onClick={() => handleDelete(stock.id, 'american')} className="delete-button">מחק</button>
+        </td>
+      )}
+    </>
+  );
+}
 
 function AmericanStocksTable({
   americanStocks,
@@ -56,118 +210,38 @@ function AmericanStocksTable({
                 {Object.entries(groupStocksByName(americanStocks)).map(([stockName, stocks]) => {
                   const isExpanded = expandedGroups[`american-${stockName}`];
                   const summary = calculateGroupSummary(stocks);
+                  const editableFieldProps = {
+                    showAmericanColumns,
+                    editingField,
+                    isEditMode,
+                    handleCellClick,
+                    handleInlineEdit,
+                    finishInlineEdit,
+                    handleKeyDown,
+                    formatDate,
+                    formatPriceWithSign
+                  };
+                  const computedCellProps = {
+                    showAmericanColumns,
+                    calculateAmericanStockMetrics,
+                    calculateProfitPercentage,
+                    formatPrice,
+                    formatPriceWithSign,
+                    isEditMode,
+                    editingField,
+                    handleCellClick,
+                    handleInlineEdit,
+                    finishInlineEdit,
+                    handleKeyDown,
+                    handleDelete
+                  };
 
                   if (stocks.length === 1) {
                     const stock = stocks[0];
-                    const {
-                      totalPurchaseUSD,
-                      totalPurchaseILS,
-                      totalCurrentValueUSD,
-                      currentExchangeRate,
-                      totalCurrentValueILS,
-                      profitUSD,
-                      profitILS,
-                      taxILS,
-                      afterTaxILS,
-                      exchangeRateImpact
-                    } = calculateAmericanStockMetrics(stock);
-                    const profitPercentage = calculateProfitPercentage(stock.purchasePrice || 0, stock.currentPrice || 0);
-
                     return (
-                      <tr
-                        key={stock.id}
-                        className={isEditMode ? 'editable-row' : ''}
-                      >
-                        <td onClick={() => handleCellClick(stock.id, 'stockName', 'american')} className={isEditMode ? 'editable-cell' : ''}>
-                          {editingField === `${stock.id}-stockName` ? (
-                            <input
-                              type="text"
-                              value={stock.stockName}
-                              onChange={(e) => handleInlineEdit(stock.id, 'stockName', e.target.value, 'american')}
-                              onBlur={finishInlineEdit}
-                              onKeyDown={(e) => handleKeyDown(e, stock.id, 'stockName', 'american')}
-                              autoFocus
-                            />
-                          ) : stock.stockName}
-                        </td>
-                        {showAmericanColumns && (
-                          <td onClick={() => handleCellClick(stock.id, 'purchaseDate', 'american')} className={isEditMode ? 'editable-cell' : ''}>
-                            {editingField === `${stock.id}-purchaseDate` ? (
-                              <input
-                                type="date"
-                                value={stock.purchaseDate}
-                                onChange={(e) => handleInlineEdit(stock.id, 'purchaseDate', e.target.value, 'american')}
-                                onBlur={finishInlineEdit}
-                                onKeyDown={(e) => handleKeyDown(e, stock.id, 'purchaseDate', 'american')}
-                                autoFocus
-                              />
-                            ) : formatDate(stock.purchaseDate)}
-                          </td>
-                        )}
-                        {showAmericanColumns && (
-                          <td onClick={() => handleCellClick(stock.id, 'purchasePrice', 'american')} className={isEditMode ? 'editable-cell' : ''}>
-                            {editingField === `${stock.id}-purchasePrice` ? (
-                              <input
-                                type="number"
-                                value={stock.purchasePrice}
-                                onChange={(e) => handleInlineEdit(stock.id, 'purchasePrice', parseFloat(e.target.value), 'american')}
-                                onBlur={finishInlineEdit}
-                                onKeyDown={(e) => handleKeyDown(e, stock.id, 'purchasePrice', 'american')}
-                                autoFocus
-                                step="0.01"
-                              />
-                            ) : formatPriceWithSign(stock.purchasePrice) + ' $'}
-                          </td>
-                        )}
-                        {showAmericanColumns && (
-                          <td onClick={() => handleCellClick(stock.id, 'quantity', 'american')} className={isEditMode ? 'editable-cell' : ''}>
-                            {editingField === `${stock.id}-quantity` ? (
-                              <input
-                                type="number"
-                                value={stock.quantity}
-                                onChange={(e) => handleInlineEdit(stock.id, 'quantity', parseInt(e.target.value), 'american')}
-                                onBlur={finishInlineEdit}
-                                onKeyDown={(e) => handleKeyDown(e, stock.id, 'quantity', 'american')}
-                                autoFocus
-                                min="1"
-                              />
-                            ) : stock.quantity}
-                          </td>
-                        )}
-                        <td>{formatPriceWithSign(totalPurchaseUSD)} $</td>
-                        {showAmericanColumns && <td>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
-                        {showAmericanColumns && (
-                          <td onClick={() => handleCellClick(stock.id, 'exchangeRate', 'american')} className={isEditMode ? 'editable-cell' : ''}>
-                            {editingField === `${stock.id}-exchangeRate` ? (
-                              <input
-                                type="number"
-                                value={stock.exchangeRate}
-                                onChange={(e) => handleInlineEdit(stock.id, 'exchangeRate', parseFloat(e.target.value), 'american')}
-                                onBlur={finishInlineEdit}
-                                onKeyDown={(e) => handleKeyDown(e, stock.id, 'exchangeRate', 'american')}
-                                autoFocus
-                                step="0.0001"
-                              />
-                            ) : formatPrice(stock.exchangeRate)}
-                          </td>
-                        )}
-                        {showAmericanColumns && <td>{formatPrice(currentExchangeRate)}</td>}
-                        <td>{formatPriceWithSign(stock.currentPrice)} $</td>
-                        <td>{formatPriceWithSign(totalCurrentValueUSD)} $</td>
-                        {showAmericanColumns && <td>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>}
-                        <td className={profitUSD >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(profitUSD)} $</td>
-                        {showAmericanColumns && <td className={profitILS >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(profitILS)} ₪</td>}
-                        <td className={profitPercentage >= 0 ? 'profit-positive' : 'profit-negative'}>{profitPercentage}%</td>
-                        <td className={(stock.dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{stock.dailyChangePercent ? stock.dailyChangePercent.toFixed(2) : '0.00'}%</td>
-                        <td className={(stock.dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(((stock.dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $</td>
-                        {showAmericanColumns && <td className={exchangeRateImpact >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(exchangeRateImpact)} ₪</td>}
-                        {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-taxILS)} ₪</td>}
-                        {showAmericanColumns && <td className={afterTaxILS >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(afterTaxILS)} ₪</td>}
-                        {isEditMode && (
-                          <td>
-                            <button onClick={() => handleDelete(stock.id, 'american')} className="delete-button">מחק</button>
-                          </td>
-                        )}
+                      <tr key={stock.id} className={isEditMode ? 'editable-row' : ''}>
+                        <AmericanEditableFields stock={stock} {...editableFieldProps} />
+                        <AmericanSingleStockComputedCells stock={stock} {...computedCellProps} />
                       </tr>
                     );
                   }
@@ -213,127 +287,31 @@ function AmericanStocksTable({
                         <td>{formatPriceWithSign(averageCurrentPriceUSD)} $</td>
                         <td>{formatPriceWithSign(totalCurrentValueUSD)} $</td>
                         {showAmericanColumns && <td>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>}
-                        <td className={totalProfitUSD >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(totalProfitUSD)} $</td>
-                        {showAmericanColumns && <td className={totalProfitILS >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(totalProfitILS)} ₪</td>}
-                        <td className={profitPercentage >= 0 ? 'profit-positive' : 'profit-negative'}>{profitPercentage}%</td>
-                        <td className={(stocks[0].dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{stocks[0].dailyChangePercent ? stocks[0].dailyChangePercent.toFixed(2) : '0.00'}%</td>
-                        <td className={(stocks[0].dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(((stocks[0].dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $</td>
-                        {showAmericanColumns && <td className={totalExchangeRateImpact >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(totalExchangeRateImpact)} ₪</td>}
+                        <td className={profitClass(totalProfitUSD)}>{formatPriceWithSign(totalProfitUSD)} $</td>
+                        {showAmericanColumns && <td className={profitClass(totalProfitILS)}>{formatPriceWithSign(totalProfitILS)} ₪</td>}
+                        <td className={profitClass(profitPercentage)}>{profitPercentage}%</td>
+                        <td className={profitClass(stocks[0].dailyChangePercent)}>
+                          {formatDailyChangePercent(stocks[0].dailyChangePercent)}%
+                        </td>
+                        <td className={profitClass(stocks[0].dailyChangePercent)}>
+                          {formatPriceWithSign(((stocks[0].dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $
+                        </td>
+                        {showAmericanColumns && <td className={profitClass(totalExchangeRateImpact)}>{formatPriceWithSign(totalExchangeRateImpact)} ₪</td>}
                         {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-totalTaxILS)} ₪</td>}
-                        {showAmericanColumns && <td className={totalAfterTaxILS >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(totalAfterTaxILS)} ₪</td>}
+                        {showAmericanColumns && <td className={profitClass(totalAfterTaxILS)}>{formatPriceWithSign(totalAfterTaxILS)} ₪</td>}
                         {isEditMode && <td></td>}
                       </tr>
 
-                      {isExpanded && stocks.map((stock) => {
-                        const {
-                          totalPurchaseUSD,
-                          totalPurchaseILS,
-                          totalCurrentValueUSD,
-                          currentExchangeRate,
-                          totalCurrentValueILS,
-                          profitUSD,
-                          profitILS,
-                          taxILS,
-                          afterTaxILS,
-                          exchangeRateImpact
-                        } = calculateAmericanStockMetrics(stock);
-                        const profitPercentage = calculateProfitPercentage(stock.purchasePrice || 0, stock.currentPrice || 0);
-
-                        return (
-                          <tr key={stock.id} className={`${isEditMode ? 'editable-row' : ''} detail-row`} style={{ backgroundColor: '#f8f9fa' }}>
-                            <td onClick={() => handleCellClick(stock.id, 'stockName', 'american')} className={isEditMode ? 'editable-cell' : ''} style={{ paddingLeft: '20px' }}>
-                              {editingField === `${stock.id}-stockName` ? (
-                                <input
-                                  type="text"
-                                  value={stock.stockName}
-                                  onChange={(e) => handleInlineEdit(stock.id, 'stockName', e.target.value, 'american')}
-                                  onBlur={finishInlineEdit}
-                                  onKeyDown={(e) => handleKeyDown(e, stock.id, 'stockName', 'american')}
-                                  autoFocus
-                                />
-                              ) : stock.stockName}
-                            </td>
-                            {showAmericanColumns && (
-                              <td onClick={() => handleCellClick(stock.id, 'purchaseDate', 'american')} className={isEditMode ? 'editable-cell' : ''}>
-                                {editingField === `${stock.id}-purchaseDate` ? (
-                                  <input
-                                    type="date"
-                                    value={stock.purchaseDate}
-                                    onChange={(e) => handleInlineEdit(stock.id, 'purchaseDate', e.target.value, 'american')}
-                                    onBlur={finishInlineEdit}
-                                    onKeyDown={(e) => handleKeyDown(e, stock.id, 'purchaseDate', 'american')}
-                                    autoFocus
-                                  />
-                                ) : formatDate(stock.purchaseDate)}
-                              </td>
-                            )}
-                            {showAmericanColumns && (
-                              <td onClick={() => handleCellClick(stock.id, 'purchasePrice', 'american')} className={isEditMode ? 'editable-cell' : ''}>
-                                {editingField === `${stock.id}-purchasePrice` ? (
-                                  <input
-                                    type="number"
-                                    value={stock.purchasePrice}
-                                    onChange={(e) => handleInlineEdit(stock.id, 'purchasePrice', parseFloat(e.target.value), 'american')}
-                                    onBlur={finishInlineEdit}
-                                    onKeyDown={(e) => handleKeyDown(e, stock.id, 'purchasePrice', 'american')}
-                                    autoFocus
-                                    step="0.01"
-                                  />
-                                ) : formatPriceWithSign(stock.purchasePrice) + ' $'}
-                              </td>
-                            )}
-                            {showAmericanColumns && (
-                              <td onClick={() => handleCellClick(stock.id, 'quantity', 'american')} className={isEditMode ? 'editable-cell' : ''}>
-                                {editingField === `${stock.id}-quantity` ? (
-                                  <input
-                                    type="number"
-                                    value={stock.quantity}
-                                    onChange={(e) => handleInlineEdit(stock.id, 'quantity', parseInt(e.target.value), 'american')}
-                                    onBlur={finishInlineEdit}
-                                    onKeyDown={(e) => handleKeyDown(e, stock.id, 'quantity', 'american')}
-                                    autoFocus
-                                    min="1"
-                                  />
-                                ) : stock.quantity}
-                              </td>
-                            )}
-                            <td>{formatPriceWithSign(totalPurchaseUSD)} $</td>
-                            {showAmericanColumns && <td>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
-                            {showAmericanColumns && (
-                              <td onClick={() => handleCellClick(stock.id, 'exchangeRate', 'american')} className={isEditMode ? 'editable-cell' : ''}>
-                                {editingField === `${stock.id}-exchangeRate` ? (
-                                  <input
-                                    type="number"
-                                    value={stock.exchangeRate}
-                                    onChange={(e) => handleInlineEdit(stock.id, 'exchangeRate', parseFloat(e.target.value), 'american')}
-                                    onBlur={finishInlineEdit}
-                                    onKeyDown={(e) => handleKeyDown(e, stock.id, 'exchangeRate', 'american')}
-                                    autoFocus
-                                    step="0.0001"
-                                  />
-                                ) : formatPrice(stock.exchangeRate)}
-                              </td>
-                            )}
-                            {showAmericanColumns && <td>{formatPrice(currentExchangeRate)}</td>}
-                            <td>{formatPriceWithSign(stock.currentPrice)} $</td>
-                            <td>{formatPriceWithSign(totalCurrentValueUSD)} $</td>
-                            {showAmericanColumns && <td>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>}
-                            <td className={profitUSD >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(profitUSD)} $</td>
-                            {showAmericanColumns && <td className={profitILS >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(profitILS)} ₪</td>}
-                            <td className={profitPercentage >= 0 ? 'profit-positive' : 'profit-negative'}>{profitPercentage}%</td>
-                            <td className={(stock.dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{stock.dailyChangePercent ? stock.dailyChangePercent.toFixed(2) : '0.00'}%</td>
-                            <td className={(stock.dailyChangePercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(((stock.dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $</td>
-                            {showAmericanColumns && <td className={exchangeRateImpact >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(exchangeRateImpact)} ₪</td>}
-                            {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-taxILS)} ₪</td>}
-                            {showAmericanColumns && <td className={afterTaxILS >= 0 ? 'profit-positive' : 'profit-negative'}>{formatPriceWithSign(afterTaxILS)} ₪</td>}
-                            {isEditMode && (
-                              <td>
-                                <button onClick={() => handleDelete(stock.id, 'american')} className="delete-button">מחק</button>
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      })}
+                      {isExpanded && stocks.map((stock) => (
+                        <tr key={stock.id} className={`${isEditMode ? 'editable-row' : ''} detail-row`} style={{ backgroundColor: '#f8f9fa' }}>
+                          <AmericanEditableFields
+                            stock={stock}
+                            {...editableFieldProps}
+                            nameCellStyle={{ paddingLeft: '20px' }}
+                          />
+                          <AmericanSingleStockComputedCells stock={stock} {...computedCellProps} />
+                        </tr>
+                      ))}
                     </React.Fragment>
                   );
                 })}
