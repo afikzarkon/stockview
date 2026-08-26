@@ -155,6 +155,22 @@ function StockFormView({
                     placeholder="0.00"
                   />
                 </div>
+                <div className="form-group">
+                  <label htmlFor="depositSinceLastUpdate">הפקדה מאז העדכון האחרון (אופציונלי)</label>
+                  <input
+                    type="number"
+                    id="depositSinceLastUpdate"
+                    name="depositSinceLastUpdate"
+                    value={formData.depositSinceLastUpdate}
+                    onChange={handleInputChange}
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                  />
+                  <small className="form-help">
+                    אם הפקדת כסף נוסף מאז העדכון הקודם, ציין כאן — כך התשואה לא תכלול את ההפקדה כאילו הייתה רווח
+                  </small>
+                </div>
               </>
             ) : formData.itemType === 'bank' ? (
               <div className="form-group">

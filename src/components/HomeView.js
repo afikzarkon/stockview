@@ -12,7 +12,7 @@ import PortfolioSummary from './PortfolioSummary';
 import IsraeliStocksTable from './IsraeliStocksTable';
 import AmericanStocksTable from './AmericanStocksTable';
 import FinancialAccountsTables from './FinancialAccountsTables';
-
+import { calculatePortfolioSummary } from './PortfolioSummary';
 // The main portfolio dashboard: user bar, save controls, summary, the three
 // tables, and the empty-state message. Extracted from App.js's final
 // `return (...)` block — behavior is unchanged, only the location moved.

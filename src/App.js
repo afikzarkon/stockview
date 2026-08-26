@@ -442,9 +442,16 @@ function App() {
       setAmericanStocks(updatedAmericanStocks);
       setHasUnsavedChanges(true);
     } else if (exchange === 'pension') {
-      const updatedPensionFunds = pensionFunds.map(item => 
-        item.id === id ? { ...item, [field]: value } : item
-      );
+      const updatedPensionFunds = pensionFunds.map(item => {
+        if (item.id !== id) return item;
+        // כשמעדכנים את השווי הנוכחי, השווי הקודם צריך לזוז אוטומטית
+        // לערך שהיה לפני העדכון, כדי שחישוב התשואה מעדכון-לעדכון יישאר מדויק.
+        if (field === 'currentValue') {
+          const oldCurrentValue = item.currentValue ?? item.amount ?? 0;
+          return { ...item, currentValue: value, previousValue: oldCurrentValue, amount: value };
+        }
+        return { ...item, [field]: value };
+      });
       setPensionFunds(updatedPensionFunds);
       setHasUnsavedChanges(true);
     } else if (exchange === 'bank') {
