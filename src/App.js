@@ -101,6 +101,7 @@ function App() {
     initialInvestment: '',
     currentValue: '',
     previousValue: '',
+    isLinkedToIndex: false,
     quantity: '',
     exchange: 'israeli',
     exchangeRate: ''
@@ -278,6 +279,11 @@ function App() {
         currentValue: parseFloat(formData.currentValue),
         previousValue: parseFloat(formData.previousValue),
         lastDeposit: 0, // מעקב אחר הפקדות מתחיל מ-0 בעת יצירת הקופה
+        lastDepositDate: '',
+        isLinkedToIndex: !!formData.isLinkedToIndex,
+        // ההשקעה הראשונית נרשמת כשורה ראשונה בפנקס ההפקדות, כדי שגם היא
+        // תוצמד למדד נכון (אם הקופה מוצמדת) לפי תאריך פתיחת הקופה.
+        deposits: [{ date: formData.purchaseDate, amount: parseFloat(formData.initialInvestment) || 0 }],
         amount: parseFloat(formData.currentValue)
       };
       const updatedPensionFunds = [...pensionFunds, pensionItem];
@@ -307,6 +313,7 @@ function App() {
       initialInvestment: '',
       currentValue: '',
       previousValue: '',
+      isLinkedToIndex: false,
       quantity: '',
       exchange: 'israeli',
       exchangeRate: ''
@@ -402,6 +409,7 @@ function App() {
       initialInvestment: '',
       currentValue: '',
       previousValue: '',
+      isLinkedToIndex: false,
       quantity: '',
       purchaseDate: '',
       exchange: 'israeli',
@@ -420,6 +428,7 @@ function App() {
       initialInvestment: '',
       currentValue: '',
       previousValue: '',
+      isLinkedToIndex: false,
       quantity: '',
       purchaseDate: '',
       exchange: 'israeli',

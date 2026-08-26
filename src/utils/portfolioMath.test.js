@@ -123,4 +123,33 @@ describe('applyPensionCurrentValueUpdate', () => {
     expect(updated.currentValue).toBe(55000);
     expect(updated.amount).toBe(55000);
   });
+
+  test('records a deposit made this period into the deposits ledger with its own date', () => {
+    const fund = {
+      currentValue: 100000,
+      initialInvestment: 90000,
+      lastDeposit: 10000,
+      lastDepositDate: '2024-03-05',
+      updateDate: '2024-03-31',
+      deposits: [{ date: '2020-01-10', amount: 90000 }]
+    };
+    const updated = applyPensionCurrentValueUpdate(fund, 111000);
+    expect(updated.deposits).toEqual([
+      { date: '2020-01-10', amount: 90000 },
+      { date: '2024-03-05', amount: 10000 }
+    ]);
+    expect(updated.lastDepositDate).toBe('');
+  });
+
+  test('falls back to updateDate for the deposit date when lastDepositDate is not set', () => {
+    const fund = { currentValue: 100000, lastDeposit: 5000, updateDate: '2024-04-30', deposits: [] };
+    const updated = applyPensionCurrentValueUpdate(fund, 106000);
+    expect(updated.deposits).toEqual([{ date: '2024-04-30', amount: 5000 }]);
+  });
+
+  test('does not add anything to the deposits ledger when there is no deposit', () => {
+    const fund = { currentValue: 100000, lastDeposit: 0, deposits: [{ date: '2020-01-10', amount: 100000 }] };
+    const updated = applyPensionCurrentValueUpdate(fund, 102000);
+    expect(updated.deposits).toEqual([{ date: '2020-01-10', amount: 100000 }]);
+  });
 });

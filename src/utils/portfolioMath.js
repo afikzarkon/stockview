@@ -42,12 +42,25 @@ export const calculateAmericanStockMetrics = (stock, taxRate = TAX_RATE) => {
 // לתוך ה-baseline (previousValue) עצמו, התשואה שתחושב בפעם הבאה משקפת רק
 // עלייה/ירידה אמיתית בשווי, לא כסף חדש שהוזרם לקופה.
 //
-// בסיום הפעולה lastDeposit מתאפס, כדי לעקוב מחדש אחר הפקדות בתקופה הבאה.
+// בנוסף: אם הופקד סכום בתקופה זו (lastDeposit>0), הוא נרשם כשורה חדשה
+// בפנקס ההפקדות (deposits) עם תאריך משלה - lastDepositDate אם הוזן,
+// אחרת updateDate, אחרת היום. הפנקס הזה הוא הבסיס לחישוב מס רווח הון
+// ריאלי (ראו cpiTax.js): כל הפקדה מוצמדת בנפרד למדד לפי התאריך שלה.
+//
+// בסיום הפעולה lastDeposit (וה-lastDepositDate הנלווה לו) מתאפסים,
+// כדי לעקוב מחדש אחר הפקדות בתקופה הבאה.
 export const applyPensionCurrentValueUpdate = (pensionFund, newCurrentValue) => {
   const oldCurrentValue = pensionFund.currentValue ?? pensionFund.amount ?? 0;
   const depositThisPeriod = pensionFund.lastDeposit ?? 0;
   const adjustedPreviousValue = oldCurrentValue + depositThisPeriod;
   const updatedInitialInvestment = (pensionFund.initialInvestment ?? pensionFund.amount ?? 0) + depositThisPeriod;
+  const existingDeposits = Array.isArray(pensionFund.deposits) ? pensionFund.deposits : [];
+  const depositDate =
+    pensionFund.lastDepositDate || pensionFund.updateDate || new Date().toISOString().slice(0, 10);
+  const updatedDeposits =
+    depositThisPeriod > 0
+      ? [...existingDeposits, { date: depositDate, amount: depositThisPeriod }]
+      : existingDeposits;
 
   return {
     ...pensionFund,
@@ -55,6 +68,8 @@ export const applyPensionCurrentValueUpdate = (pensionFund, newCurrentValue) => 
     previousValue: adjustedPreviousValue,
     initialInvestment: updatedInitialInvestment,
     lastDeposit: 0,
+    lastDepositDate: '',
+    deposits: updatedDeposits,
     amount: newCurrentValue
   };
 };

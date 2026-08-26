@@ -36,6 +36,8 @@ function FinancialAccountsTables({
                   <th>סך ערך השקעה כיום (₪)</th>
                   <th>סך ערך ההשקעה בעדכון הקודם (₪)</th>
                   <th>הפקדה בעדכון זה (₪)</th>
+                  <th>תאריך ההפקדה</th>
+                  <th>מוצמד למדד?</th>
                   <th>תשואה (מעדכון קודם)</th>
                   <th>רווח מצטבר מול הפקדות</th>
                   <th>סך רווח/הפסד (₪)</th>
@@ -139,6 +141,26 @@ function FinancialAccountsTables({
                             min="0"
                           />
                         ) : `${formatPriceWithSign(lastDeposit)} ₪`}
+                      </td>
+                      <td onClick={() => handleCellClick(item.id, 'lastDepositDate', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
+                        {editingField === `${item.id}-lastDepositDate` ? (
+                          <input
+                            type="date"
+                            value={item.lastDepositDate || ''}
+                            onChange={(e) => handleInlineEdit(item.id, 'lastDepositDate', e.target.value, 'pension')}
+                            onBlur={finishInlineEdit}
+                            onKeyDown={(e) => handleKeyDown(e, item.id, 'lastDepositDate', 'pension')}
+                            autoFocus
+                          />
+                        ) : (item.lastDepositDate ? formatDate(item.lastDepositDate) : '-')}
+                      </td>
+                      <td className={isEditMode ? 'editable-cell' : ''}>
+                        <input
+                          type="checkbox"
+                          checked={!!item.isLinkedToIndex}
+                          disabled={!isEditMode}
+                          onChange={(e) => handleInlineEdit(item.id, 'isLinkedToIndex', e.target.checked, 'pension')}
+                        />
                       </td>
                       <td className={previousProfitPercent > 0 ? 'profit-positive' : previousProfitPercent < 0 ? 'profit-negative' : ''}>
                         {formatPercent(previousProfitPercent)}

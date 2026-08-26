@@ -155,6 +155,24 @@ function StockFormView({
                     placeholder="0.00"
                   />
                 </div>
+                <div className="form-group form-group-checkbox">
+                  <label htmlFor="isLinkedToIndex">
+                    <input
+                      type="checkbox"
+                      id="isLinkedToIndex"
+                      name="isLinkedToIndex"
+                      checked={!!formData.isLinkedToIndex}
+                      onChange={(e) =>
+                        handleInputChange({ target: { name: 'isLinkedToIndex', value: e.target.checked } })
+                      }
+                    />
+                    {' '}הקופה צמודה למדד המחירים לצרכן
+                  </label>
+                  <p className="form-hint">
+                    אם מסומן: מס רווח הון (25%) יחושב רק על הרווח הריאלי (אחרי ניכוי אינפלציה).
+                    אם לא מסומן: מס שטוח של 15% על מלוא הרווח הנומינלי, ללא הצמדה.
+                  </p>
+                </div>
               </>
             ) : formData.itemType === 'bank' ? (
               <div className="form-group">
