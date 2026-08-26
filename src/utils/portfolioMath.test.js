@@ -21,10 +21,12 @@ describe('calculateAmericanStockMetrics', () => {
     expect(m.totalCurrentValueILS).toBe(1500 * 3.7); // 5550
   });
 
-  test('profit in USD is current minus purchase, profit in ILS uses current rate', () => {
+  test('profit in USD is current minus purchase; profit in ILS is the true nominal shekel gain', () => {
     const m = calculateAmericanStockMetrics(baseStock);
     expect(m.profitUSD).toBe(500);
-    expect(m.profitILS).toBe(500 * 3.7); // 1850
+    // רווח נומינלי אמיתי = שווי היום בש"ח פחות עלות הקנייה בש"ח
+    // (5550 - 3500), לא profitUSD*currentExchangeRate (שזה הרווח הריאלי)
+    expect(m.profitILS).toBe(m.totalCurrentValueILS - m.totalPurchaseILS); // 2050
   });
 
   test('tax only applies to positive profit, at TAX_RATE', () => {
@@ -92,10 +94,42 @@ describe('calculateAmericanStockMetrics', () => {
     expect(m.realGainILS + m.currencyExemptGainILS).toBeCloseTo(m.totalCurrentValueILS - m.totalPurchaseILS, 5);
   });
 
-  test('taxes only the portion of the ILS gain that exceeds currency movement', () => {
+  test('taxes only the real gain, which can differ from the (now nominal) profitILS', () => {
     const m = calculateAmericanStockMetrics(baseStock); // price 100->150, rate 3.5->3.7
-    expect(m.realGainILS).toBeCloseTo(m.profitILS, 5); // זהה למה שהיה מחושב בעבר כ-profitILS
+    // profitILS הוא עכשיו הנומינלי (2050), realGainILS הוא מה שחייב במס (500*3.7=1850)
+    expect(m.realGainILS).toBeCloseTo(500 * 3.7, 5);
     expect(m.taxILS).toBeCloseTo(m.realGainILS * 0.25, 5);
+    // ולוודא שהפירוק תמיד מסתכם לנומינלי
+    expect(m.realGainILS + m.currencyExemptGainILS).toBeCloseTo(m.profitILS, 5);
+  });
+
+  test('can owe tax even when the true nominal ILS result is a loss (large currency depreciation)', () => {
+    // בדיוק הדוגמה שנבדקה בשיחה: מניה שנקנתה ב-192$ בשער 3.7, נמכרה
+    // ב-213.05$ בשער 2.96 - רווח דולרי אמיתי, אבל הפסד נומינלי בשקלים.
+    const stock = { purchasePrice: 192, quantity: 1, exchangeRate: 3.7, currentPrice: 213.05, currentExchangeRate: 2.96 };
+    const m = calculateAmericanStockMetrics(stock);
+    expect(m.profitILS).toBeLessThan(0); // הפסד נומינלי אמיתי
+    expect(m.realGainILS).toBeGreaterThan(0); // אבל יש רווח ריאלי
+    expect(m.taxILS).toBeGreaterThan(0); // ולכן כן חייבים במס
+    expect(m.afterTaxILS).toBeLessThan(m.profitILS); // אחרי מס המצב גרוע עוד יותר
+  });
+
+  test('Moses case example 3 pattern: nominal loss with currency appreciation is recognized in full, not enlarged', () => {
+    // מחיר המניה ירד (הפסד דולרי אמיתי) והשקל נחלש מולה - שני הגורמים
+    // "מסכימים" על הפסד, אבל אסור "להגדיל" את ההפסד לפי הצמדה נוחה.
+    const stock = { purchasePrice: 100, quantity: 1, exchangeRate: 5, currentPrice: 50, currentExchangeRate: 7 };
+    const m = calculateAmericanStockMetrics(stock); // purchase=500, current=350, nominal=-150
+    expect(m.profitILS).toBe(-150);
+    expect(m.realGainILS).toBe(-150); // לא -350 (מוגדל לפי הצמדה)
+    expect(m.taxILS).toBe(0);
+  });
+
+  test('Moses case example 4 pattern: nominal gain with currency depreciation is fully taxable, no relief', () => {
+    const stock = { purchasePrice: 100, quantity: 1, exchangeRate: 5, currentPrice: 200, currentExchangeRate: 3 };
+    const m = calculateAmericanStockMetrics(stock); // purchase=500, current=600, nominal=100
+    expect(m.profitILS).toBe(100);
+    expect(m.realGainILS).toBe(100); // לא 300 (currentValue-adjustedCost הגולמי)
+    expect(m.taxILS).toBeCloseTo(25, 5);
   });
 });
 

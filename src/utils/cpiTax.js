@@ -31,6 +31,58 @@ export const indexedCostBasis = (originalCost, indexAtCost, currentIndex) => {
   return originalCost * (currentIndex / indexAtCost);
 };
 
+// מיישם את הכלל האסימטרי מפסק דין מוזס (ע"א 3555/15, 3723/15, 5447/16)
+// לחישוב "רווח/הפסד ריאלי" כשיש הצמדה (למדד או לשער מטבע). הכלל אינו
+// "רווח נוכחי פחות עלות מותאמת" בפשטות - הוא תלוי בכיוון ההצמדה ובסימן
+// התוצאה הנומינלית, לפי 4 מקרים:
+//
+// 1. הצמדה כלפי מעלה (מדד/שער עלה) + רווח נומינלי:
+//    "סכום אינפלציוני" פטור = min(רכיב ההצמדה, הרווח הנומינלי) - לא
+//    יכול לעלות על הרווח עצמו (הרווח הריאלי אף פעם לא יורד מתחת ל-0
+//    כתוצאה מהצמדה קיצונית, גם אם ההצמדה התיאורטית עולה על הרווח).
+// 2. הצמדה כלפי מעלה + הפסד נומינלי:
+//    אין "סכום אינפלציוני" כלל - לפי לשון החוק הוא מוגדר רק כחלק
+//    מרווח הון. ההפסד הנומינלי המלא מוכר, בלי הגדלה (נדחתה בפסק הדין
+//    טענת נישום שרצה "להגדיל" הפסד לפי הצמדה נוחה).
+// 3. הצמדה כלפי מטה (מדד/שער ירד) + רווח נומינלי:
+//    אין הקלה - כל הרווח הנומינלי חייב במס. ירידת מדד/שער לא "מקטינה"
+//    רווח חייב.
+// 4. הצמדה כלפי מטה + הפסד נומינלי:
+//    החלק בהפסד הנובע מירידת המדד/השער אינו ניתן לקיזוז - ההפסד
+//    המוכר (בר-הקיזוז) הוא currentValue - adjustedCostBasis, קטן
+//    בגודלו (המוחלט) מההפסד הנומינלי המלא.
+//
+// שים לב: אלו נוסחאות המבוססות על פסיקה קיימת, לא ייעוץ מס אישי -
+// מומלץ לוודא מול רואה חשבון.
+export const calculateLinkedRealResult = ({ originalCost, currentValue, adjustedCostBasis, taxRate = 0.25 }) => {
+  const nominalGain = currentValue - originalCost;
+  const linkageComponent = adjustedCostBasis - originalCost; // + אם הוצמד כלפי מעלה, - אם כלפי מטה
+
+  let realGain;
+  let exemptAmount = 0;        // "סכום אינפלציוני" פטור - רלוונטי רק ברווח + הצמדה כלפי מעלה
+  let nonDeductibleAmount = 0; // גודל ההפסד שאינו בר-קיזוז - רלוונטי רק בהפסד + הצמדה כלפי מטה
+
+  if (linkageComponent >= 0) {
+    if (nominalGain >= 0) {
+      exemptAmount = Math.min(linkageComponent, nominalGain);
+      realGain = nominalGain - exemptAmount;
+    } else {
+      realGain = nominalGain; // הפסד: מוכר במלואו, ללא הגדלה
+    }
+  } else {
+    if (nominalGain >= 0) {
+      realGain = nominalGain; // רווח: חייב במלואו, ללא הקלה
+    } else {
+      realGain = currentValue - adjustedCostBasis; // הפסד: מוכר חלקית בלבד
+      nonDeductibleAmount = nominalGain - realGain; // שלילי - הגודל שאבד מהקיזוז
+    }
+  }
+
+  const tax = realGain > 0 ? realGain * taxRate : 0;
+
+  return { nominalGain, realGain, exemptAmount, nonDeductibleAmount, tax };
+};
+
 // מס רווח הון ריאלי על אחזקת מניה בודדת (lot יחיד עם תאריך קנייה יחיד).
 export const calculateStockRealGainTax = ({
   purchasePrice,
@@ -42,8 +94,7 @@ export const calculateStockRealGainTax = ({
 }) => {
   const originalCost = (purchasePrice || 0) * (quantity || 0);
   const adjustedCost = indexedCostBasis(originalCost, indexAtPurchase, currentIndex);
-  const realGain = currentValue - adjustedCost;
-  const tax = realGain > 0 ? realGain * taxRate : 0;
+  const { realGain, tax } = calculateLinkedRealResult({ originalCost, currentValue, adjustedCostBasis: adjustedCost, taxRate });
   return { originalCost, adjustedCost, realGain, tax };
 };
 
@@ -51,7 +102,8 @@ export const calculateStockRealGainTax = ({
 // deposits = [{ date: 'YYYY-MM-DD', amount: number }, ...]
 //
 // אם isLinkedToIndex=true: כל הפקדה מוצמדת בנפרד למדד לפי חודש ההפקדה
-// שלה (indexByMonth), והמס חל על סך הרווח הריאלי מול העלות המותאמת.
+// שלה (indexByMonth), ואז מיושם הכלל האסימטרי (calculateLinkedRealResult)
+// ברמת הקופה כולה (סך ההפקדות מול סך העלות המותאמת).
 // אם isLinkedToIndex=false: מס שטוח על סך הרווח הנומינלי, בלי הצמדה.
 //
 // indexByMonth: מיפוי "YYYY-MM" -> ערך מדד, לכל החודשים הרלוונטיים.
@@ -77,7 +129,11 @@ export const calculatePensionRealGainTax = ({
     const depositIndex = indexByMonth[monthKeyFromDate(d.date)];
     return sum + indexedCostBasis(d.amount || 0, depositIndex, currentIndex);
   }, 0);
-  const realGain = currentValue - adjustedCostBasis;
-  const tax = realGain > 0 ? realGain * linkedTaxRate : 0;
+  const { realGain, tax } = calculateLinkedRealResult({
+    originalCost: totalDeposited,
+    currentValue,
+    adjustedCostBasis,
+    taxRate: linkedTaxRate
+  });
   return { totalDeposited, adjustedCostBasis, gain: realGain, tax, mode: 'real' };
 };

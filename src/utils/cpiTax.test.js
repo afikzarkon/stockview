@@ -2,7 +2,8 @@ import {
   indexedCostBasis,
   monthKeyFromDate,
   calculateStockRealGainTax,
-  calculatePensionRealGainTax
+  calculatePensionRealGainTax,
+  calculateLinkedRealResult
 } from './cpiTax';
 
 describe('monthKeyFromDate', () => {
@@ -56,15 +57,32 @@ describe('calculateStockRealGainTax', () => {
     expect(result.tax).toBeCloseTo(200 * 0.25, 5);
   });
 
-  test('does not tax a real loss', () => {
+  test('caps the exempt (inflationary) amount at the nominal gain - real gain never goes negative when there is still a nominal gain (Moses case example 2)', () => {
+    // currentValue(1200) > originalCost(1000): יש רווח נומינלי של 200,
+    // גם אם ההצמדה התיאורטית (300) עולה עליו - הרווח הריאלי לא יורד
+    // מתחת ל-0, הוא רק מתאפס.
     const result = calculateStockRealGainTax({
       purchasePrice: 100,
       quantity: 10,
       currentValue: 1200,
       indexAtPurchase: 100,
-      currentIndex: 130 // adjustedCost = 1300 > 1200
+      currentIndex: 130 // adjustedCost = 1300 > 1200, אבל עדיין רווח נומינלי של 200
     });
-    expect(result.realGain).toBeLessThan(0);
+    expect(result.realGain).toBe(0);
+    expect(result.tax).toBe(0);
+  });
+
+  test('a genuine loss with a rising index is recognized in full, with no reduction (Moses case example 3 pattern)', () => {
+    // currentValue(800) < originalCost(1000): הפסד נומינלי אמיתי של 200,
+    // למרות שהמדד עלה - ההפסד מוכר במלואו, בלי "להגדיל" אותו לפי ההצמדה.
+    const result = calculateStockRealGainTax({
+      purchasePrice: 100,
+      quantity: 10,
+      currentValue: 800,
+      indexAtPurchase: 100,
+      currentIndex: 130
+    });
+    expect(result.realGain).toBe(-200);
     expect(result.tax).toBe(0);
   });
 });
@@ -133,5 +151,57 @@ describe('calculatePensionRealGainTax', () => {
     });
     expect(result.adjustedCostBasis).toBe(10000); // fallback ללא הצמדה
     expect(result.gain).toBe(2000);
+  });
+});
+
+// 5 הדוגמאות המדויקות מפסק דין מוזס (ע"א 3555/15, 3723/15, 5447/16 -
+// עודד מוזס, נכסי ארקין, יצחק מוזס נ' פשמ"ג) - המקור הסמכותי לכלל
+// האסימטרי שמיושם ב-calculateLinkedRealResult. כל דוגמה כאן היא
+// ground-truth שנלקח ישירות מפסק הדין, לא הנחה שלנו.
+describe('calculateLinkedRealResult - Moses case (ע"א 3555/15) worked examples', () => {
+  test('example 1: gain + currency appreciation -> real 350, exempt 200', () => {
+    // מכירה 150$@7=1050, רכישה 100$@5=500
+    const result = calculateLinkedRealResult({ originalCost: 500, currentValue: 1050, adjustedCostBasis: 500 * (7 / 5) });
+    expect(result.nominalGain).toBe(550);
+    expect(result.exemptAmount).toBeCloseTo(200, 5);
+    expect(result.realGain).toBeCloseTo(350, 5);
+  });
+
+  test('example 2: small gain + extreme currency appreciation -> real gain floors at 0, not negative', () => {
+    // מכירה 50$@11=550, רכישה 100$@5=500
+    const result = calculateLinkedRealResult({ originalCost: 500, currentValue: 550, adjustedCostBasis: 500 * (11 / 5) });
+    expect(result.nominalGain).toBe(50);
+    expect(result.realGain).toBe(0);
+    expect(result.exemptAmount).toBe(50); // מוגבל לרווח הנומינלי (50), לא ל-600 התיאורטי
+  });
+
+  test('example 3: loss + currency appreciation -> loss recognized in full, not enlarged', () => {
+    // מכירה 50$@7=350, רכישה 100$@5=500 (הפסד הון -150)
+    const result = calculateLinkedRealResult({ originalCost: 500, currentValue: 350, adjustedCostBasis: 500 * (7 / 5) });
+    expect(result.nominalGain).toBe(-150);
+    // הנישום טען ל-(350) (הפסד ריאלי מוגדל) - זה נדחה; ההפסד המוכר הוא הנומינלי המלא בלבד
+    expect(result.realGain).toBe(-150);
+    expect(result.exemptAmount).toBe(0);
+  });
+
+  test('example 4: gain + currency depreciation -> full nominal gain is taxable, no relief', () => {
+    // מכירה 200$@3=600, רכישה 100$@5=500
+    const result = calculateLinkedRealResult({ originalCost: 500, currentValue: 600, adjustedCostBasis: 500 * (3 / 5) });
+    expect(result.nominalGain).toBe(100);
+    expect(result.realGain).toBe(100); // לא 300 (currentValue-adjustedCost), אלא הנומינלי המלא
+    expect(result.exemptAmount).toBe(0);
+  });
+
+  test('example 5: loss + currency depreciation -> only part of the loss is deductible', () => {
+    // מכירה 50$@3=150, רכישה 100$@5=500 (הפסד הון -350)
+    const result = calculateLinkedRealResult({ originalCost: 500, currentValue: 150, adjustedCostBasis: 500 * (3 / 5) });
+    expect(result.nominalGain).toBe(-350);
+    expect(result.realGain).toBe(-150); // "הפסד בר קיזוז"
+    expect(result.nonDeductibleAmount).toBe(-200); // "הפסד שאינו בר קיזוז" = (5-3)x100
+  });
+
+  test('tax is always 25% (or custom rate) of the final real gain, never of the nominal gain', () => {
+    const result = calculateLinkedRealResult({ originalCost: 500, currentValue: 1050, adjustedCostBasis: 700, taxRate: 0.25 });
+    expect(result.tax).toBeCloseTo(350 * 0.25, 5);
   });
 });

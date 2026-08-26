@@ -1,4 +1,4 @@
-import { indexedCostBasis } from './cpiTax';
+import { indexedCostBasis, calculateLinkedRealResult } from './cpiTax';
 
 export const TAX_RATE = 0.25;
 
@@ -23,19 +23,33 @@ export const calculateAmericanStockMetrics = (stock, taxRate = TAX_RATE) => {
   const currentExchangeRate = stock.currentExchangeRate || stock.exchangeRate || 0;
   const totalCurrentValueILS = totalCurrentValueUSD * currentExchangeRate;
   const profitUSD = totalCurrentValueUSD - totalPurchaseUSD;
-  const profitILS = profitUSD * currentExchangeRate;
+  // רווח נומינלי אמיתי בש"ח: כמה יותר/פחות שקלים יש לך בפועל היום לעומת
+  // מה ששילמת - זה "כמה כסף באמת הרווחת/הפסדת", לא רק ביצועי המניה.
+  // (בעבר השדה הזה חושב כ-profitUSD*currentExchangeRate, שזה בעצם
+  // "הרווח הריאלי" ולא הרווח הנומינלי - ראו realGainILS למטה. זה היה
+  // מטעה כשמוצג תחת התווית "רווח/הפסד" סתם, כי במקרה שהדולר נחלש
+  // משמעותית זה יכול להראות "רווח" בזמן שבפועל יש הפסד נומינלי בשקלים.)
+  const profitILS = totalCurrentValueILS - totalPurchaseILS;
 
-  // עלות מותאמת לשער החליפין (מקביל ל-indexedCostBasis של CPI) והרווח
-  // הריאלי שנובע ממנה - זהו הרווח שחייב במס.
+  // עלות מותאמת לשער החליפין (מקביל ל-indexedCostBasis של CPI), והרווח/הפסד
+  // הריאלי המתקבל ממנה לפי הכלל האסימטרי מפסק דין מוזס (ע"א 3555/15) -
+  // ראו calculateLinkedRealResult ב-cpiTax.js להסבר המלא על 4 המקרים.
   const adjustedCostBasisILS = indexedCostBasis(totalPurchaseILS, stock.exchangeRate, currentExchangeRate);
-  const realGainILS = totalCurrentValueILS - adjustedCostBasisILS;
-  // הרכיב הפטור: הפרש השער על העלות המקורית - "הסכום האינפלציוני"
-  // המקביל, פטור ממס לפי החוק.
-  const currencyExemptGainILS = adjustedCostBasisILS - totalPurchaseILS;
+  const { realGain: realGainILS, tax: taxILS } = calculateLinkedRealResult({
+    originalCost: totalPurchaseILS,
+    currentValue: totalCurrentValueILS,
+    adjustedCostBasis: adjustedCostBasisILS,
+    taxRate
+  });
+  // הפרש בין הנומינלי לריאלי - חיובי כשמדובר ב"סכום אינפלציוני" פטור,
+  // שלילי כשמדובר בחלק הפסד שאינו בר-קיזוז.
+  const currencyExemptGainILS = profitILS - realGainILS;
 
-  const taxILS = realGainILS > 0 ? realGainILS * taxRate : 0;
   const taxUSD = currentExchangeRate > 0 ? taxILS / currentExchangeRate : 0;
   const afterTaxUSD = profitUSD - taxUSD;
+  // רווח/הפסד נומינלי אמיתי אחרי מס: כמה שקלים נשארו לך בפועל, אחרי
+  // ניכוי המס שחל על הרווח הריאלי (גם אם יש הפסד נומינלי, יכול עדיין
+  // לחול מס - ראו הערה למעלה).
   const afterTaxILS = profitILS - taxILS;
   // FX impact is measured on today's position value in USD:
   // (current stock price * quantity * current USDILS) - (current stock price * quantity * buy USDILS)
