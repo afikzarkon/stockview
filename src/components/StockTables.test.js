@@ -95,17 +95,17 @@ describe('AmericanStocksTable', () => {
 
   test('renders single and grouped rows with all columns shown', () => {
     const { container } = render(
-      <AmericanStocksTable {...baseProps} isEditMode={false} showAmericanColumns={true} expandedGroups={{}} editingField={null} />
+      <AmericanStocksTable {...baseProps} isEditMode={false} showAdditionalData={true} expandedGroups={{}} editingField={null} />
     );
     expect(container.querySelectorAll('tbody tr').length).toBeGreaterThan(0);
   });
 
   test('hides the optional columns when showAmericanColumns is false', () => {
     const { container: withCols } = render(
-      <AmericanStocksTable {...baseProps} isEditMode={false} showAmericanColumns={true} expandedGroups={{}} editingField={null} />
+      <AmericanStocksTable {...baseProps} isEditMode={false} showAdditionalData={true} expandedGroups={{}} editingField={null} />
     );
     const { container: withoutCols } = render(
-      <AmericanStocksTable {...baseProps} isEditMode={false} showAmericanColumns={false} expandedGroups={{}} editingField={null} />
+      <AmericanStocksTable {...baseProps} isEditMode={false} showAdditionalData={false} expandedGroups={{}} editingField={null} />
     );
     const headersWith = withCols.querySelectorAll('th').length;
     const headersWithout = withoutCols.querySelectorAll('th').length;
@@ -114,21 +114,21 @@ describe('AmericanStocksTable', () => {
 
   test('renders an editable exchangeRate input when that field is being edited', () => {
     const { container } = render(
-      <AmericanStocksTable {...baseProps} isEditMode={true} showAmericanColumns={true} expandedGroups={{}} editingField="10-exchangeRate" />
+      <AmericanStocksTable {...baseProps} isEditMode={true} showAdditionalData={true} expandedGroups={{}} editingField="10-exchangeRate" />
     );
     expect(container.querySelector('input[type="number"]')).not.toBeNull();
   });
 
   test('renders expanded group detail rows for a multi-lot stock', () => {
     const { container } = render(
-      <AmericanStocksTable {...baseProps} isEditMode={false} showAmericanColumns={true} expandedGroups={{ 'american-MSFT': true }} editingField={null} />
+      <AmericanStocksTable {...baseProps} isEditMode={false} showAdditionalData={true} expandedGroups={{ 'american-MSFT': true }} editingField={null} />
     );
     expect(container.querySelectorAll('.detail-row').length).toBe(2); // MSFT has 2 lots
   });
 
   test('renders nothing (empty fragment) when there are no stocks', () => {
     const { container } = render(
-      <AmericanStocksTable {...baseProps} americanStocks={[]} isEditMode={false} showAmericanColumns={true} expandedGroups={{}} editingField={null} />
+      <AmericanStocksTable {...baseProps} americanStocks={[]} isEditMode={false} showAdditionalData={true} expandedGroups={{}} editingField={null} />
     );
     expect(container.querySelector('table')).toBeNull();
   });

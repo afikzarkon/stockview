@@ -7,6 +7,7 @@ function FinancialAccountsTables({
   cashFunds,
   bankBalances,
   cpi,
+  showAdditionalData,
   isEditMode,
   editingField,
   handleCellClick,
@@ -48,10 +49,11 @@ function FinancialAccountsTables({
                   <th>סך ערך השקעה כיום (₪)</th>
                   <th>תאריך שווי נוכחי</th>
                   <th>סך ערך ההשקעה בעדכון הקודם (₪)</th>
-                  <th>תאריך שווי קודם</th>
-                  <th>מוצמד למדד?</th>
-                  <th>רווח ריאלי (חייב במס)</th>
-                  <th>רווח אינפלציוני (פטור)</th>
+                  {showAdditionalData && <th>תאריך שווי קודם</th>}
+                  {showAdditionalData && <th>מוצמד למדד?</th>}
+                  {showAdditionalData && <th>רווח ריאלי (חייב במס)</th>}
+                  {showAdditionalData && <th>רווח אינפלציוני (פטור)</th>}
+                  {showAdditionalData && <th>רווח לאחר מס (₪)</th>}
                   <th>תשואה (מעדכון קודם)</th>
                   <th>רווח מצטבר מול הפקדות</th>
                   <th>סך רווח/הפסד (₪)</th>
@@ -78,10 +80,12 @@ function FinancialAccountsTables({
                   const totalProfitLoss = currentValue - initialInvestment;
                   const updateProfitLoss = previousValue > 0 ? currentValue - previousValue : null;
 
-                  // רווח ריאלי/אינפלציוני לקופה הזו בלבד - לוידוא נקודתי מול
+                  // רווח ריאלי/אינפלציוני/מס לקופה הזו בלבד - לוידוא נקודתי מול
                   // הפירוק המצטבר שמוצג בסיכום התיק (PortfolioSummary.js)
                   let realGain = null;
                   let inflationaryGain = null;
+                  let tax = null;
+                  let afterTaxProfit = null;
                   if (cpi && cpi.currentIndex) {
                     const result = calculatePensionRealGainTax({
                       deposits,
@@ -92,6 +96,8 @@ function FinancialAccountsTables({
                     });
                     realGain = result.gain;
                     inflationaryGain = (currentValue - result.totalDeposited) - result.gain;
+                    tax = result.tax;
+                    afterTaxProfit = totalProfitLoss - tax;
                   }
                   const isExpanded = !!expandedFunds[item.id];
                   return (
@@ -153,6 +159,7 @@ function FinancialAccountsTables({
                           />
                         ) : `${formatPriceWithSign(previousValue)} ₪`}
                       </td>
+                      {showAdditionalData && (
                       <td onClick={() => handleCellClick(item.id, 'previousValueDate', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
                         {editingField === `${item.id}-previousValueDate` ? (
                           <input
@@ -165,6 +172,8 @@ function FinancialAccountsTables({
                           />
                         ) : (item.previousValueDate ? formatDate(item.previousValueDate) : '-')}
                       </td>
+                      )}
+                      {showAdditionalData && (
                       <td className={isEditMode ? 'editable-cell' : ''}>
                         <input
                           type="checkbox"
@@ -173,12 +182,22 @@ function FinancialAccountsTables({
                           onChange={(e) => handleInlineEdit(item.id, 'isLinkedToIndex', e.target.checked, 'pension')}
                         />
                       </td>
+                      )}
+                      {showAdditionalData && (
                       <td className={realGain !== null && realGain > 0 ? 'profit-positive' : realGain !== null && realGain < 0 ? 'profit-negative' : ''}>
                         {realGain !== null ? `${formatPriceWithSign(realGain)} ₪` : '-'}
                       </td>
+                      )}
+                      {showAdditionalData && (
                       <td>
                         {inflationaryGain !== null ? `${formatPriceWithSign(inflationaryGain)} ₪` : '-'}
                       </td>
+                      )}
+                      {showAdditionalData && (
+                      <td className={afterTaxProfit !== null && afterTaxProfit > 0 ? 'profit-positive' : afterTaxProfit !== null && afterTaxProfit < 0 ? 'profit-negative' : ''}>
+                        {afterTaxProfit !== null ? `${formatPriceWithSign(afterTaxProfit)} ₪` : '-'}
+                      </td>
+                      )}
                       <td className={previousProfitPercent > 0 ? 'profit-positive' : previousProfitPercent < 0 ? 'profit-negative' : ''}>
                         {formatPercent(previousProfitPercent)}
                       </td>
@@ -199,7 +218,7 @@ function FinancialAccountsTables({
                     </tr>
                     {isExpanded && deposits.length === 0 && (
                       <tr className={`${isEditMode ? 'editable-row' : ''} detail-row`} style={{ backgroundColor: '#f8f9fa' }}>
-                        <td style={{ paddingLeft: '20px' }} colSpan={isEditMode ? 14 : 13}>אין הפקדות רשומות</td>
+                        <td style={{ paddingLeft: '20px' }} colSpan={(showAdditionalData ? 14 : 9) + (isEditMode ? 1 : 0)}>אין הפקדות רשומות</td>
                       </tr>
                     )}
                     {isExpanded && deposits.map((d, i) => (
@@ -209,10 +228,11 @@ function FinancialAccountsTables({
                         <td></td>
                         <td></td>
                         <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
+                        {showAdditionalData && <td></td>}
+                        {showAdditionalData && <td></td>}
+                        {showAdditionalData && <td></td>}
+                        {showAdditionalData && <td></td>}
+                        {showAdditionalData && <td></td>}
                         <td></td>
                         <td></td>
                         <td></td>

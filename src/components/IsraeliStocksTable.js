@@ -75,7 +75,7 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
 
 // Renders the computed (non-editable) figures for one Israeli stock row —
 // used for both the single-stock row and each expanded detail row.
-function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPercentage, TAX_RATE, cpi, formatPrice, formatPriceWithSign, isEditMode, handleDelete }) {
+function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPercentage, TAX_RATE, cpi, showAdditionalData, formatPrice, formatPriceWithSign, isEditMode, handleDelete }) {
   const displayCurrentPrice = normalizeIsraeliPrice(stock.currentPrice);
   const totalPurchase = (stock.purchasePrice || 0) * (stock.quantity || 0);
   const totalCurrentValue = (displayCurrentPrice || 0) * (stock.quantity || 0);
@@ -89,17 +89,24 @@ function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPer
   const indexAtPurchase = cpi && cpi.indexByMonth ? cpi.indexByMonth[monthKeyFromDate(stock.purchaseDate)] : null;
   const currentIndex = cpi ? cpi.currentIndex : null;
   let capitalGainsTaxILS;
+  let realGain;
   if (currentIndex && indexAtPurchase) {
-    capitalGainsTaxILS = calculateStockRealGainTax({
+    const result = calculateStockRealGainTax({
       purchasePrice: stock.purchasePrice,
       quantity: stock.quantity,
       currentValue: totalCurrentValue,
       indexAtPurchase,
       currentIndex
-    }).tax;
+    });
+    capitalGainsTaxILS = result.tax;
+    realGain = result.realGain;
   } else {
     capitalGainsTaxILS = profit > 0 ? profit * TAX_RATE : 0;
+    realGain = profit;
   }
+  // רווח אינפלציוני נגזר כ"מה שנשאר" מהנומינלי אחרי הרווח הריאלי - עקבי
+  // תמיד עם הכלל האסימטרי מפסק דין מוזס, בדיוק כמו ב-portfolioSummary.js.
+  const inflationaryGain = profit - realGain;
   const afterTaxProfitILS = profit - capitalGainsTaxILS;
 
   return (
@@ -108,10 +115,12 @@ function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPer
       <td>{formatPrice(displayCurrentPrice)}</td>
       <td>{formatPrice(totalCurrentValue)}</td>
       <td className={profitClass(profit)}>{formatPriceWithSign(profit)}</td>
-      <td>{indexAtPurchase != null ? indexAtPurchase : '-'}</td>
-      <td>{currentIndex != null ? currentIndex : '-'}</td>
-      <td className="profit-negative">{formatPriceWithSign(-capitalGainsTaxILS)}</td>
-      <td className={profitClass(afterTaxProfitILS)}>{formatPriceWithSign(afterTaxProfitILS)}</td>
+      {showAdditionalData && <td>{indexAtPurchase != null ? indexAtPurchase : '-'}</td>}
+      {showAdditionalData && <td>{currentIndex != null ? currentIndex : '-'}</td>}
+      {showAdditionalData && <td className="profit-negative">{formatPriceWithSign(-capitalGainsTaxILS)}</td>}
+      {showAdditionalData && <td className={profitClass(afterTaxProfitILS)}>{formatPriceWithSign(afterTaxProfitILS)}</td>}
+      {showAdditionalData && <td className={profitClass(inflationaryGain)}>{formatPriceWithSign(inflationaryGain)}</td>}
+      {showAdditionalData && <td className={profitClass(realGain)}>{formatPriceWithSign(realGain)}</td>}
       <td className={profitClass(profit)}>{profitPercentage}%</td>
       <td className={profitClass(stock.dailyChangePercent)}>{formatDailyChangePercent(stock.dailyChangePercent)}%</td>
       <td className={profitClass(stock.dailyChangePercent)}>
@@ -131,6 +140,7 @@ function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPer
 function IsraeliStocksTable({
   israeliStocks,
   isEditMode,
+  showAdditionalData,
   expandedGroups,
   groupStocksByName,
   calculateGroupSummary,
@@ -166,10 +176,12 @@ function IsraeliStocksTable({
                   <th>מחיר נוכחי (₪)</th>
                   <th>סה"כ שווי היום (₪)</th>
                   <th>סה"כ רווח/הפסד בש"ח</th>
-                  <th>מדד ביום הקנייה</th>
-                  <th>מדד היום (הידוע)</th>
-                  <th>מס רווח הון (₪)</th>
-                  <th>רווח לאחר מס (₪)</th>
+                  {showAdditionalData && <th>מדד ביום הקנייה</th>}
+                  {showAdditionalData && <th>מדד היום (הידוע)</th>}
+                  {showAdditionalData && <th>מס רווח הון (₪)</th>}
+                  {showAdditionalData && <th>רווח לאחר מס (₪)</th>}
+                  {showAdditionalData && <th>רווח אינפלציוני (₪)</th>}
+                  {showAdditionalData && <th>רווח ריאלי (₪)</th>}
                   <th>אחוז רווח/הפסד</th>
                   <th>אחוז שינוי יומי</th>
                   <th>רווח/הפסד יומי בש"ח</th>
@@ -195,6 +207,7 @@ function IsraeliStocksTable({
                     calculateProfitPercentage,
                     TAX_RATE,
                     cpi,
+                    showAdditionalData,
                     formatPrice,
                     formatPriceWithSign,
                     isEditMode,
@@ -234,31 +247,42 @@ function IsraeliStocksTable({
                         <td>{formatPrice(summary.averageCurrentPrice)}</td>
                         <td>{formatPrice(summary.totalCurrentValue)}</td>
                         <td className={profitClass(summary.totalProfit)}>{formatPriceWithSign(summary.totalProfit)}</td>
-                        <td colSpan={2} style={{ color: '#7f8c8d', fontSize: '0.85em' }}>ראה פירוט לכל שורה (מחיצים שונים)</td>
-                        {(() => {
-                          // סכימה per-lot של המס הריאלי (לא מס אחד על סך הרווח המצרפי),
+                        {showAdditionalData && (
+                          <td colSpan={2} style={{ color: '#7f8c8d', fontSize: '0.85em' }}>ראה פירוט לכל שורה (מחיצים שונים)</td>
+                        )}
+                        {showAdditionalData && (() => {
+                          // סכימה per-lot של המס/הרווח הריאלי (לא על הרווח המצרפי),
                           // כי לכל lot יש תאריך קנייה ומדד שונים.
-                          const tax = stocks.reduce((sum, stock) => {
+                          let tax = 0;
+                          let realGainSum = 0;
+                          stocks.forEach((stock) => {
                             const displayCurrentPrice = normalizeIsraeliPrice(stock.currentPrice);
                             const totalCurrentValueLot = (displayCurrentPrice || 0) * (stock.quantity || 0);
                             const profitLot = totalCurrentValueLot - (stock.purchasePrice || 0) * (stock.quantity || 0);
                             const indexAtPurchase = cpi && cpi.indexByMonth ? cpi.indexByMonth[monthKeyFromDate(stock.purchaseDate)] : null;
                             if (cpi && cpi.currentIndex && indexAtPurchase) {
-                              return sum + calculateStockRealGainTax({
+                              const result = calculateStockRealGainTax({
                                 purchasePrice: stock.purchasePrice,
                                 quantity: stock.quantity,
                                 currentValue: totalCurrentValueLot,
                                 indexAtPurchase,
                                 currentIndex: cpi.currentIndex
-                              }).tax;
+                              });
+                              tax += result.tax;
+                              realGainSum += result.realGain;
+                            } else {
+                              tax += profitLot > 0 ? profitLot * TAX_RATE : 0;
+                              realGainSum += profitLot;
                             }
-                            return sum + (profitLot > 0 ? profitLot * TAX_RATE : 0);
-                          }, 0);
+                          });
                           const after = summary.totalProfit - tax;
+                          const inflationarySum = summary.totalProfit - realGainSum;
                           return (
                             <>
                               <td className="profit-negative">{formatPriceWithSign(-tax)}</td>
                               <td className={profitClass(after)}>{formatPriceWithSign(after)}</td>
+                              <td className={profitClass(inflationarySum)}>{formatPriceWithSign(inflationarySum)}</td>
+                              <td className={profitClass(realGainSum)}>{formatPriceWithSign(realGainSum)}</td>
                             </>
                           );
                         })()}

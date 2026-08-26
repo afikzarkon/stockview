@@ -133,7 +133,7 @@ function HomeView({
                 onClick={() => setShowAmericanColumns(!showAmericanColumns)}
                 className="btn btn-info"
               >
-                {showAmericanColumns ? 'הסתר עמודות אמריקאיות' : 'הצגת נתונים נוספים בבורסה אמריקאית'}
+                {showAmericanColumns ? 'הסתר נתונים נוספים' : 'לחץ כאן כדי לראות נתונים נוספים'}
               </button>
             </div>
 
@@ -151,6 +151,7 @@ function HomeView({
           <IsraeliStocksTable
             israeliStocks={israeliStocks}
             isEditMode={isEditMode}
+            showAdditionalData={showAmericanColumns}
             expandedGroups={expandedGroups}
             groupStocksByName={groupStocksByName}
             calculateGroupSummary={calculateGroupSummary}
@@ -173,7 +174,7 @@ function HomeView({
           <AmericanStocksTable
             americanStocks={americanStocks}
             isEditMode={isEditMode}
-            showAmericanColumns={showAmericanColumns}
+            showAdditionalData={showAmericanColumns}
             expandedGroups={expandedGroups}
             groupStocksByName={groupStocksByName}
             calculateGroupSummary={calculateGroupSummary}
@@ -197,6 +198,7 @@ function HomeView({
             cashFunds={cashFunds}
             bankBalances={bankBalances}
             cpi={cpi}
+            showAdditionalData={showAmericanColumns}
             isEditMode={isEditMode}
             editingField={editingField}
             handleCellClick={handleCellClick}

@@ -4,8 +4,8 @@ import { profitClass, formatDailyChangePercent } from '../utils/formatters';
 
 // Renders the name/date/price/quantity editable fields for one American
 // stock row — used for both the single-stock row and each expanded detail
-// row. Date/price/quantity are only shown when showAmericanColumns is on.
-function AmericanEditableFields({ stock, showAmericanColumns, editingField, isEditMode, handleCellClick, handleInlineEdit, finishInlineEdit, handleKeyDown, formatDate, formatPriceWithSign, nameCellStyle }) {
+// row. These are always visible (basic transaction info).
+function AmericanEditableFields({ stock, editingField, isEditMode, handleCellClick, handleInlineEdit, finishInlineEdit, handleKeyDown, formatDate, formatPriceWithSign, nameCellStyle }) {
   return (
     <>
       <EditableCell
@@ -22,67 +22,62 @@ function AmericanEditableFields({ stock, showAmericanColumns, editingField, isEd
         displayValue={stock.stockName}
         style={nameCellStyle}
       />
-      {showAmericanColumns && (
-        <EditableCell
-          id={stock.id}
-          field="purchaseDate"
-          exchange="american"
-          value={stock.purchaseDate}
-          type="date"
-          editingField={editingField}
-          isEditMode={isEditMode}
-          handleCellClick={handleCellClick}
-          handleInlineEdit={handleInlineEdit}
-          finishInlineEdit={finishInlineEdit}
-          handleKeyDown={handleKeyDown}
-          displayValue={formatDate(stock.purchaseDate)}
-        />
-      )}
-      {showAmericanColumns && (
-        <EditableCell
-          id={stock.id}
-          field="purchasePrice"
-          exchange="american"
-          value={stock.purchasePrice}
-          type="number"
-          step="0.01"
-          parse={(raw) => parseFloat(raw)}
-          editingField={editingField}
-          isEditMode={isEditMode}
-          handleCellClick={handleCellClick}
-          handleInlineEdit={handleInlineEdit}
-          finishInlineEdit={finishInlineEdit}
-          handleKeyDown={handleKeyDown}
-          displayValue={`${formatPriceWithSign(stock.purchasePrice)} $`}
-        />
-      )}
-      {showAmericanColumns && (
-        <EditableCell
-          id={stock.id}
-          field="quantity"
-          exchange="american"
-          value={stock.quantity}
-          type="number"
-          min="1"
-          parse={(raw) => parseInt(raw)}
-          editingField={editingField}
-          isEditMode={isEditMode}
-          handleCellClick={handleCellClick}
-          handleInlineEdit={handleInlineEdit}
-          finishInlineEdit={finishInlineEdit}
-          handleKeyDown={handleKeyDown}
-          displayValue={stock.quantity}
-        />
-      )}
+      <EditableCell
+        id={stock.id}
+        field="purchaseDate"
+        exchange="american"
+        value={stock.purchaseDate}
+        type="date"
+        editingField={editingField}
+        isEditMode={isEditMode}
+        handleCellClick={handleCellClick}
+        handleInlineEdit={handleInlineEdit}
+        finishInlineEdit={finishInlineEdit}
+        handleKeyDown={handleKeyDown}
+        displayValue={formatDate(stock.purchaseDate)}
+      />
+      <EditableCell
+        id={stock.id}
+        field="purchasePrice"
+        exchange="american"
+        value={stock.purchasePrice}
+        type="number"
+        step="0.01"
+        parse={(raw) => parseFloat(raw)}
+        editingField={editingField}
+        isEditMode={isEditMode}
+        handleCellClick={handleCellClick}
+        handleInlineEdit={handleInlineEdit}
+        finishInlineEdit={finishInlineEdit}
+        handleKeyDown={handleKeyDown}
+        displayValue={`${formatPriceWithSign(stock.purchasePrice)} $`}
+      />
+      <EditableCell
+        id={stock.id}
+        field="quantity"
+        exchange="american"
+        value={stock.quantity}
+        type="number"
+        min="1"
+        parse={(raw) => parseInt(raw)}
+        editingField={editingField}
+        isEditMode={isEditMode}
+        handleCellClick={handleCellClick}
+        handleInlineEdit={handleInlineEdit}
+        finishInlineEdit={finishInlineEdit}
+        handleKeyDown={handleKeyDown}
+        displayValue={stock.quantity}
+      />
     </>
   );
 }
 
-// Renders the computed (mostly non-editable, except exchangeRate) figures
-// for one single American stock row.
+// Renders the computed (mostly non-editable, except purchase exchangeRate)
+// figures for one single American stock row. showAdditionalData gates only
+// the deeper ILS/tax analysis columns - basic USD figures are always shown.
 function AmericanSingleStockComputedCells({
   stock,
-  showAmericanColumns,
+  showAdditionalData,
   calculateAmericanStockMetrics,
   calculateProfitPercentage,
   formatPrice,
@@ -103,6 +98,8 @@ function AmericanSingleStockComputedCells({
     totalCurrentValueILS,
     profitUSD,
     profitILS,
+    realGainILS,
+    currencyExemptGainILS,
     taxILS,
     afterTaxILS,
     exchangeRateImpact
@@ -112,8 +109,8 @@ function AmericanSingleStockComputedCells({
   return (
     <>
       <td>{formatPriceWithSign(totalPurchaseUSD)} $</td>
-      {showAmericanColumns && <td>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
-      {showAmericanColumns && (
+      {showAdditionalData && <td>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
+      {showAdditionalData && (
         <EditableCell
           id={stock.id}
           field="exchangeRate"
@@ -131,20 +128,22 @@ function AmericanSingleStockComputedCells({
           displayValue={formatPrice(stock.exchangeRate)}
         />
       )}
-      {showAmericanColumns && <td>{formatPrice(currentExchangeRate)}</td>}
+      <td>{formatPrice(currentExchangeRate)}</td>
       <td>{formatPriceWithSign(stock.currentPrice)} $</td>
       <td>{formatPriceWithSign(totalCurrentValueUSD)} $</td>
-      {showAmericanColumns && <td>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>}
+      <td>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>
       <td className={profitClass(profitUSD)}>{formatPriceWithSign(profitUSD)} $</td>
-      {showAmericanColumns && <td className={profitClass(profitILS)}>{formatPriceWithSign(profitILS)} ₪</td>}
+      <td className={profitClass(profitILS)}>{formatPriceWithSign(profitILS)} ₪</td>
       <td className={profitClass(profitPercentage)}>{profitPercentage}%</td>
       <td className={profitClass(stock.dailyChangePercent)}>{formatDailyChangePercent(stock.dailyChangePercent)}%</td>
       <td className={profitClass(stock.dailyChangePercent)}>
         {formatPriceWithSign(((stock.dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $
       </td>
-      {showAmericanColumns && <td className={profitClass(exchangeRateImpact)}>{formatPriceWithSign(exchangeRateImpact)} ₪</td>}
-      {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-taxILS)} ₪</td>}
-      {showAmericanColumns && <td className={profitClass(afterTaxILS)}>{formatPriceWithSign(afterTaxILS)} ₪</td>}
+      {showAdditionalData && <td className={profitClass(exchangeRateImpact)}>{formatPriceWithSign(exchangeRateImpact)} ₪</td>}
+      {showAdditionalData && <td className="profit-negative">{formatPriceWithSign(-taxILS)} ₪</td>}
+      {showAdditionalData && <td className={profitClass(afterTaxILS)}>{formatPriceWithSign(afterTaxILS)} ₪</td>}
+      {showAdditionalData && <td className={profitClass(currencyExemptGainILS)}>{formatPriceWithSign(currencyExemptGainILS)} ₪</td>}
+      {showAdditionalData && <td className={profitClass(realGainILS)}>{formatPriceWithSign(realGainILS)} ₪</td>}
       {isEditMode && (
         <td>
           <button onClick={() => handleDelete(stock.id, 'american')} className="delete-button">מחק</button>
@@ -157,7 +156,7 @@ function AmericanSingleStockComputedCells({
 function AmericanStocksTable({
   americanStocks,
   isEditMode,
-  showAmericanColumns,
+  showAdditionalData,
   expandedGroups,
   groupStocksByName,
   calculateGroupSummary,
@@ -185,24 +184,26 @@ function AmericanStocksTable({
               <thead>
                 <tr>
                   <th>שם מנייה</th>
-                  {showAmericanColumns && <th>תאריך קנייה</th>}
-                  {showAmericanColumns && <th>מחיר קנייה</th>}
-                  {showAmericanColumns && <th>כמות</th>}
+                  <th>תאריך קנייה</th>
+                  <th>מחיר קנייה</th>
+                  <th>כמות</th>
                   <th>סה"כ רכישה בדולר</th>
-                  {showAmericanColumns && <th>סה"כ רכישה בשקל</th>}
-                  {showAmericanColumns && <th>שער חליפין ביום הקנייה</th>}
-                  {showAmericanColumns && <th>שער חליפין היום</th>}
+                  {showAdditionalData && <th>סה"כ רכישה בשקל</th>}
+                  {showAdditionalData && <th>שער חליפין ביום הקנייה</th>}
+                  <th>שער חליפין היום</th>
                   <th>מחיר נוכחי</th>
                   <th>סה"כ שווי בדולר</th>
-                  {showAmericanColumns && <th>סה"כ שווי בש"ח</th>}
+                  <th>סה"כ שווי בש"ח</th>
                   <th>סה"כ רווח/הפסד ($)</th>
-                  {showAmericanColumns && <th>סה"כ רווח/הפסד (₪)</th>}
+                  <th>סה"כ רווח/הפסד (₪)</th>
                   <th>אחוז רווח/הפסד</th>
                   <th>אחוז שינוי יומי</th>
                   <th>רווח/הפסד יומי בדולר</th>
-                  {showAmericanColumns && <th>השפעת שער חליפין</th>}
-                  {showAmericanColumns && <th>מס רווח הון (₪)</th>}
-                  {showAmericanColumns && <th>רווח לאחר מס (₪)</th>}
+                  {showAdditionalData && <th>השפעת שער חליפין</th>}
+                  {showAdditionalData && <th>מס רווח הון (₪)</th>}
+                  {showAdditionalData && <th>רווח לאחר מס (₪)</th>}
+                  {showAdditionalData && <th>רווח אינפלציוני (₪)</th>}
+                  {showAdditionalData && <th>רווח ריאלי (₪)</th>}
                   {isEditMode && <th>פעולות</th>}
                 </tr>
               </thead>
@@ -211,7 +212,6 @@ function AmericanStocksTable({
                   const isExpanded = expandedGroups[`american-${stockName}`];
                   const summary = calculateGroupSummary(stocks);
                   const editableFieldProps = {
-                    showAmericanColumns,
                     editingField,
                     isEditMode,
                     handleCellClick,
@@ -222,7 +222,7 @@ function AmericanStocksTable({
                     formatPriceWithSign
                   };
                   const computedCellProps = {
-                    showAmericanColumns,
+                    showAdditionalData,
                     calculateAmericanStockMetrics,
                     calculateProfitPercentage,
                     formatPrice,
@@ -257,13 +257,16 @@ function AmericanStocksTable({
                   const averageCurrentPrice = summary.totalQuantity > 0 ? totalCurrentValueUSD / summary.totalQuantity : 0;
                   const profitPercentage = calculateProfitPercentage(averagePurchasePrice, averageCurrentPrice);
                   const totalProfitUSD = totalCurrentValueUSD - totalPurchaseUSD;
-                  const totalProfitILS = totalProfitUSD * (stocks[0].currentExchangeRate || stocks[0].exchangeRate || 0);
+                  // רווח נומינלי אמיתי (לא "הרווח הריאלי") - ראו הערה ב-portfolioMath.js
+                  const totalProfitILS = totalCurrentValueILS - totalPurchaseILS;
                   // מס וסכום ריאלי/פטור-משער מסוכמים per-lot (לא על הרווח המצרפי),
                   // כי לכל רכישה יש תאריך/שער קנייה משלה - בדיוק כמו במניות
                   // ישראליות עם מדד שונה לכל תאריך קנייה.
                   const perLotMetrics = stocks.map((stock) => calculateAmericanStockMetrics(stock));
                   const totalTaxILS = perLotMetrics.reduce((sum, m) => sum + m.taxILS, 0);
+                  const totalRealGainILS = perLotMetrics.reduce((sum, m) => sum + m.realGainILS, 0);
                   const totalAfterTaxILS = totalProfitILS - totalTaxILS;
+                  const totalInflationaryGainILS = totalProfitILS - totalRealGainILS;
                   const totalExchangeRateImpact = stocks.reduce((sum, stock) => {
                     const stockPurchaseUSD = (stock.purchasePrice || 0) * (stock.quantity || 0);
                     const stockCurrentExchangeRate = stock.currentExchangeRate || stock.exchangeRate || 0;
@@ -280,18 +283,18 @@ function AmericanStocksTable({
                           </button>
                           {stockName}
                         </td>
-                        {showAmericanColumns && <td>{isExpanded ? '' : 'פתח קיבוץ'}</td>}
-                        {showAmericanColumns && <td>{isExpanded ? '' : 'פתח קיבוץ'}</td>}
-                        {showAmericanColumns && <td>{summary.totalQuantity}</td>}
+                        <td>{isExpanded ? '' : 'פתח קיבוץ'}</td>
+                        <td>{isExpanded ? '' : 'פתח קיבוץ'}</td>
+                        <td>{summary.totalQuantity}</td>
                         <td>{formatPriceWithSign(totalPurchaseUSD)} $</td>
-                        {showAmericanColumns && <td>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
-                        {showAmericanColumns && <td>{isExpanded ? '' : 'פתח קיבוץ'}</td>}
-                        {showAmericanColumns && <td>{formatPrice(stocks[0].currentExchangeRate || stocks[0].exchangeRate || 0)}</td>}
+                        {showAdditionalData && <td>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
+                        {showAdditionalData && <td>{isExpanded ? '' : 'פתח קיבוץ'}</td>}
+                        <td>{formatPrice(stocks[0].currentExchangeRate || stocks[0].exchangeRate || 0)}</td>
                         <td>{formatPriceWithSign(averageCurrentPriceUSD)} $</td>
                         <td>{formatPriceWithSign(totalCurrentValueUSD)} $</td>
-                        {showAmericanColumns && <td>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>}
+                        <td>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>
                         <td className={profitClass(totalProfitUSD)}>{formatPriceWithSign(totalProfitUSD)} $</td>
-                        {showAmericanColumns && <td className={profitClass(totalProfitILS)}>{formatPriceWithSign(totalProfitILS)} ₪</td>}
+                        <td className={profitClass(totalProfitILS)}>{formatPriceWithSign(totalProfitILS)} ₪</td>
                         <td className={profitClass(profitPercentage)}>{profitPercentage}%</td>
                         <td className={profitClass(stocks[0].dailyChangePercent)}>
                           {formatDailyChangePercent(stocks[0].dailyChangePercent)}%
@@ -299,9 +302,11 @@ function AmericanStocksTable({
                         <td className={profitClass(stocks[0].dailyChangePercent)}>
                           {formatPriceWithSign(((stocks[0].dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $
                         </td>
-                        {showAmericanColumns && <td className={profitClass(totalExchangeRateImpact)}>{formatPriceWithSign(totalExchangeRateImpact)} ₪</td>}
-                        {showAmericanColumns && <td className="profit-negative">{formatPriceWithSign(-totalTaxILS)} ₪</td>}
-                        {showAmericanColumns && <td className={profitClass(totalAfterTaxILS)}>{formatPriceWithSign(totalAfterTaxILS)} ₪</td>}
+                        {showAdditionalData && <td className={profitClass(totalExchangeRateImpact)}>{formatPriceWithSign(totalExchangeRateImpact)} ₪</td>}
+                        {showAdditionalData && <td className="profit-negative">{formatPriceWithSign(-totalTaxILS)} ₪</td>}
+                        {showAdditionalData && <td className={profitClass(totalAfterTaxILS)}>{formatPriceWithSign(totalAfterTaxILS)} ₪</td>}
+                        {showAdditionalData && <td className={profitClass(totalInflationaryGainILS)}>{formatPriceWithSign(totalInflationaryGainILS)} ₪</td>}
+                        {showAdditionalData && <td className={profitClass(totalRealGainILS)}>{formatPriceWithSign(totalRealGainILS)} ₪</td>}
                         {isEditMode && <td></td>}
                       </tr>
 
