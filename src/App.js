@@ -188,7 +188,7 @@ function App() {
       setLegacyImportCompleted(true);
       setLegacyImportBanner('ייבוא מהדפדפן הושלם — הנתונים נשמרו בשרת.');
     } catch {
-      window.alert('שמירת הייבוא נכשלה. נסה שוב או בדוק שהשרת רץ.');
+      window.alert('שמירת הייבוא נכשלה נסה שוב או בדוק שהשרת רץ.');
     } finally {
       setLegacyImportLoading(false);
     }
