@@ -101,7 +101,20 @@ export const calculatePortfolioSummary = (
   const pensionInitialInvestmentILS = pensionFunds.reduce((sum, item) => sum + (item.initialInvestment ?? item.amount ?? 0), 0);
   const pensionCurrentValueILS = pensionFunds.reduce((sum, item) => sum + (item.currentValue ?? item.amount ?? 0), 0);
   const pensionPreviousValueILS = pensionFunds.reduce((sum, item) => sum + (item.previousValue ?? item.amount ?? 0), 0);
+
+  // "רווח מצטבר מול הפקדות" - חלוקת הרווח הכולל בסך כל ההפקדות שבוצעו אי-פעם.
+  // שים לב: זהו מדד עזר בלבד ולא תשואה אמיתית, כיוון שהפקדות מתבצעות
+  // בתאריכים שונים (למשל הפקדה חודשית) ומתייחסות כאן כאילו כל הכסף
+  // הופקד ביום הראשון. לכן ככל שיש הפקדות "טריות" יותר, האחוז הזה
+  // מוטה כלפי מטה ואינו משקף נכון את קצב הצמיחה של הקופה.
   const pensionProfitPercent = pensionInitialInvestmentILS > 0 ? ((pensionCurrentValueILS / pensionInitialInvestmentILS) - 1) * 100 : 0;
+
+  // תשואה מעדכון-לעדכון (השווי הקודם מול השווי הנוכחי) - זהו מדד התשואה
+  // המדויק לשימוש שוטף, כי הוא לא סוחף איתו הפקדות ישנות מתאריכים שונים,
+  // אלא רק את השינוי מאז העדכון הקודם. previousValue מתעדכן אוטומטית
+  // בכל פעם שהמשתמש משנה את currentValue (ראו handleInlineEdit ב-App.js).
+  // רק אם אין עדיין שווי קודם (למשל קופה שנוספה זה עתה) נופלים חזרה
+  // לחישוב מול ההפקדות.
   const pensionPreviousProfitPercent = pensionPreviousValueILS > 0 ? ((pensionCurrentValueILS / pensionPreviousValueILS) - 1) * 100 : (pensionInitialInvestmentILS > 0 ? ((pensionCurrentValueILS / pensionInitialInvestmentILS) - 1) * 100 : 0);
   const pensionTotalProfitILS = pensionCurrentValueILS - pensionInitialInvestmentILS;
   const pensionTaxILS = pensionTotalProfitILS > 0 ? pensionTotalProfitILS * TAX_RATE : 0;

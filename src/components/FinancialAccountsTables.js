@@ -35,8 +35,8 @@ function FinancialAccountsTables({
                   <th>סך השקעה ראשונית (₪)</th>
                   <th>סך ערך השקעה כיום (₪)</th>
                   <th>סך ערך ההשקעה בעדכון הקודם (₪)</th>
-                  <th>אחוז רווח בהשקעה</th>
-                  <th>אחוז רווח מבדיקה קודמת</th>
+                  <th>תשואה (מעדכון קודם)</th>
+                  <th>רווח מצטבר מול הפקדות</th>
                   <th>סך רווח/הפסד (₪)</th>
                   <th>רווח/הפסד מהשקעה קודמת להיום (₪)</th>
                   {isEditMode && <th>פעולות</th>}
@@ -47,7 +47,10 @@ function FinancialAccountsTables({
                   const initialInvestment = item.initialInvestment ?? item.amount ?? 0;
                   const currentValue = item.currentValue ?? item.amount ?? 0;
                   const previousValue = item.previousValue ?? 0;
+                  // רווח מצטבר מול סך ההפקדות - מדד עזר בלבד, לא תשואה אמיתית
+                  // (מתעלם מתזמון ההפקדות השונות, ראו הערה ב-portfolioSummary.js)
                   const profitPercent = initialInvestment > 0 ? ((currentValue / initialInvestment) - 1) * 100 : null;
+                  // תשואה מעדכון-לעדכון - זהו המדד המדויק לתשואה שוטפת
                   const previousProfitPercent = previousValue > 0 ? ((currentValue / previousValue) - 1) * 100 : null;
                   const totalProfitLoss = currentValue - initialInvestment;
                   const updateProfitLoss = previousValue > 0 ? currentValue - previousValue : null;
@@ -119,11 +122,11 @@ function FinancialAccountsTables({
                           />
                         ) : `${formatPriceWithSign(previousValue)} ₪`}
                       </td>
-                      <td className={profitPercent > 0 ? 'profit-positive' : profitPercent < 0 ? 'profit-negative' : ''}>
-                        {formatPercent(profitPercent)}
-                      </td>
                       <td className={previousProfitPercent > 0 ? 'profit-positive' : previousProfitPercent < 0 ? 'profit-negative' : ''}>
                         {formatPercent(previousProfitPercent)}
+                      </td>
+                      <td className={profitPercent > 0 ? 'profit-positive' : profitPercent < 0 ? 'profit-negative' : ''}>
+                        {formatPercent(profitPercent)}
                       </td>
                       <td className={totalProfitLoss > 0 ? 'profit-positive' : totalProfitLoss < 0 ? 'profit-negative' : ''}>
                         {`${formatPriceWithSign(totalProfitLoss)} ₪`}
