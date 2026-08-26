@@ -45,7 +45,12 @@ export const calculatePortfolioSummary = (
       });
       stockTax = result.tax;
       realGain = result.realGain;
-      inflationaryGain = result.adjustedCost - result.originalCost; // "פיצוי אינפלציה" הפטור ממס
+      // הרכיב הפטור נגזר כ"מה שנשאר" מהנומינלי אחרי הרווח הריאלי - לא
+      // חישוב עצמאי - כדי שתמיד יתאים בדיוק לכלל האסימטרי מפסק דין
+      // מוזס (calculateLinkedRealResult), כולל במקרי קצה (הצמדה כלפי
+      // מטה, הפסד עם הצמדה כלפי מעלה וכו') שבהם adjustedCost-originalCost
+      // הגולמי היה נותן תוצאה שגויה/לא עקבית.
+      inflationaryGain = profit - realGain;
     } else {
       // אין מדד לתאריך הקנייה: מתייחסים לכל הרווח כריאלי (אין הצמדה כלל)
       stockTax = profit > 0 ? profit * TAX_RATE : 0;
@@ -200,12 +205,15 @@ export const calculatePortfolioSummary = (
     });
     pensionTaxILS = perFund.reduce((sum, r) => sum + r.tax, 0);
     pensionRealGainILS = perFund.reduce((sum, r) => sum + r.gain, 0);
-    // רכיב אינפלציוני = הפרש בין העלות המותאמת לעלות המקורית (רק לקופות
-    // מוצמדות; מצטבר על כל הקופות, גם לא-מוצמדות שם ההפרש הוא 0)
-    pensionInflationaryGainILS = perFund.reduce(
-      (sum, r) => sum + (r.adjustedCostBasis - r.totalDeposited),
-      0
-    );
+    // רכיב אינפלציוני נגזר כ"מה שנשאר" מהנומינלי אחרי הרווח הריאלי -
+    // לא חישוב עצמאי - מאותה סיבה בדיוק כמו למניות ישראליות למעלה.
+    const pensionTotalNominalILS = pensionFunds.reduce((sum, fund) => {
+      const deposits = Array.isArray(fund.deposits) ? fund.deposits : [];
+      const totalDeposited = deposits.reduce((s, d) => s + (d.amount || 0), 0);
+      const fundCurrentValue = fund.currentValue ?? fund.amount ?? 0;
+      return sum + (fundCurrentValue - totalDeposited);
+    }, 0);
+    pensionInflationaryGainILS = pensionTotalNominalILS - pensionRealGainILS;
   } else {
     pensionTaxILS = pensionTotalProfitILS > 0 ? pensionTotalProfitILS * TAX_RATE : 0;
     pensionRealGainILS = pensionTotalProfitILS;
@@ -214,6 +222,11 @@ export const calculatePortfolioSummary = (
   const pensionUpdateProfitILS = pensionCurrentValueILS - pensionPreviousValueILS;
   const totalTaxILS = israeliTaxILS + americanTaxILS + pensionTaxILS;
   const totalProfitAfterTaxILS = (israeliSummary.totalProfitILS + americanSummary.totalProfitILS + pensionTotalProfitILS) - totalTaxILS;
+  // פירוק מאוחד לרווח ריאלי/אינפלציוני על פני כל שלושת הסוגים יחד
+  // (מניות ישראליות + מניות אמריקאיות + קופות גמל) - סכום פשוט של
+  // השדות שכל אחד מהם כבר מחשב לעצמו.
+  const totalRealGainILS = israeliSummary.totalRealGainILS + americanSummary.totalRealGainILS + pensionRealGainILS;
+  const totalInflationaryGainILS = israeliSummary.totalInflationaryGainILS + americanSummary.totalCurrencyExemptGainILS + pensionInflationaryGainILS;
   const bankBalancesTotalILS = bankBalances.reduce((sum, item) => sum + (item.amount || 0), 0);
   const capitalIsraeliILS = israeliSummary.totalCurrentValueILS;
   const capitalAmericanILS = americanSummary.totalCurrentValueILS;
@@ -291,6 +304,8 @@ export const calculatePortfolioSummary = (
     capitalBankILS: bankBalancesTotalILS,
     capitalTotalILS,
     totalTaxILS,
+    totalRealGainILS,
+    totalInflationaryGainILS,
     totalProfitAfterTaxILS
   };
 };

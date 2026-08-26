@@ -169,5 +169,37 @@ describe('calculatePortfolioSummary', () => {
       expect(summary.pensionRealGainILS + summary.pensionInflationaryGainILS)
         .toBeCloseTo(95000 - totalDeposited, 5);
     });
+
+    test('regression: real+inflationary always sum to nominal even when the index moved down (Moses case example 4 pattern)', () => {
+      // מדד ירד בין הקנייה להיום (130 -> 100) - הצמדה כלפי מטה, רווח.
+      // לפי הכלל האסימטרי: כל הרווח הנומינלי חייב במס, אין רכיב פטור.
+      const downIndexCpi = { currentIndex: 100, indexByMonth: { '2020-01': 130 } };
+      const israeliStocks = [
+        { stockName: 'A', quantity: 10, purchasePrice: 50, currentPrice: 60, dailyChangePercent: 0, purchaseDate: '2020-01-15' }
+      ];
+      const summary = calculatePortfolioSummary(israeliStocks, [], [], [], [], downIndexCpi);
+      expect(summary.israeliOnlyProfitILS).toBe(100); // (60-50)*10
+      expect(summary.israeliOnlyRealGainILS).toBe(100); // כל הרווח חייב, בלי הקלה
+      expect(summary.israeliOnlyInflationaryGainILS).toBe(0); // לא שלילי!
+      expect(summary.israeliOnlyRealGainILS + summary.israeliOnlyInflationaryGainILS)
+        .toBeCloseTo(summary.israeliOnlyProfitILS, 5);
+    });
+
+    test('combined totalRealGainILS/totalInflationaryGainILS sum real and inflationary gain across all three categories', () => {
+      const israeliStocks = [
+        { stockName: 'A', quantity: 10, purchasePrice: 10, currentPrice: 13, dailyChangePercent: 0, purchaseDate: '2020-01-15' }
+      ];
+      const americanStocks = [
+        { stockName: 'B', quantity: 1, purchasePrice: 100, exchangeRate: 5, currentPrice: 150, currentExchangeRate: 3.7 }
+      ];
+      const pensionFunds = [
+        { currentValue: 95000, isLinkedToIndex: true, deposits: [{ date: '2020-01-10', amount: 50000 }, { date: '2023-01-10', amount: 20000 }] }
+      ];
+      const summary = calculatePortfolioSummary(israeliStocks, americanStocks, pensionFunds, [], [], cpi);
+      const expectedReal = summary.israeliOnlyRealGainILS + summary.americanOnlyRealGainILS + summary.pensionRealGainILS;
+      const expectedInflationary = summary.israeliOnlyInflationaryGainILS + summary.americanOnlyCurrencyExemptGainILS + summary.pensionInflationaryGainILS;
+      expect(summary.totalRealGainILS).toBeCloseTo(expectedReal, 5);
+      expect(summary.totalInflationaryGainILS).toBeCloseTo(expectedInflationary, 5);
+    });
   });
 });
