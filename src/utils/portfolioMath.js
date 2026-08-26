@@ -1,5 +1,21 @@
+import { indexedCostBasis } from './cpiTax';
+
 export const TAX_RATE = 0.25;
 
+// מס רווח הון על מניה אמריקאית (נייר ערך זר): שער החליפין דולר/שקל
+// משמש בדיוק כמו "מדד" עבור נייר ערך צמוד מדד - העלות בשקלים מותאמת
+// לפי שינוי השער, והמס (25%) חל רק על הרווח שנשאר אחרי ההתאמה (הרווח
+// הריאלי). זה מעוגן בחוק: פטור ממס על ה"סכום האינפלציוני" ברווח הון
+// ממכירת נייר ערך זר (תקנות מס הכנסה, שיעור המס על רווח הון במכירת
+// נייר ערך זר), כשההתאמה לניירות במטבע חוץ נעשית לפי שינוי שער המטבע
+// (לא לפי מדד המחירים לצרכן).
+//
+// בפועל: adjustedCostBasisILS = indexedCostBasis(totalPurchaseILS, שער-קנייה, שער-היום)
+//                              = totalPurchaseUSD * שער-היום
+// כלומר: בדיוק שווה ערך למיסוי הרווח בדולר בלבד ואז המרתו לשקלים לפי
+// שער היום - זו בדיוק הנוסחה שהייתה כאן קודם (profitUSD * currentExchangeRate),
+// רק עכשיו כתובה במפורש דרך אותו מנגנון הצמדה כמו קופות גמל ומניות ישראליות,
+// כדי שיהיה עקבי, ברור, וניתן לאימות.
 export const calculateAmericanStockMetrics = (stock, taxRate = TAX_RATE) => {
   const totalPurchaseUSD = (stock.purchasePrice || 0) * (stock.quantity || 0);
   const totalPurchaseILS = totalPurchaseUSD * (stock.exchangeRate || 0);
@@ -8,8 +24,17 @@ export const calculateAmericanStockMetrics = (stock, taxRate = TAX_RATE) => {
   const totalCurrentValueILS = totalCurrentValueUSD * currentExchangeRate;
   const profitUSD = totalCurrentValueUSD - totalPurchaseUSD;
   const profitILS = profitUSD * currentExchangeRate;
-  const taxUSD = profitUSD > 0 ? profitUSD * taxRate : 0;
-  const taxILS = taxUSD * currentExchangeRate;
+
+  // עלות מותאמת לשער החליפין (מקביל ל-indexedCostBasis של CPI) והרווח
+  // הריאלי שנובע ממנה - זהו הרווח שחייב במס.
+  const adjustedCostBasisILS = indexedCostBasis(totalPurchaseILS, stock.exchangeRate, currentExchangeRate);
+  const realGainILS = totalCurrentValueILS - adjustedCostBasisILS;
+  // הרכיב הפטור: הפרש השער על העלות המקורית - "הסכום האינפלציוני"
+  // המקביל, פטור ממס לפי החוק.
+  const currencyExemptGainILS = adjustedCostBasisILS - totalPurchaseILS;
+
+  const taxILS = realGainILS > 0 ? realGainILS * taxRate : 0;
+  const taxUSD = currentExchangeRate > 0 ? taxILS / currentExchangeRate : 0;
   const afterTaxUSD = profitUSD - taxUSD;
   const afterTaxILS = profitILS - taxILS;
   // FX impact is measured on today's position value in USD:
@@ -24,6 +49,9 @@ export const calculateAmericanStockMetrics = (stock, taxRate = TAX_RATE) => {
     totalCurrentValueILS,
     profitUSD,
     profitILS,
+    adjustedCostBasisILS,
+    realGainILS,
+    currencyExemptGainILS,
     taxUSD,
     taxILS,
     afterTaxUSD,

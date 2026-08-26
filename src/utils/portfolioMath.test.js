@@ -78,6 +78,25 @@ describe('calculateAmericanStockMetrics', () => {
     const m = calculateAmericanStockMetrics(baseStock, 0.1);
     expect(m.taxUSD).toBeCloseTo(500 * 0.1, 5);
   });
+
+  test('exposes the real vs. currency-exempt breakdown, mirroring the CPI-linked stock formula', () => {
+    // קניתי ב-1000$ (מדד/שער=3.5), היום שווה 1000$ (מדד/שער=4.2) - אין
+    // שינוי במחיר המניה עצמה, כל הרווח בשקלים נובע רק משינוי השער ולכן
+    // כולו פטור (רווח ריאלי = 0, אין מס).
+    const stableStock = { purchasePrice: 100, quantity: 10, exchangeRate: 3.5, currentPrice: 100, currentExchangeRate: 4.2 };
+    const m = calculateAmericanStockMetrics(stableStock);
+    expect(m.realGainILS).toBeCloseTo(0, 5);
+    expect(m.taxILS).toBe(0);
+    expect(m.currencyExemptGainILS).toBeCloseTo(1000 * (4.2 - 3.5), 5); // 700
+    // הריאלי + הפטור מהמטבע = הרווח הנומינלי המלא בשקלים
+    expect(m.realGainILS + m.currencyExemptGainILS).toBeCloseTo(m.totalCurrentValueILS - m.totalPurchaseILS, 5);
+  });
+
+  test('taxes only the portion of the ILS gain that exceeds currency movement', () => {
+    const m = calculateAmericanStockMetrics(baseStock); // price 100->150, rate 3.5->3.7
+    expect(m.realGainILS).toBeCloseTo(m.profitILS, 5); // זהה למה שהיה מחושב בעבר כ-profitILS
+    expect(m.taxILS).toBeCloseTo(m.realGainILS * 0.25, 5);
+  });
 });
 
 describe('applyPensionCurrentValueUpdate', () => {

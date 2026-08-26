@@ -39,6 +39,18 @@ describe('calculatePortfolioSummary', () => {
     expect(summary.capitalAmericanILS).toBeCloseTo(1900 * 3.7, 5);
   });
 
+  test('American stock tax is exempt on the currency-driven portion of the ILS gain, matching Israeli law for foreign securities', () => {
+    // מחיר המניה לא זז (150->150), רק השער עלה - כל הרווח בשקלים הוא
+    // רק בגלל השער, ולכן פטור לגמרי ממס.
+    const americanStocks = [
+      { stockName: 'AAPL', quantity: 10, purchasePrice: 150, currentPrice: 150, exchangeRate: 3.6, currentExchangeRate: 3.9, dailyChangePercent: 0, purchaseDate: '2022-03-01' }
+    ];
+    const summary = calculatePortfolioSummary([], americanStocks, [], [], []);
+    expect(summary.americanOnlyRealGainILS).toBeCloseTo(0, 5);
+    expect(summary.americanOnlyTaxILS).toBe(0);
+    expect(summary.americanOnlyCurrencyExemptGainILS).toBeCloseTo(1500 * (3.9 - 3.6), 5); // 450
+  });
+
   test('includes pension, cash fund, and bank balances in capitalTotalILS', () => {
     const pensionFunds = [{ initialInvestment: 10000, currentValue: 12000, previousValue: 11500 }];
     const cashFunds = [{ amount: 5000 }];

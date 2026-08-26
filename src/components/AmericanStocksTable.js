@@ -258,8 +258,11 @@ function AmericanStocksTable({
                   const profitPercentage = calculateProfitPercentage(averagePurchasePrice, averageCurrentPrice);
                   const totalProfitUSD = totalCurrentValueUSD - totalPurchaseUSD;
                   const totalProfitILS = totalProfitUSD * (stocks[0].currentExchangeRate || stocks[0].exchangeRate || 0);
-                  const totalTaxUSD = totalProfitUSD > 0 ? totalProfitUSD * TAX_RATE : 0;
-                  const totalTaxILS = totalTaxUSD * (stocks[0].currentExchangeRate || stocks[0].exchangeRate || 0);
+                  // מס וסכום ריאלי/פטור-משער מסוכמים per-lot (לא על הרווח המצרפי),
+                  // כי לכל רכישה יש תאריך/שער קנייה משלה - בדיוק כמו במניות
+                  // ישראליות עם מדד שונה לכל תאריך קנייה.
+                  const perLotMetrics = stocks.map((stock) => calculateAmericanStockMetrics(stock));
+                  const totalTaxILS = perLotMetrics.reduce((sum, m) => sum + m.taxILS, 0);
                   const totalAfterTaxILS = totalProfitILS - totalTaxILS;
                   const totalExchangeRateImpact = stocks.reduce((sum, stock) => {
                     const stockPurchaseUSD = (stock.purchasePrice || 0) * (stock.quantity || 0);

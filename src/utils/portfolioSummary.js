@@ -84,6 +84,10 @@ export const calculatePortfolioSummary = (
     acc.totalCurrentValueILS += metrics.totalCurrentValueILS;
     acc.totalProfitUSD += metrics.profitUSD;
     acc.totalProfitILS += metrics.profitILS;
+    acc.totalTaxILS += metrics.taxILS;
+    acc.totalTaxUSD += metrics.taxUSD;
+    acc.totalRealGainILS += metrics.realGainILS;
+    acc.totalCurrencyExemptGainILS += metrics.currencyExemptGainILS;
     acc.totalExchangeImpact += metrics.exchangeRateImpact;
     acc.totalWeight += metrics.totalCurrentValueILS; // weight for daily-change percentage
     acc.dailyChangeSum += (stock.dailyChangePercent || 0) * metrics.totalCurrentValueILS;
@@ -96,6 +100,10 @@ export const calculatePortfolioSummary = (
     totalCurrentValueILS: 0,
     totalProfitUSD: 0,
     totalProfitILS: 0,
+    totalTaxILS: 0,
+    totalTaxUSD: 0,
+    totalRealGainILS: 0,
+    totalCurrencyExemptGainILS: 0,
     totalExchangeImpact: 0,
     totalWeight: 0,
     dailyChangeSum: 0
@@ -131,11 +139,15 @@ export const calculatePortfolioSummary = (
   const israeliDailyPercent = israeliSummary.totalCurrentValueILS > 0 ? (israeliDailyProfitILS / israeliSummary.totalCurrentValueILS) * 100 : 0;
 
   const americanProfitUSD = americanSummary.totalCurrentValueUSD - americanSummary.totalPurchaseUSD;
-  const americanTaxUSD = americanProfitUSD > 0 ? americanProfitUSD * TAX_RATE : 0;
+  // מס רווח הון על מניות אמריקאיות: כבר חושב per-stock למעלה (מוצמד
+  // לשער החליפין כמו "מדד", 25% על הרווח הריאלי בלבד) - כאן רק לוקחים
+  // את הסכום המצטבר, במקום לחשב שוב ברמת התיק (שהיה עלול לתת תוצאה
+  // מעט שונה אם למניות שונות יש שערי חליפין נוכחיים שונים).
+  const americanTaxUSD = americanSummary.totalTaxUSD;
   const americanAfterTaxUSD = americanProfitUSD - americanTaxUSD;
   const americanProfitPercent = americanSummary.totalPurchaseUSD > 0 ? (americanProfitUSD / americanSummary.totalPurchaseUSD) * 100 : 0;
   const americanDailyPercent = americanSummary.totalCurrentValueUSD > 0 ? (americanDailyProfitUSD / americanSummary.totalCurrentValueUSD) * 100 : 0;
-  const americanTaxILS = americanSummary.totalCurrentValueUSD > 0 ? americanTaxUSD * (americanSummary.totalCurrentValueILS / americanSummary.totalCurrentValueUSD) : 0;
+  const americanTaxILS = americanSummary.totalTaxILS;
 
   // Total capital by category
   const cashFundsTotalILS = cashFunds.reduce((sum, item) => sum + (item.amount || 0), 0);
@@ -238,6 +250,10 @@ export const calculatePortfolioSummary = (
     totalProfitUSD: americanSummary.totalProfitUSD,
     americanOnlyTaxUSD: americanTaxUSD,
     americanOnlyTaxILS: americanTaxILS,
+    // פירוק הרווח בשקלים לרכיב ריאלי (חייב במס) ורכיב הנובע משינוי שער
+    // החליפין (פטור - "הסכום האינפלציוני" המקביל לניירות ערך זרים)
+    americanOnlyRealGainILS: americanSummary.totalRealGainILS,
+    americanOnlyCurrencyExemptGainILS: americanSummary.totalCurrencyExemptGainILS,
     americanOnlyAfterTaxUSD: americanAfterTaxUSD,
     americanOnlyProfitPercent: americanProfitPercent,
     americanOnlyDailyPercent: americanDailyPercent,
