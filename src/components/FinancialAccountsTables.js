@@ -1,9 +1,11 @@
 import React from 'react';
+import { calculatePensionRealGainTax } from '../utils/cpiTax';
 
 function FinancialAccountsTables({
   pensionFunds,
   cashFunds,
   bankBalances,
+  cpi,
   isEditMode,
   editingField,
   handleCellClick,
@@ -38,6 +40,8 @@ function FinancialAccountsTables({
                   <th>הפקדה בעדכון זה (₪)</th>
                   <th>תאריך ההפקדה</th>
                   <th>מוצמד למדד?</th>
+                  <th>רווח ריאלי (חייב במס)</th>
+                  <th>רווח אינפלציוני (פטור)</th>
                   <th>תשואה (מעדכון קודם)</th>
                   <th>רווח מצטבר מול הפקדות</th>
                   <th>סך רווח/הפסד (₪)</th>
@@ -60,6 +64,23 @@ function FinancialAccountsTables({
                   const previousProfitPercent = previousValue > 0 ? ((currentValue / previousValue) - 1) * 100 : null;
                   const totalProfitLoss = currentValue - initialInvestment;
                   const updateProfitLoss = previousValue > 0 ? currentValue - previousValue : null;
+
+                  // רווח ריאלי/אינפלציוני לקופה הזו בלבד - לוידוא נקודתי מול
+                  // הפירוק המצטבר שמוצג בסיכום התיק (PortfolioSummary.js)
+                  let realGain = null;
+                  let inflationaryGain = null;
+                  if (cpi && cpi.currentIndex) {
+                    const deposits = Array.isArray(item.deposits) ? item.deposits : [];
+                    const result = calculatePensionRealGainTax({
+                      deposits,
+                      currentValue,
+                      isLinkedToIndex: !!item.isLinkedToIndex,
+                      currentIndex: cpi.currentIndex,
+                      indexByMonth: cpi.indexByMonth || {}
+                    });
+                    realGain = result.gain;
+                    inflationaryGain = result.adjustedCostBasis - result.totalDeposited;
+                  }
                   return (
                     <tr key={item.id} className={isEditMode ? 'editable-row' : ''}>
                       <td onClick={() => handleCellClick(item.id, 'fundName', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
@@ -161,6 +182,12 @@ function FinancialAccountsTables({
                           disabled={!isEditMode}
                           onChange={(e) => handleInlineEdit(item.id, 'isLinkedToIndex', e.target.checked, 'pension')}
                         />
+                      </td>
+                      <td className={realGain !== null && realGain > 0 ? 'profit-positive' : realGain !== null && realGain < 0 ? 'profit-negative' : ''}>
+                        {realGain !== null ? `${formatPriceWithSign(realGain)} ₪` : '-'}
+                      </td>
+                      <td>
+                        {inflationaryGain !== null ? `${formatPriceWithSign(inflationaryGain)} ₪` : '-'}
                       </td>
                       <td className={previousProfitPercent > 0 ? 'profit-positive' : previousProfitPercent < 0 ? 'profit-negative' : ''}>
                         {formatPercent(previousProfitPercent)}

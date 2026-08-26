@@ -72,4 +72,90 @@ describe('calculatePortfolioSummary', () => {
     const americanStocks = [{ stockName: 'B' }];
     expect(() => calculatePortfolioSummary(israeliStocks, americanStocks, [], [], [])).not.toThrow();
   });
+
+  describe('CPI-linked real capital gains tax (when the cpi param is provided)', () => {
+    const cpi = { currentIndex: 130, indexByMonth: { '2020-01': 100, '2023-01': 115 } };
+
+    test('taxes an Israeli stock on its real gain (inflation-adjusted), not the full nominal gain', () => {
+      // קניתי ב-1,000 (מדד=100), היום שווה 1,300 (מדד=130) - זו בדיוק
+      // אינפלציה, אין רווח ריאלי, ולכן אין מס - למרות שהרווח הנומינלי 300.
+      const israeliStocks = [
+        { stockName: 'A', quantity: 100, purchasePrice: 10, currentPrice: 1300, dailyChangePercent: 0, purchaseDate: '2020-01-15' }
+      ];
+      const summary = calculatePortfolioSummary(israeliStocks, [], [], [], [], cpi);
+      expect(summary.israeliOnlyProfitILS).toBe(300); // נומינלי, לא משתנה
+      expect(summary.israeliOnlyTaxILS).toBeCloseTo(0, 5); // אבל בלי מס, כי אין רווח ריאלי
+    });
+
+    test('falls back to the flat nominal tax for an Israeli stock when its purchase month has no CPI data', () => {
+      const israeliStocks = [
+        { stockName: 'A', quantity: 100, purchasePrice: 10, currentPrice: 1300, dailyChangePercent: 0, purchaseDate: '1999-06-15' }
+      ];
+      const summary = calculatePortfolioSummary(israeliStocks, [], [], [], [], cpi);
+      expect(summary.israeliOnlyTaxILS).toBeCloseTo(300 * 0.25, 5);
+    });
+
+    test('unlinked pension fund: flat 15% on the nominal gain', () => {
+      const pensionFunds = [
+        {
+          currentValue: 90000,
+          isLinkedToIndex: false,
+          deposits: [{ date: '2020-01-10', amount: 70000 }]
+        }
+      ];
+      const summary = calculatePortfolioSummary([], [], pensionFunds, [], [], cpi);
+      expect(summary.pensionTaxILS).toBeCloseTo((90000 - 70000) * 0.15, 5);
+    });
+
+    test('linked pension fund: 25% on the real gain, each deposit indexed by its own date', () => {
+      const pensionFunds = [
+        {
+          currentValue: 95000,
+          isLinkedToIndex: true,
+          deposits: [{ date: '2020-01-10', amount: 50000 }, { date: '2023-01-10', amount: 20000 }]
+        }
+      ];
+      const summary = calculatePortfolioSummary([], [], pensionFunds, [], [], cpi);
+      const adjustedCost = 50000 * (130 / 100) + 20000 * (130 / 115);
+      expect(summary.pensionTaxILS).toBeCloseTo(Math.max(0, 95000 - adjustedCost) * 0.25, 5);
+    });
+
+    test('without a cpi param at all, pension tax falls back to the old flat 25% on nominal profit', () => {
+      const pensionFunds = [{ initialInvestment: 10000, currentValue: 12000, previousValue: 11500 }];
+      const summary = calculatePortfolioSummary([], [], pensionFunds, [], []);
+      expect(summary.pensionTaxILS).toBeCloseTo(2000 * 0.25, 5);
+    });
+
+    test('exposes the real vs. inflationary breakdown for an Israeli stock, so the tax math can be audited', () => {
+      // רווח נומינלי 300 (1300-1000), אינפלציה 30% -> אין רווח ריאלי,
+      // כל ה-300 הוא רכיב אינפלציוני פטור.
+      const israeliStocks = [
+        { stockName: 'A', quantity: 100, purchasePrice: 10, currentPrice: 1300, dailyChangePercent: 0, purchaseDate: '2020-01-15' }
+      ];
+      const summary = calculatePortfolioSummary(israeliStocks, [], [], [], [], cpi);
+      expect(summary.israeliOnlyRealGainILS).toBeCloseTo(0, 5);
+      expect(summary.israeliOnlyInflationaryGainILS).toBeCloseTo(300, 5);
+      // הנומינלי = ריאלי + אינפלציוני, תמיד
+      expect(summary.israeliOnlyRealGainILS + summary.israeliOnlyInflationaryGainILS)
+        .toBeCloseTo(summary.israeliOnlyProfitILS, 5);
+    });
+
+    test('exposes the real vs. inflationary breakdown for a linked pension fund', () => {
+      const pensionFunds = [
+        {
+          currentValue: 95000,
+          isLinkedToIndex: true,
+          deposits: [{ date: '2020-01-10', amount: 50000 }, { date: '2023-01-10', amount: 20000 }]
+        }
+      ];
+      const summary = calculatePortfolioSummary([], [], pensionFunds, [], [], cpi);
+      const adjustedCost = 50000 * (130 / 100) + 20000 * (130 / 115);
+      const totalDeposited = 70000;
+      expect(summary.pensionInflationaryGainILS).toBeCloseTo(adjustedCost - totalDeposited, 5);
+      expect(summary.pensionRealGainILS).toBeCloseTo(95000 - adjustedCost, 5);
+      // הנומינלי (currentValue - deposits) = ריאלי + אינפלציוני, תמיד
+      expect(summary.pensionRealGainILS + summary.pensionInflationaryGainILS)
+        .toBeCloseTo(95000 - totalDeposited, 5);
+    });
+  });
 });

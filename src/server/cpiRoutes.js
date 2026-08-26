@@ -3,12 +3,9 @@
 // ולכן אין טעם למשוך אותו בכל טעינה - שומרים אותו בקאש בזיכרון ומרעננים
 // רק פעם ביום (למקרה שהתפרסם מדד חדש) או לפי בקשה מפורשת.
 //
-// ⚠️ הערה חשובה: כתובת ה-API והפרמטרים המדויקים (מספר הסדרה של "מדד
-// המחירים לצרכן - כללי") מבוססים על תיעוד הלמ"ס הפומבי, אך לא נבדקו
-// מול השרת החי בסביבת הפיתוח הזו (חסימת רשת). מומלץ לוודא ולהתאים
-// לפי https://www.cbs.gov.il/he/Pages/מדדי-מחירים-באמצעות-API.aspx
-// לפני עלייה לפרודקשן, ובמידת הצורך לעדכן CPI_SERIES_ID ואת פורמט
-// התגובה בפונקציה parseCbsResponse.
+// ✅ נבדק מול השרת החי (26.8.2026): endpoint, פרמטרים (כולל פורמט
+// startPeriod/endPeriod כ-mm-yyyy), ומבנה התגובה בפונקציה parseCbsResponse
+// כולם מאומתים מול תגובה אמיתית מ-api.cbs.gov.il.
 const axios = require('axios');
 
 const CBS_BASE_URL = 'https://api.cbs.gov.il/index/data/price';
@@ -30,35 +27,58 @@ function createCpiCache() {
   };
 }
 
+// מבנה התגובה האמיתי (נבדק מול השרת החי):
+// {
+//   "month": [
+//     {
+//       "code": 120010,
+//       "name": "Consumer Price Index - General",
+//       "date": [
+//         { "year": 2026, "month": 7, "currBase": { "baseDesc": "...", "value": 105.1 }, ... }
+//       ]
+//     }
+//   ]
+// }
+// כלומר: מערך סדרות תחת data.month, ולכל סדרה מערך נקודות תחת date[],
+// עם year/month נפרדים (לא מחרוזת תאריך) וה-value בתוך currBase (לא מערך).
 function parseCbsResponse(data) {
-  // מבנה משוער של תגובת ה-API: { month_data: [{ date: 'YYYY-MM-DD', currBase: [{ index: number }] }] }
-  // יש להתאים לפי המבנה האמיתי שמוחזר מהשרת.
-  const rows = (data && (data.month_data || data.data)) || [];
-  return rows
-    .map((row) => {
-      const dateStr = row.date || row.period;
-      const indexValue = row.currBase && row.currBase[0] ? row.currBase[0].index : row.index;
-      if (!dateStr || indexValue == null) return null;
-      return { month: String(dateStr).slice(0, 7), value: Number(indexValue) };
-    })
-    .filter(Boolean);
+  const series = (data && Array.isArray(data.month)) ? data.month : [];
+  const rows = [];
+  series.forEach((s) => {
+    (Array.isArray(s.date) ? s.date : []).forEach((d) => {
+      const value = d.currBase && d.currBase.value;
+      if (d.year == null || d.month == null || value == null) return;
+      const monthKey = `${d.year}-${String(d.month).padStart(2, '0')}`;
+      rows.push({ month: monthKey, value: Number(value) });
+    });
+  });
+  return rows;
 }
 
-async function fetchCbsSeries({ startPeriod, endPeriod } = {}) {
+async function fetchCbsSeries({ startPeriod, endPeriod, last } = {}) {
   const params = {
     id: CPI_SERIES_ID,
     format: 'json',
+    lang: 'en', // תגובה עם תאריכים לטיניים, עקבי יותר לפרסור
     download: 'false'
   };
   if (startPeriod) params.startPeriod = startPeriod;
   if (endPeriod) params.endPeriod = endPeriod;
+  if (last) params.last = last;
 
   const response = await axios.get(CBS_BASE_URL, {
     params,
     headers: { 'User-Agent': 'stockview-app/1.0' }, // חובה ע"פ תיעוד הלמ"ס
     timeout: 10000
   });
-  return parseCbsResponse(response.data);
+  const rows = parseCbsResponse(response.data);
+  if (rows.length === 0) {
+    // עוזר לאבחון: אם החזרנו 0 שורות, זה כמעט תמיד או שמבנה התגובה שונה
+    // ממה שהונח ב-parseCbsResponse, או שה-id/lang/פורמט לא תקינים.
+    console.warn('[cpi] CBS response parsed to 0 rows. Raw response snippet:',
+      JSON.stringify(response.data).slice(0, 500));
+  }
+  return rows;
 }
 
 // מחזיר את ערך המדד לחודש נתון ("YYYY-MM"), עם קאש קבוע (מדדי עבר לא משתנים).
@@ -66,7 +86,9 @@ async function getIndexForMonth(cache, monthKey) {
   if (cache.monthIndexCache.has(monthKey)) return cache.monthIndexCache.get(monthKey);
 
   const [year, month] = monthKey.split('-');
-  const period = `${year}${month}`;
+  // פורמט התקופה שה-API של הלמ"ס מצפה לו הוא mm-yyyy (למשל '01-2023'),
+  // לא yyyymm - זו הייתה הסיבה לשגיאות 500 שראינו בבדיקה.
+  const period = `${month}-${year}`;
   const rows = await fetchCbsSeries({ startPeriod: period, endPeriod: period });
   const match = rows.find((r) => r.month === monthKey);
   if (match) {
@@ -103,7 +125,7 @@ function mountCpiRoutes(app) {
       const latest = await getLatestIndex(cache);
       return res.json({ month: latest.month, value: latest.value });
     } catch (err) {
-      console.error('[cpi] failed to fetch latest index', err.message);
+      console.error('[cpi] failed to fetch latest index', err.response ? `status ${err.response.status}: ${JSON.stringify(err.response.data).slice(0, 300)}` : err.message);
       // fail-safe: אם יש קאש ישן, עדיף להגיש אותו מאשר לשבור את החישוב
       const stale = cache.getLatest();
       if (stale) {
@@ -126,7 +148,7 @@ function mountCpiRoutes(app) {
       }
       return res.json({ month: monthKey, value });
     } catch (err) {
-      console.error('[cpi] failed to fetch index for month', monthKey, err.message);
+      console.error('[cpi] failed to fetch index for month', monthKey, err.response ? `status ${err.response.status}: ${JSON.stringify(err.response.data).slice(0, 300)}` : err.message);
       return res.status(502).json({ error: 'לא ניתן היה למשוך את מדד המחירים לצרכן' });
     }
   });
@@ -142,7 +164,7 @@ function mountCpiRoutes(app) {
         const value = await getIndexForMonth(cache, monthKey);
         if (value != null) result[monthKey] = value;
       } catch (err) {
-        console.error('[cpi] failed to fetch index for month', monthKey, err.message);
+        console.error('[cpi] failed to fetch index for month', monthKey, err.response ? `status ${err.response.status}: ${JSON.stringify(err.response.data).slice(0, 300)}` : err.message);
       }
     }
     return res.json(result);

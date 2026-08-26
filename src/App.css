@@ -755,6 +755,15 @@ body {
   margin: 4px 0 0;
 }
 
+.cpi-status-banner {
+  font-size: 0.85rem;
+  color: #5a6b7d;
+  background: #eef2f7;
+  border-radius: 8px;
+  padding: 8px 14px;
+  margin: 0 0 16px;
+}
+
 .form-group select {
   cursor: pointer;
 }

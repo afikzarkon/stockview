@@ -9,6 +9,8 @@ import { apiUrl } from './apiBase';
 import { useAuth } from './hooks/useAuth';
 import { usePortfolioData } from './hooks/usePortfolioData';
 import { usePriceRefresh } from './hooks/usePriceRefresh';
+import { useCpiIndex } from './hooks/useCpiIndex';
+import { monthKeyFromDate } from './utils/cpiTax';
 import StockFormView from './components/StockFormView';
 import PortfolioAnalysisView from './components/PortfolioAnalysisView';
 import HomeView from './components/HomeView';
@@ -125,6 +127,16 @@ function App() {
     editingField,
     isAddingNewStock
   });
+
+  // כל חודשי המדד הרלוונטיים לתיק: תאריכי קניית מניות ישראליות +
+  // תאריכי כל הפקדה בפנקס ההפקדות של כל קופת גמל. משמש לחישוב מס
+  // רווח הון ריאלי מוצמד למדד (ראו utils/cpiTax.js).
+  const relevantCpiMonths = [
+    ...israeliStocks.map((s) => monthKeyFromDate(s.purchaseDate)),
+    ...pensionFunds.flatMap((f) => (Array.isArray(f.deposits) ? f.deposits : []).map((d) => monthKeyFromDate(d.date)))
+  ].filter(Boolean);
+
+  const cpi = useCpiIndex(relevantCpiMonths);
 
   useEffect(() => {
     if (!user || !user.id) {
@@ -579,7 +591,8 @@ function App() {
     americanStocks,
     pensionFunds,
     cashFunds,
-    bankBalances
+    bankBalances,
+    { currentIndex: cpi.currentIndex, indexByMonth: cpi.indexByMonth }
   );
 
   return (
@@ -601,6 +614,7 @@ function App() {
       pensionFunds={pensionFunds}
       cashFunds={cashFunds}
       bankBalances={bankBalances}
+      cpi={cpi}
       handleAddInfo={handleAddInfo}
       setShowAnalysis={setShowAnalysis}
       isEditMode={isEditMode}

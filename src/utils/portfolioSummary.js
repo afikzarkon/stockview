@@ -5,14 +5,21 @@
 
 import { TAX_RATE, calculateAmericanStockMetrics } from './portfolioMath';
 import { normalizeIsraeliPrice } from './formatters';
+import { calculateStockRealGainTax, calculatePensionRealGainTax, monthKeyFromDate } from './cpiTax';
 
+// cpi = { currentIndex, indexByMonth } - אופציונלי. כל עוד המדד לא נטען
+// (או שהמשיכה נכשלה), נופלים חזרה לחישוב מס שטוח על הרווח הנומינלי
+// (כמו קודם), כדי שהאפליקציה תמשיך לעבוד גם בלי תלות ברשת/במדד.
 export const calculatePortfolioSummary = (
   israeliStocks,
   americanStocks,
   pensionFunds,
   cashFunds,
-  bankBalances
+  bankBalances,
+  cpi = {}
 ) => {
+  const { currentIndex = null, indexByMonth = {} } = cpi;
+
   // Israeli stocks
   const israeliSummary = israeliStocks.reduce((acc, stock) => {
     const totalPurchase = (stock.purchasePrice || 0) * (stock.quantity || 0);
@@ -20,9 +27,38 @@ export const calculatePortfolioSummary = (
     const totalCurrentValue = (normalizedPrice || 0) * (stock.quantity || 0);
     const profit = totalCurrentValue - totalPurchase;
 
+    // מס רווח הון ריאלי (מוצמד למדד לפי תאריך הקנייה) כשהמדד זמין,
+    // אחרת נופלים חזרה למס שטוח על הרווח הנומינלי (ההתנהגות הישנה).
+    // realGain ו-inflationaryGain נשמרים בנפרד (ולא רק tax) כדי
+    // שאפשר יהיה להציג אותם בממשק ולוודא את החישוב.
+    const indexAtPurchase = indexByMonth[monthKeyFromDate(stock.purchaseDate)];
+    let stockTax;
+    let realGain;
+    let inflationaryGain;
+    if (currentIndex && indexAtPurchase) {
+      const result = calculateStockRealGainTax({
+        purchasePrice: stock.purchasePrice,
+        quantity: stock.quantity,
+        currentValue: totalCurrentValue,
+        indexAtPurchase,
+        currentIndex
+      });
+      stockTax = result.tax;
+      realGain = result.realGain;
+      inflationaryGain = result.adjustedCost - result.originalCost; // "פיצוי אינפלציה" הפטור ממס
+    } else {
+      // אין מדד לתאריך הקנייה: מתייחסים לכל הרווח כריאלי (אין הצמדה כלל)
+      stockTax = profit > 0 ? profit * TAX_RATE : 0;
+      realGain = profit;
+      inflationaryGain = 0;
+    }
+
     acc.totalPurchaseILS += totalPurchase;
     acc.totalCurrentValueILS += totalCurrentValue;
     acc.totalProfitILS += profit;
+    acc.totalTaxILS += stockTax;
+    acc.totalRealGainILS += realGain;
+    acc.totalInflationaryGainILS += inflationaryGain;
     acc.totalWeight += totalCurrentValue; // weight for daily-change percentage
     acc.dailyChangeSum += (stock.dailyChangePercent || 0) * totalCurrentValue;
 
@@ -31,6 +67,9 @@ export const calculatePortfolioSummary = (
     totalPurchaseILS: 0,
     totalCurrentValueILS: 0,
     totalProfitILS: 0,
+    totalTaxILS: 0,
+    totalRealGainILS: 0,
+    totalInflationaryGainILS: 0,
     totalWeight: 0,
     dailyChangeSum: 0
   });
@@ -84,7 +123,9 @@ export const calculatePortfolioSummary = (
 
   // Total profit percentages per exchange
   const israeliProfitILS = israeliSummary.totalCurrentValueILS - israeliSummary.totalPurchaseILS;
-  const israeliTaxILS = israeliProfitILS > 0 ? israeliProfitILS * TAX_RATE : 0;
+  // מס רווח הון ריאלי כבר חושב per-stock למעלה (מוצמד למדד כשזמין,
+  // אחרת שטוח על הרווח הנומינלי) - כאן רק לוקחים את הסכום המצטבר.
+  const israeliTaxILS = israeliSummary.totalTaxILS;
   const israeliAfterTaxILS = israeliProfitILS - israeliTaxILS;
   const israeliProfitPercent = israeliSummary.totalPurchaseILS > 0 ? (israeliProfitILS / israeliSummary.totalPurchaseILS) * 100 : 0;
   const israeliDailyPercent = israeliSummary.totalCurrentValueILS > 0 ? (israeliDailyProfitILS / israeliSummary.totalCurrentValueILS) * 100 : 0;
@@ -119,7 +160,45 @@ export const calculatePortfolioSummary = (
   // לחישוב מול ההפקדות.
   const pensionPreviousProfitPercent = pensionPreviousValueILS > 0 ? ((pensionCurrentValueILS / pensionPreviousValueILS) - 1) * 100 : (pensionInitialInvestmentILS > 0 ? ((pensionCurrentValueILS / pensionInitialInvestmentILS) - 1) * 100 : 0);
   const pensionTotalProfitILS = pensionCurrentValueILS - pensionInitialInvestmentILS;
-  const pensionTaxILS = pensionTotalProfitILS > 0 ? pensionTotalProfitILS * TAX_RATE : 0;
+  // מס על קופות גמל: לכל קופה בנפרד, לפי דגל isLinkedToIndex -
+  // אם מוצמדת למדד: 25% על הרווח הריאלי בלבד (כל הפקדה מוצמדת בנפרד
+  // לפי תאריך ההפקדה שלה, ראו cpiTax.js). אם לא מוצמדת: 15% שטוח על
+  // מלוא הרווח הנומינלי. כשהמדד לא זמין עדיין (טעינה ראשונית/כשל
+  // רשת) נופלים חזרה למס הישן (25% שטוח על כלל קופות הגמל) כדי
+  // שהאפליקציה תמשיך לעבוד.
+  //
+  // pensionRealGainILS / pensionInflationaryGainILS נשמרים בנפרד כדי
+  // שאפשר יהיה להציג אותם בממשק ולוודא את החישוב (רק לקופות מוצמדות -
+  // לקופות לא-מוצמדות "הרווח הריאלי" שווה לרווח הנומינלי המלא, כי אין
+  // הצמדה כלל).
+  let pensionTaxILS;
+  let pensionRealGainILS;
+  let pensionInflationaryGainILS;
+  if (currentIndex) {
+    const perFund = pensionFunds.map((fund) => {
+      const deposits = Array.isArray(fund.deposits) ? fund.deposits : [];
+      const fundCurrentValue = fund.currentValue ?? fund.amount ?? 0;
+      return calculatePensionRealGainTax({
+        deposits,
+        currentValue: fundCurrentValue,
+        isLinkedToIndex: !!fund.isLinkedToIndex,
+        currentIndex,
+        indexByMonth
+      });
+    });
+    pensionTaxILS = perFund.reduce((sum, r) => sum + r.tax, 0);
+    pensionRealGainILS = perFund.reduce((sum, r) => sum + r.gain, 0);
+    // רכיב אינפלציוני = הפרש בין העלות המותאמת לעלות המקורית (רק לקופות
+    // מוצמדות; מצטבר על כל הקופות, גם לא-מוצמדות שם ההפרש הוא 0)
+    pensionInflationaryGainILS = perFund.reduce(
+      (sum, r) => sum + (r.adjustedCostBasis - r.totalDeposited),
+      0
+    );
+  } else {
+    pensionTaxILS = pensionTotalProfitILS > 0 ? pensionTotalProfitILS * TAX_RATE : 0;
+    pensionRealGainILS = pensionTotalProfitILS;
+    pensionInflationaryGainILS = 0;
+  }
   const pensionUpdateProfitILS = pensionCurrentValueILS - pensionPreviousValueILS;
   const totalTaxILS = israeliTaxILS + americanTaxILS + pensionTaxILS;
   const totalProfitAfterTaxILS = (israeliSummary.totalProfitILS + americanSummary.totalProfitILS + pensionTotalProfitILS) - totalTaxILS;
@@ -148,6 +227,10 @@ export const calculatePortfolioSummary = (
     israeliOnlyProfitPercent: israeliProfitPercent,
     israeliOnlyDailyPercent: israeliDailyPercent,
     israeliOnlyDailyProfitILS: israeliDailyProfitILS,
+    // פירוק הרווח הנומינלי לרכיב ריאלי (חייב במס) ורכיב אינפלציוני (פטור) -
+    // כדי שאפשר יהיה לוודא את חישוב מס רווח ההון הריאלי
+    israeliOnlyRealGainILS: israeliSummary.totalRealGainILS,
+    israeliOnlyInflationaryGainILS: israeliSummary.totalInflationaryGainILS,
 
     // USD summary
     totalPurchaseUSD: americanSummary.totalPurchaseUSD,
@@ -184,6 +267,10 @@ export const calculatePortfolioSummary = (
     pensionPreviousProfitPercent,
     pensionTotalProfitILS,
     pensionTaxILS,
+    // פירוק הרווח לרכיב ריאלי (חייב במס, לפי הכלל שנבחר לכל קופה) ורכיב
+    // אינפלציוני (פטור, רק לקופות מוצמדות למדד) - לוידוא החישוב בממשק
+    pensionRealGainILS,
+    pensionInflationaryGainILS,
     pensionUpdateProfitILS,
     capitalBankILS: bankBalancesTotalILS,
     capitalTotalILS,

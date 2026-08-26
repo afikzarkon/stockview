@@ -34,6 +34,7 @@ function HomeView({
   pensionFunds,
   cashFunds,
   bankBalances,
+  cpi,
   handleAddInfo,
   setShowAnalysis,
   isEditMode,
@@ -92,6 +93,17 @@ function HomeView({
         <div className="welcome-content">
           <h1 className="welcome-title">תיק ההשקעות שלך</h1>
 
+          {/* מקור החישוב: המדד שנמשך ומשמש לחישוב מס רווח ההון הריאלי */}
+          {cpi && (cpi.loading || cpi.currentIndex != null || cpi.error) && (
+            <p className="cpi-status-banner">
+              {cpi.loading && 'טוען את מדד המחירים לצרכן...'}
+              {!cpi.loading && cpi.currentIndex != null && (
+                <>מדד המחירים לצרכן הידוע: <strong>{cpi.currentIndex}</strong> (חודש {cpi.currentIndexMonth}) — משמש לחישוב מס רווח הון ריאלי</>
+              )}
+              {!cpi.loading && cpi.currentIndex == null && cpi.error && `לא ניתן היה למשוך את מדד המחירים לצרכן (${cpi.error}) - מוצג מס נומינלי שטוח`}
+            </p>
+          )}
+
           {/* סיכום התיק */}
           {(israeliStocks.length > 0 || americanStocks.length > 0) && (
             <PortfolioSummary
@@ -145,6 +157,7 @@ function HomeView({
             normalizeIsraeliPrice={normalizeIsraeliPrice}
             calculateProfitPercentage={calculateProfitPercentage}
             TAX_RATE={TAX_RATE}
+            cpi={cpi}
             handleCellClick={handleCellClick}
             handleInlineEdit={handleInlineEdit}
             finishInlineEdit={finishInlineEdit}
@@ -183,6 +196,7 @@ function HomeView({
             pensionFunds={pensionFunds}
             cashFunds={cashFunds}
             bankBalances={bankBalances}
+            cpi={cpi}
             isEditMode={isEditMode}
             editingField={editingField}
             handleCellClick={handleCellClick}
