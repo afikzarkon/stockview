@@ -2,7 +2,7 @@ import './App.css';
 import React, { useEffect, useState } from 'react';
 import { formatPriceWithSign, normalizeIsraeliStocksFromStorage } from './utils/formatters';
 import { calculatePortfolioSummary } from './utils/portfolioSummary';
-import { applyPensionCurrentValueUpdate } from './utils/portfolioMath';
+import { applyPensionValueUpdate } from './utils/portfolioMath';
 import { calculatePortfolioAnalysis } from './utils/portfolioAnalysis';
 import { fetchCurrentPrice, fetchIsraeliStockPrice } from './api/stockPrices';
 import { apiUrl } from './apiBase';
@@ -104,6 +104,8 @@ function App() {
     currentValue: '',
     previousValue: '',
     isLinkedToIndex: false,
+    currentValueDate: '',
+    previousValueDate: '',
     quantity: '',
     exchange: 'israeli',
     exchangeRate: ''
@@ -283,24 +285,43 @@ function App() {
       setCashFunds(updatedCashFunds);
       setHasUnsavedChanges(true);
     } else if (formData.itemType === 'pension') {
-      const pensionItem = {
-        id: Date.now(),
-        fundName: formData.stockName,
-        updateDate: formData.purchaseDate,
-        initialInvestment: parseFloat(formData.initialInvestment),
-        currentValue: parseFloat(formData.currentValue),
-        previousValue: parseFloat(formData.previousValue),
-        lastDeposit: 0, // מעקב אחר הפקדות מתחיל מ-0 בעת יצירת הקופה
-        lastDepositDate: '',
-        isLinkedToIndex: !!formData.isLinkedToIndex,
-        // ההשקעה הראשונית נרשמת כשורה ראשונה בפנקס ההפקדות, כדי שגם היא
-        // תוצמד למדד נכון (אם הקופה מוצמדת) לפי תאריך פתיחת הקופה.
-        deposits: [{ date: formData.purchaseDate, amount: parseFloat(formData.initialInvestment) || 0 }],
-        amount: parseFloat(formData.currentValue)
-      };
-      const updatedPensionFunds = [...pensionFunds, pensionItem];
-      setPensionFunds(updatedPensionFunds);
-      setHasUnsavedChanges(true);
+      // בדיוק כמו מניות: מתקבצים אוטומטית לפי שם זהה, בלי לבחור "חדש/קיים".
+      const depositAmount = parseFloat(formData.initialInvestment) || 0;
+      const depositDate = formData.purchaseDate;
+      const trimmedName = (formData.stockName || '').trim();
+      const existingFund = pensionFunds.find((fund) => fund.fundName === trimmedName);
+
+      if (existingFund) {
+        // קופה קיימת עם אותו שם בדיוק: מוסיפים שורה חדשה לפנקס ההפקדות
+        // שלה בלבד. currentValue/previousValue/isLinkedToIndex של הקופה
+        // הקיימת לא משתנים (אלה מתעדכנים בנפרד דרך הטבלה, לא כאן).
+        const updatedPensionFunds = pensionFunds.map((fund) =>
+          fund.fundName === trimmedName
+            ? { ...fund, deposits: [...(Array.isArray(fund.deposits) ? fund.deposits : []), { date: depositDate, amount: depositAmount }] }
+            : fund
+        );
+        setPensionFunds(updatedPensionFunds);
+        setHasUnsavedChanges(true);
+      } else {
+        // שם חדש: פותחים קופה חדשה. "שווי נוכחי" מתחיל שווה לסכום
+        // ההפקדה (עדיין לא הספיק לצמוח/לרדת) - בדיוק כמו שמחיר מניה
+        // מתחיל שווה למחיר הקנייה עד לעדכון הראשון. אפשר (וכדאי) לעדכן
+        // את זה בהמשך דרך הטבלה כשיש שווי אמיתי ועדכני.
+        const pensionItem = {
+          id: Date.now(),
+          fundName: trimmedName,
+          isLinkedToIndex: !!formData.isLinkedToIndex,
+          currentValue: depositAmount,
+          currentValueDate: depositDate,
+          previousValue: 0,
+          previousValueDate: '',
+          deposits: [{ date: depositDate, amount: depositAmount }],
+          amount: depositAmount
+        };
+        const updatedPensionFunds = [...pensionFunds, pensionItem];
+        setPensionFunds(updatedPensionFunds);
+        setHasUnsavedChanges(true);
+      }
     } else if (formData.itemType === 'bank') {
       const bankItem = {
         id: Date.now(),
@@ -326,6 +347,8 @@ function App() {
       currentValue: '',
       previousValue: '',
       isLinkedToIndex: false,
+    currentValueDate: '',
+    previousValueDate: '',
       quantity: '',
       exchange: 'israeli',
       exchangeRate: ''
@@ -422,6 +445,8 @@ function App() {
       currentValue: '',
       previousValue: '',
       isLinkedToIndex: false,
+    currentValueDate: '',
+    previousValueDate: '',
       quantity: '',
       purchaseDate: '',
       exchange: 'israeli',
@@ -441,6 +466,8 @@ function App() {
       currentValue: '',
       previousValue: '',
       isLinkedToIndex: false,
+    currentValueDate: '',
+    previousValueDate: '',
       quantity: '',
       purchaseDate: '',
       exchange: 'israeli',
@@ -467,11 +494,15 @@ function App() {
     } else if (exchange === 'pension') {
       const updatedPensionFunds = pensionFunds.map(item => {
         if (item.id !== id) return item;
-        // כשמעדכנים את השווי הנוכחי, זו "סגירת תקופה": ההפקדה שהוזנה
-        // בשדה "הפקדה בעדכון זה" מנוטרלת אוטומטית מהתשואה (ראו
-        // applyPensionCurrentValueUpdate ב-portfolioMath.js).
+        // כשמעדכנים את השווי הנוכחי, זו "סגירת תקופה": השווי הישן עובר
+        // להיות "השווי הקודם" (עם התאריך הישן שלו). הפקדות שבוצעו בין
+        // שני התאריכים מזוהות אוטומטית לפי הפנקס בזמן חישוב התשואה
+        // (ראו calculatePensionPeriodReturn), לא כאן.
+        // ⚠️ סדר עריכה נדרש: קודם לערוך "שווי נוכחי" (מפעיל את הגלגול),
+        // ורק אח"כ לערוך "תאריך שווי נוכחי" אם צריך תאריך שונה מהיום.
         if (field === 'currentValue') {
-          return applyPensionCurrentValueUpdate(item, value);
+          const today = new Date().toISOString().slice(0, 10);
+          return applyPensionValueUpdate(item, value, today);
         }
         return { ...item, [field]: value };
       });
@@ -559,6 +590,7 @@ function App() {
       <StockFormView
         isEditMode={isEditMode}
         formData={formData}
+        pensionFunds={pensionFunds}
         handleSubmit={handleSubmit}
         handleInputChange={handleInputChange}
         handleBackToHome={handleBackToHome}

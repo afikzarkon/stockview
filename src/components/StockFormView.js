@@ -64,6 +64,9 @@ function StockFormView({
                   required
                   placeholder="לדוגמה: קופת גמל להשקעה X"
                 />
+                <small className="form-help">
+                  אם כבר יש קופה עם השם הזה בדיוק, ההפקדה תצטרף אליה אוטומטית - בדיוק כמו קניית מניה נוספת מאותה מניה.
+                </small>
               </div>
             )}
 
@@ -84,7 +87,7 @@ function StockFormView({
 
             {(formData.itemType === 'stock' || formData.itemType === 'pension' || formData.itemType === 'bank' || formData.itemType === 'cash_fund') && (
               <div className="form-group">
-                <label htmlFor="purchaseDate">{formData.itemType === 'stock' ? 'תאריך קנייה *' : 'תאריך עדכון *'}</label>
+                <label htmlFor="purchaseDate">{formData.itemType === 'stock' ? 'תאריך קנייה *' : formData.itemType === 'pension' ? 'תאריך ההפקדה *' : 'תאריך עדכון *'}</label>
                 <input
                   type="date"
                   id="purchaseDate"
@@ -114,7 +117,7 @@ function StockFormView({
             ) : formData.itemType === 'pension' ? (
               <>
                 <div className="form-group">
-                  <label htmlFor="initialInvestment">סך השקעה ראשונית *</label>
+                  <label htmlFor="initialInvestment">סכום ההפקדה *</label>
                   <input
                     type="number"
                     id="initialInvestment"
@@ -126,34 +129,9 @@ function StockFormView({
                     min="0"
                     placeholder="0.00"
                   />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="currentValue">סך ערך השקעה כיום *</label>
-                  <input
-                    type="number"
-                    id="currentValue"
-                    name="currentValue"
-                    value={formData.currentValue}
-                    onChange={handleInputChange}
-                    required
-                    step="0.01"
-                    min="0"
-                    placeholder="0.00"
-                  />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="previousValue">סך ערך ההשקעה בעדכון הקודם *</label>
-                  <input
-                    type="number"
-                    id="previousValue"
-                    name="previousValue"
-                    value={formData.previousValue}
-                    onChange={handleInputChange}
-                    required
-                    step="0.01"
-                    min="0"
-                    placeholder="0.00"
-                  />
+                  <small className="form-help">
+                    השווי הנוכחי של הקופה יתחיל שווה לסכום ההפקדה (אם זו קופה חדשה) - אפשר לעדכן אותו בהמשך בטבלה כשיש שווי עדכני אמיתי.
+                  </small>
                 </div>
                 <div className="form-group form-group-checkbox">
                   <label htmlFor="isLinkedToIndex">
@@ -171,6 +149,7 @@ function StockFormView({
                   <p className="form-hint">
                     אם מסומן: מס רווח הון (25%) יחושב רק על הרווח הריאלי (אחרי ניכוי אינפלציה).
                     אם לא מסומן: מס שטוח של 15% על מלוא הרווח הנומינלי, ללא הצמדה.
+                    (רלוונטי רק בפתיחת קופה חדשה - בהפקדה לקופה קיימת ההגדרה הקיימת שלה נשארת ללא שינוי.)
                   </p>
                 </div>
               </>

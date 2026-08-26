@@ -3,7 +3,7 @@
 // the only difference is that the stock/fund arrays are now explicit
 // parameters instead of closed-over component state.
 
-import { TAX_RATE, calculateAmericanStockMetrics } from './portfolioMath';
+import { TAX_RATE, calculateAmericanStockMetrics, calculatePensionPeriodReturn } from './portfolioMath';
 import { normalizeIsraeliPrice } from './formatters';
 import { calculateStockRealGainTax, calculatePensionRealGainTax, monthKeyFromDate } from './cpiTax';
 
@@ -156,7 +156,12 @@ export const calculatePortfolioSummary = (
 
   // Total capital by category
   const cashFundsTotalILS = cashFunds.reduce((sum, item) => sum + (item.amount || 0), 0);
-  const pensionInitialInvestmentILS = pensionFunds.reduce((sum, item) => sum + (item.initialInvestment ?? item.amount ?? 0), 0);
+  // סך ההשקעה בקופות גמל נגזר תמיד מפנקס ההפקדות (deposits) - בדיוק
+  // כמו "סה\"כ רכישה" במניות שנגזר מרשימת הרכישות, לא שדה שמתעדכן ידנית.
+  const pensionInitialInvestmentILS = pensionFunds.reduce((sum, item) => {
+    const deposits = Array.isArray(item.deposits) ? item.deposits : [];
+    return sum + deposits.reduce((s, d) => s + (d.amount || 0), 0);
+  }, 0);
   const pensionCurrentValueILS = pensionFunds.reduce((sum, item) => sum + (item.currentValue ?? item.amount ?? 0), 0);
   const pensionPreviousValueILS = pensionFunds.reduce((sum, item) => sum + (item.previousValue ?? item.amount ?? 0), 0);
 
@@ -167,15 +172,16 @@ export const calculatePortfolioSummary = (
   // מוטה כלפי מטה ואינו משקף נכון את קצב הצמיחה של הקופה.
   const pensionProfitPercent = pensionInitialInvestmentILS > 0 ? ((pensionCurrentValueILS / pensionInitialInvestmentILS) - 1) * 100 : 0;
 
-  // תשואה מעדכון-לעדכון (השווי הקודם מול השווי הנוכחי) - זהו מדד התשואה
-  // המדויק לשימוש שוטף. previousValue מתעדכן אוטומטית בכל פעם שהמשתמש
-  // משנה את currentValue (ראו handleInlineEdit ב-App.js), וכולל כבר
-  // בתוכו כל סכום שהוזן בשדה "הפקדה בעדכון זה" (lastDeposit) - כלומר
-  // הפקדות כסף חדש מנוטרלות אוטומטית ולא "מתחזות" לרווח. לכן אין צורך
-  // לחסר את ההפקדה כאן בנוסחה עצמה - זה כבר טופל בשלב השמירה.
-  // רק אם אין עדיין שווי קודם (למשל קופה שנוספה זה עתה) נופלים חזרה
-  // לחישוב מול ההפקדות.
-  const pensionPreviousProfitPercent = pensionPreviousValueILS > 0 ? ((pensionCurrentValueILS / pensionPreviousValueILS) - 1) * 100 : (pensionInitialInvestmentILS > 0 ? ((pensionCurrentValueILS / pensionInitialInvestmentILS) - 1) * 100 : 0);
+  // תשואה מעדכון-לעדכון (השווי הקודם מול השווי הנוכחי), מנוטרלת אוטומטית
+  // מהפקדות שבוצעו בתקופה: לכל קופה מזהים (לפי תאריכים - ראו
+  // calculatePensionPeriodReturn ב-portfolioMath.js) אילו הפקדות בפנקס
+  // נופלו בין previousValueDate ל-currentValueDate, ומתאימים את השווי
+  // הקודם בהתאם - כדי שהפקדות כסף חדש לא "יתחזו" לרווח.
+  const pensionAdjustedPreviousValueILS = pensionFunds.reduce(
+    (sum, item) => sum + calculatePensionPeriodReturn(item).adjustedPreviousValue,
+    0
+  );
+  const pensionPreviousProfitPercent = pensionAdjustedPreviousValueILS > 0 ? ((pensionCurrentValueILS / pensionAdjustedPreviousValueILS) - 1) * 100 : (pensionInitialInvestmentILS > 0 ? ((pensionCurrentValueILS / pensionInitialInvestmentILS) - 1) * 100 : 0);
   const pensionTotalProfitILS = pensionCurrentValueILS - pensionInitialInvestmentILS;
   // מס על קופות גמל: לכל קופה בנפרד, לפי דגל isLinkedToIndex -
   // אם מוצמדת למדד: 25% על הרווח הריאלי בלבד (כל הפקדה מוצמדת בנפרד

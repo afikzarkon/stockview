@@ -52,7 +52,7 @@ describe('calculatePortfolioSummary', () => {
   });
 
   test('includes pension, cash fund, and bank balances in capitalTotalILS', () => {
-    const pensionFunds = [{ initialInvestment: 10000, currentValue: 12000, previousValue: 11500 }];
+    const pensionFunds = [{ deposits: [{ date: '2020-01-01', amount: 10000 }], currentValue: 12000, previousValue: 11500 }];
     const cashFunds = [{ amount: 5000 }];
     const bankBalances = [{ amount: 20000 }];
     const summary = calculatePortfolioSummary([], [], pensionFunds, cashFunds, bankBalances);
@@ -133,7 +133,7 @@ describe('calculatePortfolioSummary', () => {
     });
 
     test('without a cpi param at all, pension tax falls back to the old flat 25% on nominal profit', () => {
-      const pensionFunds = [{ initialInvestment: 10000, currentValue: 12000, previousValue: 11500 }];
+      const pensionFunds = [{ deposits: [{ date: '2020-01-01', amount: 10000 }], currentValue: 12000, previousValue: 11500 }];
       const summary = calculatePortfolioSummary([], [], pensionFunds, [], []);
       expect(summary.pensionTaxILS).toBeCloseTo(2000 * 0.25, 5);
     });
@@ -200,6 +200,23 @@ describe('calculatePortfolioSummary', () => {
       const expectedInflationary = summary.israeliOnlyInflationaryGainILS + summary.americanOnlyCurrencyExemptGainILS + summary.pensionInflationaryGainILS;
       expect(summary.totalRealGainILS).toBeCloseTo(expectedReal, 5);
       expect(summary.totalInflationaryGainILS).toBeCloseTo(expectedInflationary, 5);
+    });
+  });
+
+  describe('pension fund period return (auto deposit-in-range detection)', () => {
+    test('nets out a deposit made between previousValueDate and currentValueDate automatically', () => {
+      const pensionFunds = [{
+        previousValue: 100000,
+        previousValueDate: '2024-01-01',
+        currentValue: 111000,
+        currentValueDate: '2024-03-31',
+        deposits: [
+          { date: '2024-01-01', amount: 90000 }, // עוד לפני הכל, לא רלוונטי לתקופה הזו
+          { date: '2024-02-15', amount: 10000 }  // בתוך התקופה - צריך להתנטרל
+        ]
+      }];
+      const summary = calculatePortfolioSummary([], [], pensionFunds, [], []);
+      expect(summary.pensionPreviousProfitPercent).toBeCloseTo(0.909, 2); // לא 11%
     });
   });
 });

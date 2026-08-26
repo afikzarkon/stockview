@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { calculatePensionRealGainTax } from '../utils/cpiTax';
+import { calculatePensionPeriodReturn } from '../utils/portfolioMath';
 
 function FinancialAccountsTables({
   pensionFunds,
@@ -23,6 +24,16 @@ function FinancialAccountsTables({
     return `${Number(value).toFixed(2)}%`;
   };
 
+  const [expandedFunds, setExpandedFunds] = useState({});
+  const toggleFundExpanded = (fundId) => {
+    setExpandedFunds((prev) => ({ ...prev, [fundId]: !prev[fundId] }));
+  };
+  const deleteDeposit = (fund, depositIndex) => {
+    const deposits = Array.isArray(fund.deposits) ? fund.deposits : [];
+    const updatedDeposits = deposits.filter((_, i) => i !== depositIndex);
+    handleInlineEdit(fund.id, 'deposits', updatedDeposits, 'pension');
+  };
+
   return (
     <>
       {pensionFunds.length > 0 && (
@@ -33,12 +44,11 @@ function FinancialAccountsTables({
               <thead>
                 <tr>
                   <th>שם קופה</th>
-                  <th>תאריך עדכון</th>
                   <th>סך השקעה ראשונית (₪)</th>
                   <th>סך ערך השקעה כיום (₪)</th>
+                  <th>תאריך שווי נוכחי</th>
                   <th>סך ערך ההשקעה בעדכון הקודם (₪)</th>
-                  <th>הפקדה בעדכון זה (₪)</th>
-                  <th>תאריך ההפקדה</th>
+                  <th>תאריך שווי קודם</th>
                   <th>מוצמד למדד?</th>
                   <th>רווח ריאלי (חייב במס)</th>
                   <th>רווח אינפלציוני (פטור)</th>
@@ -51,17 +61,20 @@ function FinancialAccountsTables({
               </thead>
               <tbody>
                 {pensionFunds.map(item => {
-                  const initialInvestment = item.initialInvestment ?? item.amount ?? 0;
+                  const deposits = Array.isArray(item.deposits) ? item.deposits : [];
+                  // סך ההשקעה הראשונית נגזרת תמיד מפנקס ההפקדות - בדיוק
+                  // כמו "סה\"כ רכישה" במניות, לא שדה שמתעדכן ידנית בנפרד.
+                  const initialInvestment = deposits.reduce((s, d) => s + (d.amount || 0), 0);
                   const currentValue = item.currentValue ?? item.amount ?? 0;
                   const previousValue = item.previousValue ?? 0;
-                  const lastDeposit = item.lastDeposit ?? 0;
                   // רווח מצטבר מול סך ההפקדות - מדד עזר בלבד, לא תשואה אמיתית
                   // (מתעלם מתזמון ההפקדות השונות, ראו הערה ב-portfolioSummary.js)
                   const profitPercent = initialInvestment > 0 ? ((currentValue / initialInvestment) - 1) * 100 : null;
-                  // תשואה מעדכון-לעדכון - השווי הקודם כבר כולל בתוכו כל הפקדה
-                  // שהוזנה בעדכון הקודם (ראו App.js handleInlineEdit), כך שההפקדה
-                  // מנוטרלת אוטומטית וזו תשואה אמיתית ולא "רווח" מדומה מכסף חדש.
-                  const previousProfitPercent = previousValue > 0 ? ((currentValue / previousValue) - 1) * 100 : null;
+                  // תשואה מעדכון-לעדכון: מזהה אוטומטית (לפי תאריכים בפנקס
+                  // ההפקדות) אילו הפקדות נפלו בין העדכון הקודם לנוכחי,
+                  // ומנטרל אותן - כך שהתשואה משקפת רק שינוי אמיתי בשווי.
+                  const periodReturn = calculatePensionPeriodReturn(item);
+                  const previousProfitPercent = previousValue > 0 ? periodReturn.percent : null;
                   const totalProfitLoss = currentValue - initialInvestment;
                   const updateProfitLoss = previousValue > 0 ? currentValue - previousValue : null;
 
@@ -70,7 +83,6 @@ function FinancialAccountsTables({
                   let realGain = null;
                   let inflationaryGain = null;
                   if (cpi && cpi.currentIndex) {
-                    const deposits = Array.isArray(item.deposits) ? item.deposits : [];
                     const result = calculatePensionRealGainTax({
                       deposits,
                       currentValue,
@@ -79,11 +91,16 @@ function FinancialAccountsTables({
                       indexByMonth: cpi.indexByMonth || {}
                     });
                     realGain = result.gain;
-                    inflationaryGain = result.adjustedCostBasis - result.totalDeposited;
+                    inflationaryGain = (currentValue - result.totalDeposited) - result.gain;
                   }
+                  const isExpanded = !!expandedFunds[item.id];
                   return (
-                    <tr key={item.id} className={isEditMode ? 'editable-row' : ''}>
+                    <React.Fragment key={item.id}>
+                    <tr className={isEditMode ? 'editable-row' : ''}>
                       <td onClick={() => handleCellClick(item.id, 'fundName', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
+                        <button onClick={() => toggleFundExpanded(item.id)} className="expand-button" style={{ marginRight: '8px', background: 'none', border: 'none', cursor: 'pointer' }}>
+                          {isExpanded ? '▼' : '▶'}
+                        </button>
                         {editingField === `${item.id}-fundName` ? (
                           <input
                             type="text"
@@ -95,32 +112,7 @@ function FinancialAccountsTables({
                           />
                         ) : item.fundName}
                       </td>
-                      <td onClick={() => handleCellClick(item.id, 'updateDate', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
-                        {editingField === `${item.id}-updateDate` ? (
-                          <input
-                            type="date"
-                            value={item.updateDate}
-                            onChange={(e) => handleInlineEdit(item.id, 'updateDate', e.target.value, 'pension')}
-                            onBlur={finishInlineEdit}
-                            onKeyDown={(e) => handleKeyDown(e, item.id, 'updateDate', 'pension')}
-                            autoFocus
-                          />
-                        ) : formatDate(item.updateDate)}
-                      </td>
-                      <td onClick={() => handleCellClick(item.id, 'initialInvestment', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
-                        {editingField === `${item.id}-initialInvestment` ? (
-                          <input
-                            type="number"
-                            value={item.initialInvestment ?? item.amount ?? ''}
-                            onChange={(e) => handleInlineEdit(item.id, 'initialInvestment', parseFloat(e.target.value), 'pension')}
-                            onBlur={finishInlineEdit}
-                            onKeyDown={(e) => handleKeyDown(e, item.id, 'initialInvestment', 'pension')}
-                            autoFocus
-                            step="0.01"
-                            min="0"
-                          />
-                        ) : `${formatPriceWithSign(initialInvestment)} ₪`}
-                      </td>
+                      <td>{`${formatPriceWithSign(initialInvestment)} ₪`}</td>
                       <td onClick={() => handleCellClick(item.id, 'currentValue', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
                         {editingField === `${item.id}-currentValue` ? (
                           <input
@@ -134,6 +126,18 @@ function FinancialAccountsTables({
                             min="0"
                           />
                         ) : `${formatPriceWithSign(currentValue)} ₪`}
+                      </td>
+                      <td onClick={() => handleCellClick(item.id, 'currentValueDate', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
+                        {editingField === `${item.id}-currentValueDate` ? (
+                          <input
+                            type="date"
+                            value={item.currentValueDate || ''}
+                            onChange={(e) => handleInlineEdit(item.id, 'currentValueDate', e.target.value, 'pension')}
+                            onBlur={finishInlineEdit}
+                            onKeyDown={(e) => handleKeyDown(e, item.id, 'currentValueDate', 'pension')}
+                            autoFocus
+                          />
+                        ) : (item.currentValueDate ? formatDate(item.currentValueDate) : '-')}
                       </td>
                       <td onClick={() => handleCellClick(item.id, 'previousValue', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
                         {editingField === `${item.id}-previousValue` ? (
@@ -149,31 +153,17 @@ function FinancialAccountsTables({
                           />
                         ) : `${formatPriceWithSign(previousValue)} ₪`}
                       </td>
-                      <td onClick={() => handleCellClick(item.id, 'lastDeposit', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
-                        {editingField === `${item.id}-lastDeposit` ? (
-                          <input
-                            type="number"
-                            value={item.lastDeposit ?? 0}
-                            onChange={(e) => handleInlineEdit(item.id, 'lastDeposit', parseFloat(e.target.value), 'pension')}
-                            onBlur={finishInlineEdit}
-                            onKeyDown={(e) => handleKeyDown(e, item.id, 'lastDeposit', 'pension')}
-                            autoFocus
-                            step="0.01"
-                            min="0"
-                          />
-                        ) : `${formatPriceWithSign(lastDeposit)} ₪`}
-                      </td>
-                      <td onClick={() => handleCellClick(item.id, 'lastDepositDate', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
-                        {editingField === `${item.id}-lastDepositDate` ? (
+                      <td onClick={() => handleCellClick(item.id, 'previousValueDate', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
+                        {editingField === `${item.id}-previousValueDate` ? (
                           <input
                             type="date"
-                            value={item.lastDepositDate || ''}
-                            onChange={(e) => handleInlineEdit(item.id, 'lastDepositDate', e.target.value, 'pension')}
+                            value={item.previousValueDate || ''}
+                            onChange={(e) => handleInlineEdit(item.id, 'previousValueDate', e.target.value, 'pension')}
                             onBlur={finishInlineEdit}
-                            onKeyDown={(e) => handleKeyDown(e, item.id, 'lastDepositDate', 'pension')}
+                            onKeyDown={(e) => handleKeyDown(e, item.id, 'previousValueDate', 'pension')}
                             autoFocus
                           />
-                        ) : (item.lastDepositDate ? formatDate(item.lastDepositDate) : '-')}
+                        ) : (item.previousValueDate ? formatDate(item.previousValueDate) : '-')}
                       </td>
                       <td className={isEditMode ? 'editable-cell' : ''}>
                         <input
@@ -203,10 +193,38 @@ function FinancialAccountsTables({
                       </td>
                       {isEditMode && (
                         <td>
-                          <button onClick={() => handleDelete(item.id, 'pension')} className="delete-button">מחק</button>
+                          <button onClick={() => handleDelete(item.id, 'pension')} className="delete-button">מחק קופה</button>
                         </td>
                       )}
                     </tr>
+                    {isExpanded && deposits.length === 0 && (
+                      <tr className={`${isEditMode ? 'editable-row' : ''} detail-row`} style={{ backgroundColor: '#f8f9fa' }}>
+                        <td style={{ paddingLeft: '20px' }} colSpan={isEditMode ? 14 : 13}>אין הפקדות רשומות</td>
+                      </tr>
+                    )}
+                    {isExpanded && deposits.map((d, i) => (
+                      <tr key={i} className={`${isEditMode ? 'editable-row' : ''} detail-row`} style={{ backgroundColor: '#f8f9fa' }}>
+                        <td style={{ paddingLeft: '20px' }}>{d.date ? formatDate(d.date) : '-'}</td>
+                        <td>{`${formatPriceWithSign(d.amount)} ₪`}</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        {isEditMode && (
+                          <td>
+                            <button onClick={() => deleteDeposit(item, i)} className="delete-button">מחק הפקדה</button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                    </React.Fragment>
                   );
                 })}
               </tbody>

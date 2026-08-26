@@ -1,4 +1,10 @@
-import { TAX_RATE, calculateAmericanStockMetrics, applyPensionCurrentValueUpdate } from './portfolioMath';
+import {
+  TAX_RATE,
+  calculateAmericanStockMetrics,
+  applyPensionValueUpdate,
+  sumDepositsInRange,
+  calculatePensionPeriodReturn
+} from './portfolioMath';
 
 describe('calculateAmericanStockMetrics', () => {
   const baseStock = {
@@ -133,76 +139,104 @@ describe('calculateAmericanStockMetrics', () => {
   });
 });
 
-describe('applyPensionCurrentValueUpdate', () => {
-  test('nets out a deposit made during the period so it is not counted as profit', () => {
-    // מקרה מהשאלה: previousValue=100,000, הפקדה של 10,000, שווי חדש=111,000
-    // (כלומר 1,000 רווח אמיתי מהשוק) - התשואה שתחושב בפעם הבאה צריכה
-    // להיות מבוססת על previousValue מותאם ל-110,000 (100,000+10,000),
-    // כך ש-(111,000/110,000-1)*100 ≈ 0.91% ולא 11%.
-    const fund = {
-      currentValue: 100000,
-      previousValue: 90000,
-      initialInvestment: 90000,
-      lastDeposit: 10000,
-      amount: 100000
-    };
-    const updated = applyPensionCurrentValueUpdate(fund, 111000);
-    expect(updated.currentValue).toBe(111000);
-    expect(updated.previousValue).toBe(110000); // 100000 (old currentValue) + 10000 deposit
-    expect(updated.lastDeposit).toBe(0); // reset for the next period
+describe('sumDepositsInRange', () => {
+  const deposits = [
+    { date: '2020-01-10', amount: 90000 },
+    { date: '2024-03-05', amount: 10000 },
+    { date: '2024-04-20', amount: 5000 }
+  ];
 
-    const realReturnPercent = ((updated.currentValue / updated.previousValue) - 1) * 100;
-    expect(realReturnPercent).toBeCloseTo(0.909, 2);
+  test('sums only deposits strictly after fromDateExclusive and up to (including) toDateInclusive', () => {
+    expect(sumDepositsInRange(deposits, '2020-01-10', '2024-04-20')).toBe(15000); // הראשונה לא נכללת (בדיוק בגבול)
   });
 
-  test('adds the deposit to the cumulative total invested (initialInvestment)', () => {
-    const fund = { currentValue: 100000, initialInvestment: 90000, lastDeposit: 10000 };
-    const updated = applyPensionCurrentValueUpdate(fund, 111000);
-    expect(updated.initialInvestment).toBe(100000); // 90000 + 10000
+  test('includes everything up to toDateInclusive when fromDateExclusive is missing', () => {
+    expect(sumDepositsInRange(deposits, null, '2024-03-05')).toBe(100000);
   });
 
-  test('behaves like a plain rollover when there is no deposit', () => {
-    const fund = { currentValue: 100000, initialInvestment: 90000, lastDeposit: 0 };
-    const updated = applyPensionCurrentValueUpdate(fund, 105000);
+  test('returns 0 for a range with no deposits', () => {
+    expect(sumDepositsInRange(deposits, '2024-04-20', '2024-05-01')).toBe(0);
+  });
+
+  test('handles missing/non-array deposits without throwing', () => {
+    expect(sumDepositsInRange(undefined, '2020-01-01', '2024-01-01')).toBe(0);
+    expect(sumDepositsInRange([{ amount: 100 }], '2020-01-01', '2024-01-01')).toBe(0); // אין תאריך - מדלגים
+  });
+});
+
+describe('applyPensionValueUpdate', () => {
+  test('rolls the old currentValue/currentValueDate into previousValue/previousValueDate', () => {
+    const fund = { currentValue: 100000, currentValueDate: '2024-03-31' };
+    const updated = applyPensionValueUpdate(fund, 111000, '2024-06-30');
     expect(updated.previousValue).toBe(100000);
-    expect(updated.initialInvestment).toBe(90000);
+    expect(updated.previousValueDate).toBe('2024-03-31');
+    expect(updated.currentValue).toBe(111000);
+    expect(updated.currentValueDate).toBe('2024-06-30');
   });
 
-  test('falls back to amount when currentValue/initialInvestment/lastDeposit are missing', () => {
+  test('falls back to amount/empty date when currentValue/currentValueDate are missing (first-ever update)', () => {
     const fund = { amount: 50000 };
-    const updated = applyPensionCurrentValueUpdate(fund, 55000);
+    const updated = applyPensionValueUpdate(fund, 55000, '2024-01-15');
     expect(updated.previousValue).toBe(50000);
-    expect(updated.initialInvestment).toBe(50000);
-    expect(updated.currentValue).toBe(55000);
+    expect(updated.previousValueDate).toBe('');
     expect(updated.amount).toBe(55000);
   });
 
-  test('records a deposit made this period into the deposits ledger with its own date', () => {
+  test('no longer touches deposits, initialInvestment, or a lastDeposit field at all', () => {
+    const fund = { currentValue: 100000, currentValueDate: '2024-03-31', deposits: [{ date: '2024-02-01', amount: 10000 }] };
+    const updated = applyPensionValueUpdate(fund, 111000, '2024-06-30');
+    expect(updated.deposits).toEqual(fund.deposits); // ללא שינוי - נשאר בדיוק אותו מערך
+    expect(updated.lastDeposit).toBeUndefined();
+  });
+});
+
+describe('calculatePensionPeriodReturn', () => {
+  test('nets out a deposit made during the period so it is not counted as profit (auto-detected by date, no manual field needed)', () => {
+    // מקרה מהשיחה: previousValue=100,000 (בתאריך 2024-01-01), הפקדה של
+    // 10,000 בתאריך 2024-02-15 (בתוך התקופה), שווי חדש=111,000 בתאריך
+    // 2024-03-31 - רווח אמיתי של 1,000 בלבד, לא 11,000.
     const fund = {
-      currentValue: 100000,
-      initialInvestment: 90000,
-      lastDeposit: 10000,
-      lastDepositDate: '2024-03-05',
-      updateDate: '2024-03-31',
-      deposits: [{ date: '2020-01-10', amount: 90000 }]
+      previousValue: 100000,
+      previousValueDate: '2024-01-01',
+      currentValue: 111000,
+      currentValueDate: '2024-03-31',
+      deposits: [{ date: '2024-02-15', amount: 10000 }]
     };
-    const updated = applyPensionCurrentValueUpdate(fund, 111000);
-    expect(updated.deposits).toEqual([
-      { date: '2020-01-10', amount: 90000 },
-      { date: '2024-03-05', amount: 10000 }
-    ]);
-    expect(updated.lastDepositDate).toBe('');
+    const result = calculatePensionPeriodReturn(fund);
+    expect(result.depositsInPeriod).toBe(10000);
+    expect(result.adjustedPreviousValue).toBe(110000);
+    expect(result.percent).toBeCloseTo(0.909, 2);
   });
 
-  test('falls back to updateDate for the deposit date when lastDepositDate is not set', () => {
-    const fund = { currentValue: 100000, lastDeposit: 5000, updateDate: '2024-04-30', deposits: [] };
-    const updated = applyPensionCurrentValueUpdate(fund, 106000);
-    expect(updated.deposits).toEqual([{ date: '2024-04-30', amount: 5000 }]);
+  test('ignores a deposit made before the period (already accounted for in a prior update)', () => {
+    const fund = {
+      previousValue: 100000,
+      previousValueDate: '2024-01-01',
+      currentValue: 105000,
+      currentValueDate: '2024-03-31',
+      deposits: [{ date: '2023-06-01', amount: 50000 }] // לפני previousValueDate
+    };
+    const result = calculatePensionPeriodReturn(fund);
+    expect(result.depositsInPeriod).toBe(0);
+    expect(result.percent).toBeCloseTo(5, 5);
   });
 
-  test('does not add anything to the deposits ledger when there is no deposit', () => {
-    const fund = { currentValue: 100000, lastDeposit: 0, deposits: [{ date: '2020-01-10', amount: 100000 }] };
-    const updated = applyPensionCurrentValueUpdate(fund, 102000);
-    expect(updated.deposits).toEqual([{ date: '2020-01-10', amount: 100000 }]);
+  test('ignores a deposit made after the period (belongs to the next period)', () => {
+    const fund = {
+      previousValue: 100000,
+      previousValueDate: '2024-01-01',
+      currentValue: 105000,
+      currentValueDate: '2024-03-31',
+      deposits: [{ date: '2024-04-15', amount: 20000 }] // אחרי currentValueDate
+    };
+    const result = calculatePensionPeriodReturn(fund);
+    expect(result.depositsInPeriod).toBe(0);
+    expect(result.percent).toBeCloseTo(5, 5);
+  });
+
+  test('returns 0% when there is no previous value yet (brand-new fund)', () => {
+    const fund = { previousValue: 0, currentValue: 50000, deposits: [] };
+    const result = calculatePensionPeriodReturn(fund);
+    expect(result.percent).toBe(0);
   });
 });
