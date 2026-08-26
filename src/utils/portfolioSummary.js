@@ -110,9 +110,11 @@ export const calculatePortfolioSummary = (
   const pensionProfitPercent = pensionInitialInvestmentILS > 0 ? ((pensionCurrentValueILS / pensionInitialInvestmentILS) - 1) * 100 : 0;
 
   // תשואה מעדכון-לעדכון (השווי הקודם מול השווי הנוכחי) - זהו מדד התשואה
-  // המדויק לשימוש שוטף, כי הוא לא סוחף איתו הפקדות ישנות מתאריכים שונים,
-  // אלא רק את השינוי מאז העדכון הקודם. previousValue מתעדכן אוטומטית
-  // בכל פעם שהמשתמש משנה את currentValue (ראו handleInlineEdit ב-App.js).
+  // המדויק לשימוש שוטף. previousValue מתעדכן אוטומטית בכל פעם שהמשתמש
+  // משנה את currentValue (ראו handleInlineEdit ב-App.js), וכולל כבר
+  // בתוכו כל סכום שהוזן בשדה "הפקדה בעדכון זה" (lastDeposit) - כלומר
+  // הפקדות כסף חדש מנוטרלות אוטומטית ולא "מתחזות" לרווח. לכן אין צורך
+  // לחסר את ההפקדה כאן בנוסחה עצמה - זה כבר טופל בשלב השמירה.
   // רק אם אין עדיין שווי קודם (למשל קופה שנוספה זה עתה) נופלים חזרה
   // לחישוב מול ההפקדות.
   const pensionPreviousProfitPercent = pensionPreviousValueILS > 0 ? ((pensionCurrentValueILS / pensionPreviousValueILS) - 1) * 100 : (pensionInitialInvestmentILS > 0 ? ((pensionCurrentValueILS / pensionInitialInvestmentILS) - 1) * 100 : 0);

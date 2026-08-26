@@ -2,6 +2,7 @@ import './App.css';
 import React, { useEffect, useState } from 'react';
 import { formatPriceWithSign, normalizeIsraeliStocksFromStorage } from './utils/formatters';
 import { calculatePortfolioSummary } from './utils/portfolioSummary';
+import { applyPensionCurrentValueUpdate } from './utils/portfolioMath';
 import { calculatePortfolioAnalysis } from './utils/portfolioAnalysis';
 import { fetchCurrentPrice, fetchIsraeliStockPrice } from './api/stockPrices';
 import { apiUrl } from './apiBase';
@@ -276,6 +277,7 @@ function App() {
         initialInvestment: parseFloat(formData.initialInvestment),
         currentValue: parseFloat(formData.currentValue),
         previousValue: parseFloat(formData.previousValue),
+        lastDeposit: 0, // מעקב אחר הפקדות מתחיל מ-0 בעת יצירת הקופה
         amount: parseFloat(formData.currentValue)
       };
       const updatedPensionFunds = [...pensionFunds, pensionItem];
@@ -444,11 +446,11 @@ function App() {
     } else if (exchange === 'pension') {
       const updatedPensionFunds = pensionFunds.map(item => {
         if (item.id !== id) return item;
-        // כשמעדכנים את השווי הנוכחי, השווי הקודם צריך לזוז אוטומטית
-        // לערך שהיה לפני העדכון, כדי שחישוב התשואה מעדכון-לעדכון יישאר מדויק.
+        // כשמעדכנים את השווי הנוכחי, זו "סגירת תקופה": ההפקדה שהוזנה
+        // בשדה "הפקדה בעדכון זה" מנוטרלת אוטומטית מהתשואה (ראו
+        // applyPensionCurrentValueUpdate ב-portfolioMath.js).
         if (field === 'currentValue') {
-          const oldCurrentValue = item.currentValue ?? item.amount ?? 0;
-          return { ...item, currentValue: value, previousValue: oldCurrentValue, amount: value };
+          return applyPensionCurrentValueUpdate(item, value);
         }
         return { ...item, [field]: value };
       });

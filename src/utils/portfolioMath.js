@@ -31,3 +31,31 @@ export const calculateAmericanStockMetrics = (stock, taxRate = TAX_RATE) => {
     exchangeRateImpact
   };
 };
+
+// קריאה לפונקציה הזו מבצעת "סגירת תקופה" לקופת גמל אחת: השווי הנוכחי
+// מתעדכן לערך החדש שהמשתמש הזין, השווי הקודם (previousValue) עובר לערך
+// שהיה קודם ומצטרף אליו כל סכום שהוזן בשדה "הפקדה בעדכון זה" (lastDeposit),
+// וסך ההפקדות המצטבר (initialInvestment) גדל באותו סכום.
+//
+// למה זה נחוץ: בלי הצעד הזה, תשואה שמחושבת פשוט כ-(currentValue/previousValue-1)
+// הייתה סופרת הפקדות כסף חדש כאילו הן רווח מהשוק. על ידי "הזזת" ההפקדה
+// לתוך ה-baseline (previousValue) עצמו, התשואה שתחושב בפעם הבאה משקפת רק
+// עלייה/ירידה אמיתית בשווי, לא כסף חדש שהוזרם לקופה.
+//
+// בסיום הפעולה lastDeposit מתאפס, כדי לעקוב מחדש אחר הפקדות בתקופה הבאה.
+export const applyPensionCurrentValueUpdate = (pensionFund, newCurrentValue) => {
+  const oldCurrentValue = pensionFund.currentValue ?? pensionFund.amount ?? 0;
+  const depositThisPeriod = pensionFund.lastDeposit ?? 0;
+  const adjustedPreviousValue = oldCurrentValue + depositThisPeriod;
+  const updatedInitialInvestment = (pensionFund.initialInvestment ?? pensionFund.amount ?? 0) + depositThisPeriod;
+
+  return {
+    ...pensionFund,
+    currentValue: newCurrentValue,
+    previousValue: adjustedPreviousValue,
+    initialInvestment: updatedInitialInvestment,
+    lastDeposit: 0,
+    amount: newCurrentValue
+  };
+};
+

@@ -35,6 +35,7 @@ function FinancialAccountsTables({
                   <th>סך השקעה ראשונית (₪)</th>
                   <th>סך ערך השקעה כיום (₪)</th>
                   <th>סך ערך ההשקעה בעדכון הקודם (₪)</th>
+                  <th>הפקדה בעדכון זה (₪)</th>
                   <th>תשואה (מעדכון קודם)</th>
                   <th>רווח מצטבר מול הפקדות</th>
                   <th>סך רווח/הפסד (₪)</th>
@@ -47,10 +48,13 @@ function FinancialAccountsTables({
                   const initialInvestment = item.initialInvestment ?? item.amount ?? 0;
                   const currentValue = item.currentValue ?? item.amount ?? 0;
                   const previousValue = item.previousValue ?? 0;
+                  const lastDeposit = item.lastDeposit ?? 0;
                   // רווח מצטבר מול סך ההפקדות - מדד עזר בלבד, לא תשואה אמיתית
                   // (מתעלם מתזמון ההפקדות השונות, ראו הערה ב-portfolioSummary.js)
                   const profitPercent = initialInvestment > 0 ? ((currentValue / initialInvestment) - 1) * 100 : null;
-                  // תשואה מעדכון-לעדכון - זהו המדד המדויק לתשואה שוטפת
+                  // תשואה מעדכון-לעדכון - השווי הקודם כבר כולל בתוכו כל הפקדה
+                  // שהוזנה בעדכון הקודם (ראו App.js handleInlineEdit), כך שההפקדה
+                  // מנוטרלת אוטומטית וזו תשואה אמיתית ולא "רווח" מדומה מכסף חדש.
                   const previousProfitPercent = previousValue > 0 ? ((currentValue / previousValue) - 1) * 100 : null;
                   const totalProfitLoss = currentValue - initialInvestment;
                   const updateProfitLoss = previousValue > 0 ? currentValue - previousValue : null;
@@ -121,6 +125,20 @@ function FinancialAccountsTables({
                             min="0"
                           />
                         ) : `${formatPriceWithSign(previousValue)} ₪`}
+                      </td>
+                      <td onClick={() => handleCellClick(item.id, 'lastDeposit', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
+                        {editingField === `${item.id}-lastDeposit` ? (
+                          <input
+                            type="number"
+                            value={item.lastDeposit ?? 0}
+                            onChange={(e) => handleInlineEdit(item.id, 'lastDeposit', parseFloat(e.target.value), 'pension')}
+                            onBlur={finishInlineEdit}
+                            onKeyDown={(e) => handleKeyDown(e, item.id, 'lastDeposit', 'pension')}
+                            autoFocus
+                            step="0.01"
+                            min="0"
+                          />
+                        ) : `${formatPriceWithSign(lastDeposit)} ₪`}
                       </td>
                       <td className={previousProfitPercent > 0 ? 'profit-positive' : previousProfitPercent < 0 ? 'profit-negative' : ''}>
                         {formatPercent(previousProfitPercent)}

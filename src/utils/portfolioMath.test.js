@@ -1,4 +1,4 @@
-import { TAX_RATE, calculateAmericanStockMetrics } from './portfolioMath';
+import { TAX_RATE, calculateAmericanStockMetrics, applyPensionCurrentValueUpdate } from './portfolioMath';
 
 describe('calculateAmericanStockMetrics', () => {
   const baseStock = {
@@ -77,5 +77,50 @@ describe('calculateAmericanStockMetrics', () => {
   test('accepts a custom tax rate override', () => {
     const m = calculateAmericanStockMetrics(baseStock, 0.1);
     expect(m.taxUSD).toBeCloseTo(500 * 0.1, 5);
+  });
+});
+
+describe('applyPensionCurrentValueUpdate', () => {
+  test('nets out a deposit made during the period so it is not counted as profit', () => {
+    // מקרה מהשאלה: previousValue=100,000, הפקדה של 10,000, שווי חדש=111,000
+    // (כלומר 1,000 רווח אמיתי מהשוק) - התשואה שתחושב בפעם הבאה צריכה
+    // להיות מבוססת על previousValue מותאם ל-110,000 (100,000+10,000),
+    // כך ש-(111,000/110,000-1)*100 ≈ 0.91% ולא 11%.
+    const fund = {
+      currentValue: 100000,
+      previousValue: 90000,
+      initialInvestment: 90000,
+      lastDeposit: 10000,
+      amount: 100000
+    };
+    const updated = applyPensionCurrentValueUpdate(fund, 111000);
+    expect(updated.currentValue).toBe(111000);
+    expect(updated.previousValue).toBe(110000); // 100000 (old currentValue) + 10000 deposit
+    expect(updated.lastDeposit).toBe(0); // reset for the next period
+
+    const realReturnPercent = ((updated.currentValue / updated.previousValue) - 1) * 100;
+    expect(realReturnPercent).toBeCloseTo(0.909, 2);
+  });
+
+  test('adds the deposit to the cumulative total invested (initialInvestment)', () => {
+    const fund = { currentValue: 100000, initialInvestment: 90000, lastDeposit: 10000 };
+    const updated = applyPensionCurrentValueUpdate(fund, 111000);
+    expect(updated.initialInvestment).toBe(100000); // 90000 + 10000
+  });
+
+  test('behaves like a plain rollover when there is no deposit', () => {
+    const fund = { currentValue: 100000, initialInvestment: 90000, lastDeposit: 0 };
+    const updated = applyPensionCurrentValueUpdate(fund, 105000);
+    expect(updated.previousValue).toBe(100000);
+    expect(updated.initialInvestment).toBe(90000);
+  });
+
+  test('falls back to amount when currentValue/initialInvestment/lastDeposit are missing', () => {
+    const fund = { amount: 50000 };
+    const updated = applyPensionCurrentValueUpdate(fund, 55000);
+    expect(updated.previousValue).toBe(50000);
+    expect(updated.initialInvestment).toBe(50000);
+    expect(updated.currentValue).toBe(55000);
+    expect(updated.amount).toBe(55000);
   });
 });
