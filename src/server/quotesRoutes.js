@@ -23,10 +23,31 @@ function errMessage(err) {
 async function fetchTaseQuote(stockId, req) {
   const taseUrl = `https://market.tase.co.il/he/market_data/security/${stockId}/major_data`;
   try {
-    const result = await scrapeTaseWithPuppeteer(taseUrl);
+    let result;
+    try {
+      result = await scrapeTaseWithPuppeteer(taseUrl);
+      if (!isUsableTasePayload({ currentPrice: result.currentPrice, changePercent: result.changePercent })) {
+        throw new Error('first attempt returned unusable payload');
+      }
+    } catch (firstAttemptErr) {
+      // כשל חד-פעמי/זמני (timeout גבולי, עומס רגעי) הוא נפוץ בסביבות עם
+      // מעט RAM כמו ה-tier החינמי של Render - ניסיון חוזר אחד מספיק
+      // כדי לתפוס הרבה מהמקרים האלה בלי לפגוע משמעותית בזמן התגובה.
+      console.warn('[tase] first puppeteer attempt failed, retrying once', {
+        stockId,
+        error: errMessage(firstAttemptErr)
+      });
+      result = await scrapeTaseWithPuppeteer(taseUrl);
+    }
     const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
     if (!isUsableTasePayload(payload)) {
-      console.warn('[tase] puppeteer returned unusable payload', { stockId, payload });
+      console.warn('[tase] puppeteer returned unusable payload (after retry)', {
+        stockId,
+        payload,
+        // מה שהדפדפן בפועל "רואה" בדף - עוזר לדעת אם הבעיה היא עמוד חסימת בוט,
+        // מבנה טקסט שונה מהצפוי, או שהעמוד בכלל לא נטען.
+        pageTextSnippet: result._debugTextSnippet
+      });
       throw new Error('puppeteer returned unusable payload');
     }
     writeCachedTaseQuote(stockId, payload);
@@ -40,7 +61,11 @@ async function fetchTaseQuote(stockId, req) {
       const result = await scrapeTaseFallbackWithAxios(taseUrl);
       const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
       if (!isUsableTasePayload(payload)) {
-        console.warn('[tase] axios fallback returned unusable payload', { stockId, payload });
+        console.warn('[tase] axios fallback returned unusable payload', {
+          stockId,
+          payload,
+          pageTextSnippet: result._debugTextSnippet
+        });
         throw new Error('axios fallback returned unusable payload');
       }
       writeCachedTaseQuote(stockId, payload);

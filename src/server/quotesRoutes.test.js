@@ -117,6 +117,26 @@ describe('quotesRoutes', () => {
     expect(taseScraper.scrapeTaseFallbackWithAxios).not.toHaveBeenCalled();
   });
 
+  test('GET /api/israeli-stock/:id retries puppeteer once on a transient failure before falling back', async () => {
+    taseScraper.scrapeTaseWithPuppeteer
+      .mockRejectedValueOnce(new Error('transient timeout'))
+      .mockResolvedValueOnce({ currentPrice: 5000, changePercent: 2.3 });
+    const res = await get(`${baseUrl}/api/israeli-stock/1111`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ currentPrice: 5000, changePercent: 2.3 });
+    expect(taseScraper.scrapeTaseWithPuppeteer).toHaveBeenCalledTimes(2);
+    expect(taseScraper.scrapeTaseFallbackWithAxios).not.toHaveBeenCalled();
+  });
+
+  test('GET /api/israeli-stock/:id falls back to axios only after both puppeteer attempts fail', async () => {
+    taseScraper.scrapeTaseWithPuppeteer.mockRejectedValue(new Error('still failing'));
+    taseScraper.scrapeTaseFallbackWithAxios.mockResolvedValue({ currentPrice: 6000, changePercent: 1.1 });
+    const res = await get(`${baseUrl}/api/israeli-stock/1111`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ currentPrice: 6000, changePercent: 1.1 });
+    expect(taseScraper.scrapeTaseWithPuppeteer).toHaveBeenCalledTimes(2);
+  });
+
   test('GET /api/american-stock/:symbol rejects a blank symbol with 400', async () => {
     const res = await get(`${baseUrl}/api/american-stock/${encodeURIComponent(' ')}`);
     expect(res.status).toBe(400);

@@ -163,7 +163,7 @@ async function scrapeTaseWithPuppeteer(taseUrl) {
         } catch (_) {}
       }
 
-      return { currentPrice, changePercent };
+      return { currentPrice, changePercent, _debugTextSnippet: text.slice(0, 400) };
     });
   } finally {
     await page.close().catch(() => {});
@@ -222,7 +222,7 @@ async function scrapeTaseFallbackWithAxios(taseUrl) {
   const rawToken = percentMatch ? percentMatch[1] : null;
   const changePercent = percentMatch ? parsePercentToken(rawToken) : null;
   // include raw for server-side log only
-  return { currentPrice, changePercent, _rawPercentToken: rawToken };
+  return { currentPrice, changePercent, _rawPercentToken: rawToken, _debugTextSnippet: fullText.slice(0, 400) };
 }
 
 module.exports = {
