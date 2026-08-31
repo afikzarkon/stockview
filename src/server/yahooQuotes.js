@@ -51,19 +51,29 @@ async function getYahooPayload(symbol) {
   const requestPromise = (async () => {
     const meta = await fetchYahooChartMeta(symbol);
     const currentPrice = Number(meta.regularMarketPrice);
-    const rawChange =
-      meta.regularMarketChangePercent ??
-      meta.changePercent ??
-      meta.regularMarketChange ??
-      meta.change ??
-      0;
+    // Deliberately NOT reading meta.regularMarketChangePercent /
+    // changePercent / regularMarketChange / change here. Real Yahoo v8
+    // chart responses (verified against current sample data, not just
+    // assumed) very often omit these fields entirely - they properly
+    // belong to the older v7/finance/quote endpoint - and when one *is*
+    // present its meaning is ambiguous: regularMarketChange/change are
+    // absolute currency amounts (e.g. $2.34), not percentages, while
+    // *ChangePercent fields' scale (fraction like 0.0142 vs already a
+    // percent like 1.42) isn't consistent either. The previous code
+    // multiplied whichever field it found by 100 regardless, which - if
+    // it ever hit an absolute change field, or a field already in percent
+    // form - produced numbers with no real relationship to the actual
+    // daily % change (this matched a real production report of "wrong"
+    // change percentages).
+    //
+    // previousClose and regularMarketPrice are both unambiguous absolute
+    // prices in the same currency, so computing the % change directly
+    // from them has no unit-mismatch risk.
+    const previousClose = Number(meta.previousClose ?? meta.chartPreviousClose);
 
     let finalChangePercent = 0;
-    if (rawChange && rawChange !== 0) {
-      finalChangePercent = Number(rawChange) * 100;
-    } else if (meta.previousClose && meta.regularMarketPrice) {
-      const change = Number(meta.regularMarketPrice) - Number(meta.previousClose);
-      finalChangePercent = (change / Number(meta.previousClose)) * 100;
+    if (Number.isFinite(currentPrice) && Number.isFinite(previousClose) && previousClose !== 0) {
+      finalChangePercent = ((currentPrice - previousClose) / previousClose) * 100;
     }
 
     const payload = {

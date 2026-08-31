@@ -14,7 +14,7 @@ jest.mock('./yahooCrumb', () => ({
   invalidateYahooCrumb: jest.fn()
 }));
 
-const { unwrapYahooNumber, fetchYahooAssetProfile } = require('./yahooQuotes');
+const { unwrapYahooNumber, fetchYahooAssetProfile, getYahooPayload } = require('./yahooQuotes');
 
 describe('unwrapYahooNumber', () => {
   test('passes through a plain finite number', () => {
@@ -119,4 +119,74 @@ describe('fetchYahooQuoteSummary 429 handling (via fetchYahooAssetProfile)', () 
     // take noticeably longer than either one alone.
     expect(elapsed).toBeGreaterThanOrEqual(300);
   }, 10000);
+});
+
+// Regression tests for a real production bug: getYahooPayload used to
+// trust meta.regularMarketChangePercent / changePercent /
+// regularMarketChange / change when present, blindly multiplying whatever
+// it found by 100. regularMarketChange/change are absolute currency
+// amounts (not percentages), and even the *ChangePercent fields' scale
+// wasn't consistent - so when Yahoo's v8 chart response happened to
+// include one of these (they're often absent entirely, per real sample
+// responses), the computed "change %" had no real relationship to the
+// actual daily move. Fixed by always computing the % change directly from
+// two unambiguous prices (regularMarketPrice vs previousClose).
+describe('getYahooPayload change-percent calculation', () => {
+  beforeEach(() => {
+    mockAxios.get.mockReset();
+  });
+
+  const chartResponse = (meta) => ({ data: { chart: { result: [{ meta }] } } });
+
+  test('computes change % directly from regularMarketPrice vs previousClose when no change fields are present (the common real-world case)', async () => {
+    mockAxios.get.mockResolvedValueOnce(
+      chartResponse({ regularMarketPrice: 114.28, previousClose: 115.26 })
+    );
+    const result = await getYahooPayload('TEST_SYMBOL_1');
+    expect(result.currentPrice).toBe(114.28);
+    expect(result.changePercent).toBeCloseTo(((114.28 - 115.26) / 115.26) * 100, 5);
+  });
+
+  test('ignores a misleading regularMarketChange field (an absolute currency amount, not a percent) - the exact bug that was in production', async () => {
+    // regularMarketChange here is -3.42 (dollars), which the old buggy
+    // code would have multiplied by 100 to get a nonsensical -342%.
+    mockAxios.get.mockResolvedValueOnce(
+      chartResponse({
+        regularMarketPrice: 100,
+        previousClose: 103.42,
+        regularMarketChange: -3.42
+      })
+    );
+    const result = await getYahooPayload('TEST_SYMBOL_2');
+    // Correct answer, computed only from the two prices:
+    expect(result.changePercent).toBeCloseTo(((100 - 103.42) / 103.42) * 100, 5);
+    expect(result.changePercent).not.toBeCloseTo(-342, 0); // the old bug's output
+  });
+
+  test('ignores a misleading regularMarketChangePercent field of ambiguous scale - same fix covers this shape too', async () => {
+    mockAxios.get.mockResolvedValueOnce(
+      chartResponse({
+        regularMarketPrice: 100,
+        previousClose: 101.42,
+        regularMarketChangePercent: -1.42 // could be a fraction or already a percent - ambiguous either way
+      })
+    );
+    const result = await getYahooPayload('TEST_SYMBOL_3');
+    expect(result.changePercent).toBeCloseTo(((100 - 101.42) / 101.42) * 100, 5);
+  });
+
+  test('falls back to chartPreviousClose when previousClose is missing', async () => {
+    mockAxios.get.mockResolvedValueOnce(
+      chartResponse({ regularMarketPrice: 50, chartPreviousClose: 49 })
+    );
+    const result = await getYahooPayload('TEST_SYMBOL_4');
+    expect(result.changePercent).toBeCloseTo(((50 - 49) / 49) * 100, 5);
+  });
+
+  test('missing both previousClose fields yields changePercent 0, not NaN/undefined', async () => {
+    mockAxios.get.mockResolvedValueOnce(chartResponse({ regularMarketPrice: 50 }));
+    const result = await getYahooPayload('TEST_SYMBOL_5');
+    expect(result.currentPrice).toBe(50);
+    expect(result.changePercent).toBe(0);
+  });
 });
