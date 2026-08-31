@@ -78,7 +78,16 @@ function FinancialAccountsTables({
                   const periodReturn = calculatePensionPeriodReturn(item);
                   const previousProfitPercent = previousValue > 0 ? periodReturn.percent : null;
                   const totalProfitLoss = currentValue - initialInvestment;
-                  const updateProfitLoss = previousValue > 0 ? currentValue - previousValue : null;
+                  // Uses periodReturn.adjustedPreviousValue (previousValue +
+                  // deposits that fell strictly within this period) - NOT
+                  // the raw previousValue. This used to be a plain
+                  // currentValue - previousValue, which silently counted
+                  // any deposit made between the previous and current
+                  // update as if it were investment profit (a real ₪35,000
+                  // deposit would inflate this column by ₪35,000). Now it
+                  // matches exactly what the % column next to it already
+                  // does, so the two stay consistent.
+                  const updateProfitLoss = previousValue > 0 ? currentValue - periodReturn.adjustedPreviousValue : null;
 
                   // רווח ריאלי/אינפלציוני/מס לקופה הזו בלבד - לוידוא נקודתי מול
                   // הפירוק המצטבר שמוצג בסיכום התיק (PortfolioSummary.js)
