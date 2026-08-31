@@ -11,6 +11,7 @@ import { usePortfolioData } from './hooks/usePortfolioData';
 import { usePriceRefresh } from './hooks/usePriceRefresh';
 import { useCpiIndex } from './hooks/useCpiIndex';
 import { usePortfolioSnapshots } from './hooks/usePortfolioSnapshots';
+import { useRebalanceTargets } from './hooks/useRebalanceTargets';
 import { monthKeyFromDate } from './utils/cpiTax';
 import StockFormView from './components/StockFormView';
 import PortfolioAnalysisView from './components/PortfolioAnalysisView';
@@ -170,6 +171,14 @@ function App() {
     portfolioReady ? analysis.summaryMetrics.overallTotalValueILS : null,
     snapshotBreakdown
   );
+
+  const {
+    targets: rebalanceTargets,
+    loading: rebalanceTargetsLoading,
+    saving: rebalanceSaving,
+    saveError: rebalanceSaveError,
+    saveTargets: saveRebalanceTargets
+  } = useRebalanceTargets(user, authHeader);
 
   useEffect(() => {
     if (!user || !user.id) {
@@ -640,6 +649,11 @@ function App() {
         snapshots={snapshots}
         snapshotsLoading={snapshotsLoading}
         americanStocks={americanStocks}
+        rebalanceTargets={rebalanceTargets}
+        rebalanceTargetsLoading={rebalanceTargetsLoading}
+        rebalanceSaving={rebalanceSaving}
+        rebalanceSaveError={rebalanceSaveError}
+        onSaveRebalanceTargets={saveRebalanceTargets}
       />
     );
   }

@@ -38,6 +38,11 @@ function openSqlite() {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(user_id, snapshot_date)
     );
+    CREATE TABLE IF NOT EXISTS rebalance_targets (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      targets TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
   return db;
 }
@@ -108,6 +113,19 @@ function sqliteStore(db) {
           totalValueILS: row.total_value_ils,
           breakdown: row.breakdown ? JSON.parse(row.breakdown) : null
         }));
+    },
+    async getRebalanceTargets(userId) {
+      const row = db.prepare('SELECT targets FROM rebalance_targets WHERE user_id = ?').get(userId);
+      return row && row.targets ? JSON.parse(row.targets) : null;
+    },
+    async upsertRebalanceTargets(userId, targetsJson) {
+      db.prepare(
+        `INSERT INTO rebalance_targets (user_id, targets, updated_at)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(user_id) DO UPDATE SET
+           targets = excluded.targets,
+           updated_at = datetime('now')`
+      ).run(userId, targetsJson);
     }
   };
 }
@@ -148,6 +166,13 @@ async function pgStore(connectionString) {
   await pool.query(
     'CREATE INDEX IF NOT EXISTS portfolio_snapshots_user_date_idx ON portfolio_snapshots (user_id, snapshot_date)'
   );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rebalance_targets (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      targets JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
   const portfolioTables = [
     'user_israeli_stocks',
     'user_american_stocks',
@@ -489,6 +514,20 @@ async function pgStore(connectionString) {
         totalValueILS: row.total_value_ils,
         breakdown: row.breakdown || null
       }));
+    },
+    async getRebalanceTargets(userId) {
+      const { rows } = await pool.query('SELECT targets FROM rebalance_targets WHERE user_id = $1', [userId]);
+      return rows[0] ? rows[0].targets : null;
+    },
+    async upsertRebalanceTargets(userId, targetsJson) {
+      await pool.query(
+        `INSERT INTO rebalance_targets (user_id, targets, updated_at)
+         VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           targets = EXCLUDED.targets,
+           updated_at = NOW()`,
+        [userId, targetsJson]
+      );
     }
   };
 }

@@ -27,6 +27,7 @@ import { useBenchmarkHistory } from '../hooks/useBenchmarkHistory';
 import { useStockSectors } from '../hooks/useStockSectors';
 import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
 import { formatDate } from '../utils/formatters';
+import RebalancingSection from './RebalancingSection';
 
 const SECTOR_COLORS = ['#667eea', '#f59e0b', '#16a34a', '#0ea5e9', '#dc2626', '#8b5cf6', '#0d9488', '#ea580c', '#64748b', '#c026d3'];
 
@@ -41,7 +42,12 @@ function PortfolioAnalysisView({
   onBack,
   snapshots = [],
   snapshotsLoading = false,
-  americanStocks = []
+  americanStocks = [],
+  rebalanceTargets = null,
+  rebalanceTargetsLoading = false,
+  rebalanceSaving = false,
+  rebalanceSaveError = '',
+  onSaveRebalanceTargets
 }) {
   const stats = useMemo(() => computePortfolioStats(snapshots), [snapshots]);
 
@@ -451,6 +457,23 @@ function PortfolioAnalysisView({
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="analysis-section">
+            <h2 className="section-title">איזון מחדש (Rebalancing)</h2>
+            <p className="section-subtitle">
+              הגדירו הקצאת יעד (%) לכל רכיב, ותקבלו השוואה מול ההקצאה בפועל והצעה כמה לקנות/למכור כדי לחזור ליעד.
+              היעדים נשמרים עבורכם ונטענים אוטומטית בפעם הבאה.
+            </p>
+            <RebalancingSection
+              exchangeDistribution={analysis.exchangeDistribution}
+              formatPriceWithSign={formatPriceWithSign}
+              targets={rebalanceTargets}
+              targetsLoading={rebalanceTargetsLoading}
+              saving={rebalanceSaving}
+              saveError={rebalanceSaveError}
+              onSaveTargets={onSaveRebalanceTargets}
+            />
           </div>
 
           <div className="analysis-section">

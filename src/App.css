@@ -1269,6 +1269,62 @@ body {
   border-color: #667eea;
 }
 
+.rebalance-inputs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.rebalance-input-item {
+  background: white;
+  border-radius: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(102, 126, 234, 0.15);
+}
+
+.rebalance-input-item label {
+  display: block;
+  font-size: 0.85rem;
+  color: #667eea;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.rebalance-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rebalance-input-wrap input {
+  width: 100%;
+  border: 1px solid rgba(102, 126, 234, 0.25);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.rebalance-sum-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+
+.rebalance-sum-hint {
+  color: #8a94a6;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.rebalance-status-msg {
+  font-size: 0.9rem;
+}
+
 .pie-chart-container {
   background: white;
   border-radius: 12px;
