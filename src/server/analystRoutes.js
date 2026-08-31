@@ -5,14 +5,18 @@
 // per-symbol-cache shape. Public data, no user auth needed.
 const { fetchYahooAnalystData } = require('./yahooQuotes');
 
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h: analyst consensus doesn't move minute to minute
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h for resolved data: analyst consensus doesn't move minute to minute
+const FAILURE_CACHE_TTL_MS = 5 * 60 * 1000; // 5min for a failed lookup - see sectorRoutes.js for why
 const cache = new Map();
 const inFlight = new Map();
 const MAX_SYMBOLS_PER_REQUEST = 30;
 
 async function getCachedAnalystData(symbol) {
   const cached = cache.get(symbol);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
+  if (cached) {
+    const ttl = cached.isFailure ? FAILURE_CACHE_TTL_MS : CACHE_TTL_MS;
+    if (Date.now() - cached.ts < ttl) return cached.data;
+  }
 
   const existingInFlight = inFlight.get(symbol);
   if (existingInFlight) return existingInFlight;
@@ -20,12 +24,9 @@ async function getCachedAnalystData(symbol) {
   const requestPromise = (async () => {
     try {
       const data = await fetchYahooAnalystData(symbol);
-      cache.set(symbol, { data, ts: Date.now() });
+      cache.set(symbol, { data, ts: Date.now(), isFailure: false });
       return data;
     } catch (err) {
-      // Cache the miss too (same reasoning as sectorRoutes.js): an
-      // unresolvable symbol will keep failing, no reason to hit Yahoo
-      // again for it on every portfolio-analysis view this cache window.
       console.warn('[analyst] failed to resolve symbol', { symbol, error: err && err.message });
       const fallback = {
         recommendationKey: null,
@@ -36,7 +37,7 @@ async function getCachedAnalystData(symbol) {
         currentTrend: null,
         upgradeHistory: []
       };
-      cache.set(symbol, { data: fallback, ts: Date.now() });
+      cache.set(symbol, { data: fallback, ts: Date.now(), isFailure: true });
       return fallback;
     }
   })();

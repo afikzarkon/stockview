@@ -136,6 +136,39 @@ async function fetchYahooHistoricalCloses(symbol, fromDateStr) {
 // stale (401), this retries once with a freshly-fetched one, the same
 // "retry once on a transient/stale-auth failure" pattern already used for
 // the TASE scraper in quotesRoutes.js.
+//
+// It's also rate-limited: sectorRoutes.js and analystRoutes.js each
+// resolve every unique US ticker in the portfolio via Promise.all, so a
+// portfolio with ~10 holdings can fire ~20 near-simultaneous requests at
+// this same endpoint (sectors + analyst data, per symbol). Yahoo responds
+// to bursts like that with 429s. QUOTE_SUMMARY_MIN_SPACING_MS serializes
+// every quoteSummary call (across both features - this queue is
+// module-level, not per-caller) through one queue with a minimum gap
+// between requests, and a 429 gets one backoff-and-retry, the same as a
+// stale crumb does.
+const QUOTE_SUMMARY_MIN_SPACING_MS = 350;
+const QUOTE_SUMMARY_429_BACKOFF_MS = 1500;
+let quoteSummaryQueueTail = Promise.resolve();
+
+function scheduleOnQuoteSummaryQueue(task) {
+  // .finally() (not .then()) so the spacing delay applies whether the
+  // request succeeded OR failed - a burst of failures (e.g. repeated
+  // 429s) still needs pacing between attempts just as much as a burst of
+  // successes does. .finally() also preserves the original
+  // resolution/rejection for the caller, it doesn't swallow it.
+  const run = quoteSummaryQueueTail.then(() =>
+    task().finally(() => new Promise((resolve) => setTimeout(resolve, QUOTE_SUMMARY_MIN_SPACING_MS)))
+  );
+  // The queue's tail always resolves (never rejects), even if `task`
+  // itself throws - otherwise one failed request would permanently jam
+  // every request queued behind it.
+  quoteSummaryQueueTail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 async function fetchYahooQuoteSummary(symbol, modules) {
   const encoded = encodeURIComponent(symbol);
   const yahooUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encoded}`;
@@ -154,14 +187,30 @@ async function fetchYahooQuoteSummary(symbol, modules) {
     });
   };
 
+  const attemptWithCrumbRetry = async () => {
+    try {
+      return await doRequest(false);
+    } catch (err) {
+      const status = err.response && err.response.status;
+      if (status === 401 || status === 403) {
+        invalidateYahooCrumb();
+        return await doRequest(true);
+      }
+      throw err;
+    }
+  };
+
   let response;
   try {
-    response = await doRequest(false);
+    response = await scheduleOnQuoteSummaryQueue(attemptWithCrumbRetry);
   } catch (err) {
     const status = err.response && err.response.status;
-    if (status === 401 || status === 403) {
-      invalidateYahooCrumb();
-      response = await doRequest(true);
+    if (status === 429) {
+      // Back off briefly and retry once, outside the immediate queue
+      // position - a short burst of concurrent symbol lookups is the
+      // typical cause here, not a sustained block.
+      await new Promise((resolve) => setTimeout(resolve, QUOTE_SUMMARY_429_BACKOFF_MS));
+      response = await scheduleOnQuoteSummaryQueue(attemptWithCrumbRetry);
     } else {
       throw err;
     }
@@ -173,6 +222,7 @@ async function fetchYahooQuoteSummary(symbol, modules) {
   }
   return result[0];
 }
+
 
 // Defensive fallback for the { raw, fmt, longFmt } shape above, in case a
 // given field ignores formatted=false (this has happened with Yahoo's
