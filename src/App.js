@@ -649,6 +649,9 @@ function App() {
         snapshots={snapshots}
         snapshotsLoading={snapshotsLoading}
         americanStocks={americanStocks}
+        israeliStocks={israeliStocks}
+        pensionFunds={pensionFunds}
+        cpi={cpi}
         rebalanceTargets={rebalanceTargets}
         rebalanceTargetsLoading={rebalanceTargetsLoading}
         rebalanceSaving={rebalanceSaving}

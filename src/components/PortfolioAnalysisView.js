@@ -27,6 +27,7 @@ import { useBenchmarkHistory } from '../hooks/useBenchmarkHistory';
 import { useStockSectors } from '../hooks/useStockSectors';
 import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
 import { formatDate } from '../utils/formatters';
+import { computeTaxLossHarvestingOpportunities } from '../utils/taxLossHarvesting';
 import RebalancingSection from './RebalancingSection';
 
 const SECTOR_COLORS = ['#667eea', '#f59e0b', '#16a34a', '#0ea5e9', '#dc2626', '#8b5cf6', '#0d9488', '#ea580c', '#64748b', '#c026d3'];
@@ -43,6 +44,9 @@ function PortfolioAnalysisView({
   snapshots = [],
   snapshotsLoading = false,
   americanStocks = [],
+  israeliStocks = [],
+  pensionFunds = [],
+  cpi = null,
   rebalanceTargets = null,
   rebalanceTargetsLoading = false,
   rebalanceSaving = false,
@@ -50,6 +54,11 @@ function PortfolioAnalysisView({
   onSaveRebalanceTargets
 }) {
   const stats = useMemo(() => computePortfolioStats(snapshots), [snapshots]);
+
+  const harvesting = useMemo(
+    () => computeTaxLossHarvestingOpportunities(israeliStocks, americanStocks, pensionFunds, cpi),
+    [israeliStocks, americanStocks, pensionFunds, cpi]
+  );
 
   const americanSymbols = useMemo(() => americanStocks.map((s) => s.stockName), [americanStocks]);
   const { sectorBySymbol, loading: sectorsLoading } = useStockSectors(americanSymbols);
@@ -474,6 +483,67 @@ function PortfolioAnalysisView({
               saveError={rebalanceSaveError}
               onSaveTargets={onSaveRebalanceTargets}
             />
+          </div>
+
+          <div className="analysis-section">
+            <h2 className="section-title">הזדמנויות לקיזוז מס (Tax-Loss Harvesting)</h2>
+            <p className="section-subtitle">
+              פוזיציות שנמצאות כרגע בהפסד ריאלי (אחרי הצמדה למדד/שער חליפין, לפי אותו חישוב שמוצג בכל שורה בטבלאות).
+              זה לא ייעוץ מס — כללי הקיזוז בפועל (אותה שנת מס, גרירה קדימה, סוגי נכסים) מורכבים יותר, מומלץ לוודא מול
+              רואה חשבון.
+            </p>
+            <div className="distribution-grid">
+              <div className="distribution-card">
+                <h3>סה"כ הפסד ריאלי הניתן למימוש</h3>
+                <div className="distribution-value profit-negative">
+                  {formatPriceWithSign(harvesting.totalHarvestableLoss)} ₪
+                </div>
+                <div className="distribution-percentage">{harvesting.lossPositions.length} פוזיציות</div>
+              </div>
+              <div className="distribution-card">
+                <h3>שווי מס פוטנציאלי</h3>
+                <div className="distribution-value profit-positive">
+                  עד {formatPriceWithSign(harvesting.totalPotentialTaxValue)} ₪
+                </div>
+                <div className="distribution-percentage">אם ימומש מול רווחים באותו שיעור מס</div>
+              </div>
+              <div className="distribution-card">
+                <h3>רווחים ריאליים פתוחים כרגע</h3>
+                <div className="distribution-value profit-positive">
+                  {formatPriceWithSign(harvesting.totalCurrentGains)} ₪
+                </div>
+                <div className="distribution-percentage">
+                  מס משוער: {formatPriceWithSign(harvesting.totalGainsTax)} ₪
+                </div>
+              </div>
+            </div>
+
+            {!harvesting.hasLossPositions ? (
+              <p className="history-empty-note">אין כרגע פוזיציות בהפסד ריאלי בתיק.</p>
+            ) : (
+              <div className="stocks-table-container" style={{ marginTop: 16 }}>
+                <table className="analysis-table">
+                  <thead>
+                    <tr>
+                      <th>פוזיציה</th>
+                      <th>קטגוריה</th>
+                      <th>הפסד ריאלי</th>
+                      <th>שווי מס פוטנציאלי</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {harvesting.lossPositions.map((position) => (
+                      <tr key={`${position.category}-${position.id}`}>
+                        <td>{position.name}</td>
+                        <td>{position.categoryLabel}</td>
+                        <td className="profit-negative">{formatPriceWithSign(position.harvestableLoss)} ₪</td>
+                        <td className="profit-positive">{formatPriceWithSign(position.taxValue)} ₪</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="analysis-section">
