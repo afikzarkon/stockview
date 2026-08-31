@@ -2,6 +2,7 @@
 // USD/ILS exchange rate). Extracted from server.js — behavior is
 // unchanged, only the location moved.
 const axios = require('axios');
+const { getYahooCrumbAndCookie, invalidateYahooCrumb } = require('./yahooCrumb');
 
 const YAHOO_CACHE_TTL_MS = 15 * 1000;
 const yahooChartCache = new Map();
@@ -124,4 +125,134 @@ async function fetchYahooHistoricalCloses(symbol, fromDateStr) {
   return points;
 }
 
-module.exports = { getYahooPayload, fetchYahooHistoricalCloses };
+// Sector/industry classification for a US stock (module=assetProfile),
+// used for the "diversification by sector" breakdown - a very different
+// question from "how much is it worth" (exchangeDistribution): someone can
+// hold 10 different US tickers and still be 90% concentrated in one
+// sector, which the exchange-only breakdown can't show.
+//
+// quoteSummary (unlike the plain chart endpoint above) requires a
+// crumb+cookie session - see yahooCrumb.js. If a cached crumb has gone
+// stale (401), this retries once with a freshly-fetched one, the same
+// "retry once on a transient/stale-auth failure" pattern already used for
+// the TASE scraper in quotesRoutes.js.
+async function fetchYahooQuoteSummary(symbol, modules) {
+  const encoded = encodeURIComponent(symbol);
+  const yahooUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encoded}`;
+
+  const doRequest = async (forceRefreshCrumb) => {
+    const { crumb, cookie } = await getYahooCrumbAndCookie(forceRefreshCrumb);
+    return axios.get(yahooUrl, {
+      // formatted=false asks Yahoo for plain numbers (e.g. targetMeanPrice:
+      // 150.5) instead of its default display-ready shape
+      // ({ raw: 150.5, fmt: "150.50" }) - without this, every numeric field
+      // silently becomes an object and fails a plain Number.isFinite()
+      // check downstream.
+      params: { modules, crumb, formatted: false },
+      timeout: 12000,
+      headers: { ...YAHOO_HEADERS, Cookie: cookie }
+    });
+  };
+
+  let response;
+  try {
+    response = await doRequest(false);
+  } catch (err) {
+    const status = err.response && err.response.status;
+    if (status === 401 || status === 403) {
+      invalidateYahooCrumb();
+      response = await doRequest(true);
+    } else {
+      throw err;
+    }
+  }
+
+  const result = response?.data?.quoteSummary?.result;
+  if (!Array.isArray(result) || result.length === 0) {
+    throw new Error('missing yahoo quoteSummary data');
+  }
+  return result[0];
+}
+
+// Defensive fallback for the { raw, fmt, longFmt } shape above, in case a
+// given field ignores formatted=false (this has happened with Yahoo's
+// unofficial API before, inconsistently, per-field) - unwraps either shape
+// instead of silently discarding the value.
+function unwrapYahooNumber(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'object' && Number.isFinite(value.raw)) return value.raw;
+  return null;
+}
+
+async function fetchYahooAssetProfile(symbol) {
+  const quoteSummary = await fetchYahooQuoteSummary(symbol, 'assetProfile');
+  const profile = quoteSummary?.assetProfile;
+  if (!profile) {
+    throw new Error('missing yahoo assetProfile data');
+  }
+  return {
+    sector: profile.sector || null,
+    industry: profile.industry || null
+  };
+}
+
+// Analyst coverage for a US stock: consensus rating, price targets, and
+// recent upgrade/downgrade history. Same quoteSummary endpoint/auth as
+// fetchYahooAssetProfile above, different modules.
+async function fetchYahooAnalystData(symbol) {
+  const quoteSummary = await fetchYahooQuoteSummary(
+    symbol,
+    'financialData,recommendationTrend,upgradeDowngradeHistory'
+  );
+
+  const financialData = quoteSummary?.financialData || {};
+  const recommendationTrend = quoteSummary?.recommendationTrend?.trend || [];
+  const upgradeHistoryRaw = quoteSummary?.upgradeDowngradeHistory?.history || [];
+
+  const upgradeHistory = upgradeHistoryRaw
+    .map((entry) => ({
+      firm: entry.firm || null,
+      toGrade: entry.toGrade || null,
+      fromGrade: entry.fromGrade || null,
+      action: entry.action || null,
+      epochGradeDate: unwrapYahooNumber(entry.epochGradeDate)
+    }))
+    .filter((entry) => entry.epochGradeDate !== null)
+    .sort((a, b) => b.epochGradeDate - a.epochGradeDate)
+    .slice(0, 8);
+
+  const rawCurrentTrend = recommendationTrend.find((t) => t.period === '0m') || recommendationTrend[0] || null;
+  const currentTrend = rawCurrentTrend
+    ? {
+        period: rawCurrentTrend.period || null,
+        strongBuy: unwrapYahooNumber(rawCurrentTrend.strongBuy),
+        buy: unwrapYahooNumber(rawCurrentTrend.buy),
+        hold: unwrapYahooNumber(rawCurrentTrend.hold),
+        sell: unwrapYahooNumber(rawCurrentTrend.sell),
+        strongSell: unwrapYahooNumber(rawCurrentTrend.strongSell)
+      }
+    : null;
+
+  return {
+    recommendationKey: financialData.recommendationKey || null,
+    numberOfAnalystOpinions: unwrapYahooNumber(financialData.numberOfAnalystOpinions),
+    targetMeanPrice: unwrapYahooNumber(financialData.targetMeanPrice),
+    targetHighPrice: unwrapYahooNumber(financialData.targetHighPrice),
+    targetLowPrice: unwrapYahooNumber(financialData.targetLowPrice),
+    // Each entry in Yahoo's recommendationTrend.trend already IS a
+    // {period, strongBuy, buy, hold, sell, strongSell} bucket for a given
+    // month (0m = current). We only need the current month for a "right
+    // now" consensus breakdown.
+    currentTrend,
+    upgradeHistory
+  };
+}
+
+module.exports = {
+  getYahooPayload,
+  fetchYahooHistoricalCloses,
+  fetchYahooAssetProfile,
+  fetchYahooAnalystData,
+  unwrapYahooNumber
+};

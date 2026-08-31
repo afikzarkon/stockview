@@ -639,6 +639,7 @@ function App() {
         onBack={() => setShowAnalysis(false)}
         snapshots={snapshots}
         snapshotsLoading={snapshotsLoading}
+        americanStocks={americanStocks}
       />
     );
   }

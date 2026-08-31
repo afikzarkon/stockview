@@ -14,8 +14,21 @@ import {
 } from 'recharts';
 import { computePortfolioStats } from '../utils/portfolioStats';
 import { buildComparisonSeries } from '../utils/benchmarkComparison';
+import { computeSectorDistribution } from '../utils/sectorAnalysis';
+import { sectorLabelHe } from '../utils/sectorLabels';
+import {
+  recommendationLabelHe,
+  recommendationSentiment,
+  computeUpsidePercent,
+  actionLabelHe,
+  formatEpochDateISO
+} from '../utils/analystData';
 import { useBenchmarkHistory } from '../hooks/useBenchmarkHistory';
+import { useStockSectors } from '../hooks/useStockSectors';
+import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
 import { formatDate } from '../utils/formatters';
+
+const SECTOR_COLORS = ['#667eea', '#f59e0b', '#16a34a', '#0ea5e9', '#dc2626', '#8b5cf6', '#0d9488', '#ea580c', '#64748b', '#c026d3'];
 
 const BENCHMARK_OPTIONS = [
   { key: 'sp500', label: 'S&P 500' },
@@ -27,9 +40,39 @@ function PortfolioAnalysisView({
   formatPriceWithSign,
   onBack,
   snapshots = [],
-  snapshotsLoading = false
+  snapshotsLoading = false,
+  americanStocks = []
 }) {
   const stats = useMemo(() => computePortfolioStats(snapshots), [snapshots]);
+
+  const americanSymbols = useMemo(() => americanStocks.map((s) => s.stockName), [americanStocks]);
+  const { sectorBySymbol, loading: sectorsLoading } = useStockSectors(americanSymbols);
+  const sectorDistribution = useMemo(
+    () => computeSectorDistribution(americanStocks, sectorBySymbol),
+    [americanStocks, sectorBySymbol]
+  );
+
+  // One row per unique American ticker (a stock bought in several lots
+  // shares the same live price/analyst data), sorted by current value so
+  // the largest holdings show up first.
+  const uniqueAmericanHoldings = useMemo(() => {
+    const bySymbol = new Map();
+    americanStocks.forEach((stock) => {
+      const symbol = String(stock.stockName || '').trim().toUpperCase();
+      if (!symbol) return;
+      const existing = bySymbol.get(symbol);
+      const valueILS = (stock.currentPrice || 0) * (stock.quantity || 0) * (stock.currentExchangeRate || stock.exchangeRate || 0);
+      if (!existing) {
+        bySymbol.set(symbol, { symbol, currentPrice: stock.currentPrice || null, valueILS });
+      } else {
+        existing.valueILS += valueILS;
+        if (!existing.currentPrice && stock.currentPrice) existing.currentPrice = stock.currentPrice;
+      }
+    });
+    return [...bySymbol.values()].sort((a, b) => b.valueILS - a.valueILS);
+  }, [americanStocks]);
+
+  const { recommendationsBySymbol, loading: analystLoading } = useAnalystRecommendations(americanSymbols);
 
   const [benchmarkKey, setBenchmarkKey] = useState('sp500');
   const {
@@ -408,6 +451,127 @@ function PortfolioAnalysisView({
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="analysis-section">
+            <h2 className="section-title">פיזור לפי סקטור (מניות אמריקאיות)</h2>
+            <p className="section-subtitle">
+              מבוסס על סיווג הסקטור של Yahoo Finance לפי הטיקר של כל מניה אמריקאית. לא כולל מניות ישראליות, קופות גמל, קרנות כספיות או עו"ש — לאלו אין כרגע מיפוי סקטור זמין.
+            </p>
+            {americanStocks.length === 0 ? (
+              <p className="history-empty-note">אין מניות אמריקאיות בתיק כרגע.</p>
+            ) : sectorsLoading && !sectorDistribution.hasData ? (
+              <p className="history-empty-note">טוען נתוני סקטור…</p>
+            ) : !sectorDistribution.hasData ? (
+              <p className="history-empty-note">לא ניתן היה לטעון נתוני סקטור כרגע.</p>
+            ) : (
+              <>
+                <div className="pie-chart-container">
+                  <div className="pie-chart-wrapper">
+                    <ResponsiveContainer width="55%" height={340}>
+                      <PieChart>
+                        <Pie
+                          data={sectorDistribution.sectors.map((s) => ({
+                            name: sectorLabelHe(s.sectorKey),
+                            value: s.value
+                          }))}
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={110}
+                          dataKey="value"
+                        >
+                          {sectorDistribution.sectors.map((s, i) => (
+                            <Cell key={s.sectorKey} fill={SECTOR_COLORS[i % SECTOR_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => [`${formatPriceWithSign(value)} ₪`, 'שווי']} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="pie-labels-side">
+                      {sectorDistribution.sectors.map((s, i) => (
+                        <div className="pie-label-item" key={s.sectorKey}>
+                          <div
+                            className="label-color"
+                            style={{ backgroundColor: SECTOR_COLORS[i % SECTOR_COLORS.length] }}
+                          ></div>
+                          <div className="label-content">
+                            <div className="label-name">{sectorLabelHe(s.sectorKey)}</div>
+                            <div className="label-value">
+                              {formatPriceWithSign(s.value)} ₪ ({s.symbolCount} מניות)
+                            </div>
+                            <div className="label-percentage">{s.percentage.toFixed(1)}%</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {sectorDistribution.topSectorPercent > 40 && (
+                  <p className="section-subtitle" style={{ marginTop: 10 }}>
+                    שימו לב: {sectorDistribution.topSectorPercent.toFixed(0)}% מהרכיב האמריקאי מרוכז בסקטור אחד (
+                    {sectorLabelHe(sectorDistribution.sectors[0].sectorKey)}) — ריכוזיות מסוג הזה לא נראית בפיזור
+                    "ישראלי מול אמריקאי" הרגיל.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="analysis-section">
+            <h2 className="section-title">המלצות אנליסטים (מניות אמריקאיות)</h2>
+            <p className="section-subtitle">
+              דירוג ומחיר יעד ממוצעים מכלל האנליסטים שמסקרים כל מניה, לפי Yahoo Finance. לא כולל את הנימוק המלא של
+              כל דוח — זה בדרך כלל תוכן בתשלום אצל בית ההשקעות שהנפיק אותו.
+            </p>
+            {americanStocks.length === 0 ? (
+              <p className="history-empty-note">אין מניות אמריקאיות בתיק כרגע.</p>
+            ) : analystLoading && uniqueAmericanHoldings.every((h) => !recommendationsBySymbol[h.symbol]) ? (
+              <p className="history-empty-note">טוען נתוני אנליסטים…</p>
+            ) : (
+              <div className="stocks-table-container">
+                <table className="analysis-table">
+                  <thead>
+                    <tr>
+                      <th>מנייה</th>
+                      <th>המלצה</th>
+                      <th>מס' אנליסטים</th>
+                      <th>יעד מחיר ממוצע</th>
+                      <th>מרחק מהיעד</th>
+                      <th>שדרוג/הורדה אחרונים</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uniqueAmericanHoldings.map((holding) => {
+                      const rec = recommendationsBySymbol[holding.symbol];
+                      const upside = rec ? computeUpsidePercent(holding.currentPrice, rec.targetMeanPrice) : null;
+                      const sentiment = rec ? recommendationSentiment(rec.recommendationKey) : null;
+                      const lastUpgrade = rec && rec.upgradeHistory && rec.upgradeHistory[0];
+                      const lastUpgradeDate = lastUpgrade ? formatEpochDateISO(lastUpgrade.epochGradeDate) : null;
+                      return (
+                        <tr key={holding.symbol}>
+                          <td>{holding.symbol}</td>
+                          <td className={sentiment ? `profit-${sentiment}` : ''}>
+                            {rec ? recommendationLabelHe(rec.recommendationKey) : 'לא זמין'}
+                          </td>
+                          <td>{rec && rec.numberOfAnalystOpinions != null ? rec.numberOfAnalystOpinions : '—'}</td>
+                          <td>{rec && rec.targetMeanPrice != null ? `$${rec.targetMeanPrice.toFixed(2)}` : '—'}</td>
+                          <td className={upside != null ? (upside >= 0 ? 'profit-positive' : 'profit-negative') : ''}>
+                            {upside != null ? `${upside.toFixed(1)}%` : '—'}
+                          </td>
+                          <td>
+                            {lastUpgrade
+                              ? `${actionLabelHe(lastUpgrade.action)} · ${lastUpgrade.firm || ''}${
+                                  lastUpgradeDate ? ` · ${formatDate(lastUpgradeDate)}` : ''
+                                }`
+                              : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="analysis-section">

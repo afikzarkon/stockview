@@ -10,6 +10,8 @@ const { mountQuotesRoutes } = require('./server/quotesRoutes');
 const { mountCpiRoutes } = require('./server/cpiRoutes');
 const { mountSnapshotRoutes } = require('./server/snapshotRoutes');
 const { mountBenchmarkRoutes } = require('./server/benchmarkRoutes');
+const { mountSectorRoutes } = require('./server/sectorRoutes');
+const { mountAnalystRoutes } = require('./server/analystRoutes');
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
@@ -19,6 +21,8 @@ app.use(cookieParser());
 mountQuotesRoutes(app);
 mountCpiRoutes(app);
 mountBenchmarkRoutes(app);
+mountSectorRoutes(app);
+mountAnalystRoutes(app);
 
 const PORT = Number(process.env.PORT) || 5000;
 
