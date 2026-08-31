@@ -43,6 +43,21 @@ function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+// Mirrors the condition inside scrapeTaseWithPuppeteer's page.waitForFunction
+// below - duplicated rather than shared, because Puppeteer serializes that
+// function to run inside the browser's own JS context, which can't call out
+// to this module's code. Kept here, standalone, purely so the logic is
+// unit-testable without a real browser; if the wait condition changes,
+// update both copies.
+function hasUsableTasePriceText(text) {
+  const t = (text || '').replace(/\s+/g, ' ');
+  return (
+    /שער\s*אחרון[^\d]{0,80}\d/.test(t) ||
+    /שווי\s*יחידה[^\d]{0,80}\d/.test(t) ||
+    /-?\d[\d.,]*\s*%/.test(t)
+  );
+}
+
 function isUsableTasePayload(payload) {
   if (!payload || typeof payload !== 'object') return false;
   return isFiniteNumber(payload.currentPrice) && isFiniteNumber(payload.changePercent);
@@ -80,9 +95,21 @@ async function scrapeTaseWithPuppeteer(taseUrl) {
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
     await page.goto(taseUrl, { waitUntil: 'domcontentloaded', timeout: TASE_PUPPETEER_GOTO_MS });
     try {
+      // Wait for an actual price VALUE, not just the label. TASE's page
+      // renders its labels ("שער אחרון", "שווי יחידה" etc.) immediately as
+      // static UI shell, then fills in the real numbers a moment later via
+      // an async data fetch. The original condition only checked whether a
+      // label or a bare '%' appeared anywhere on the page - which is true
+      // the instant the shell renders, well before the numbers arrive - so
+      // extraction below would run against a still-loading page and see
+      // "undefined" where a number should be. Requiring a label followed
+      // by an actual digit (mirroring the extraction regexes further down)
+      // waits for real data, not just the presence of the shell.
       await page.waitForFunction(
-        () =>
-          /שער\s*אחרון|שווי\s*יחידה|%/.test((document.body.innerText || '').replace(/\s+/g, ' ')),
+        () => {
+          const t = (document.body.innerText || '').replace(/\s+/g, ' ');
+          return /שער\s*אחרון[^\d]{0,80}\d/.test(t) || /שווי\s*יחידה[^\d]{0,80}\d/.test(t) || /-?\d[\d.,]*\s*%/.test(t);
+        },
         { timeout: TASE_PUPPETEER_WAIT_MS }
       );
     } catch (_) {
@@ -230,6 +257,7 @@ module.exports = {
   readStaleTaseQuote,
   writeCachedTaseQuote,
   isUsableTasePayload,
+  hasUsableTasePriceText,
   scrapeTaseWithPuppeteer,
   scrapeTaseFallbackWithAxios
 };
