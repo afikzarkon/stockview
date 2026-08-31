@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   PieChart,
   Pie,
@@ -9,10 +9,18 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip
+  Tooltip,
+  Legend
 } from 'recharts';
 import { computePortfolioStats } from '../utils/portfolioStats';
+import { buildComparisonSeries } from '../utils/benchmarkComparison';
+import { useBenchmarkHistory } from '../hooks/useBenchmarkHistory';
 import { formatDate } from '../utils/formatters';
+
+const BENCHMARK_OPTIONS = [
+  { key: 'sp500', label: 'S&P 500' },
+  { key: 'ta125', label: 'TA-125' }
+];
 
 function PortfolioAnalysisView({
   analysis,
@@ -22,6 +30,20 @@ function PortfolioAnalysisView({
   snapshotsLoading = false
 }) {
   const stats = useMemo(() => computePortfolioStats(snapshots), [snapshots]);
+
+  const [benchmarkKey, setBenchmarkKey] = useState('sp500');
+  const {
+    points: benchmarkPoints,
+    loading: benchmarkLoading,
+    error: benchmarkError
+  } = useBenchmarkHistory(stats.hasHistory ? benchmarkKey : null, stats.firstDate);
+
+  const comparisonSeries = useMemo(
+    () => buildComparisonSeries(stats.series, benchmarkPoints),
+    [stats.series, benchmarkPoints]
+  );
+  const comparisonLast = comparisonSeries.length ? comparisonSeries[comparisonSeries.length - 1] : null;
+  const selectedBenchmarkLabel = BENCHMARK_OPTIONS.find((b) => b.key === benchmarkKey)?.label || '';
 
   return (
     <div className="App">
@@ -164,6 +186,82 @@ function PortfolioAnalysisView({
               </>
             )}
           </div>
+
+          {stats.hasHistory && (
+            <div className="analysis-section">
+              <h2 className="section-title">השוואה מול מדד ייחוס</h2>
+              <div className="benchmark-toggle-row">
+                {BENCHMARK_OPTIONS.map((option) => (
+                  <button
+                    key={option.key}
+                    className={`benchmark-toggle-button ${benchmarkKey === option.key ? 'active' : ''}`}
+                    onClick={() => setBenchmarkKey(option.key)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
+              {benchmarkLoading ? (
+                <p className="history-empty-note">טוען נתוני {selectedBenchmarkLabel}…</p>
+              ) : benchmarkError ? (
+                <p className="history-empty-note">{benchmarkError}</p>
+              ) : comparisonSeries.length < 2 ? (
+                <p className="history-empty-note">
+                  עדיין אין מספיק חפיפה בין ההיסטוריה של התיק שלכם לנתוני {selectedBenchmarkLabel} כדי להציג השוואה.
+                </p>
+              ) : (
+                <>
+                  <div className="equity-chart-container">
+                    <ResponsiveContainer width="100%" height={280}>
+                      <LineChart data={comparisonSeries} margin={{ top: 10, right: 24, left: 8, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(102,126,234,0.15)" />
+                        <XAxis dataKey="date" tickFormatter={(d) => formatDate(d)} tick={{ fontSize: 12 }} />
+                        <YAxis tickFormatter={(v) => v.toFixed(0)} tick={{ fontSize: 12 }} width={45} />
+                        <Tooltip
+                          labelFormatter={(d) => formatDate(d)}
+                          formatter={(value, name) => [
+                            `${Number(value).toFixed(1)}`,
+                            name === 'portfolioIndexed' ? 'התיק שלי' : selectedBenchmarkLabel
+                          ]}
+                        />
+                        <Legend
+                          formatter={(name) => (name === 'portfolioIndexed' ? 'התיק שלי' : selectedBenchmarkLabel)}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="portfolioIndexed"
+                          stroke="#667eea"
+                          strokeWidth={2.5}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="benchmarkIndexed"
+                          stroke="#f59e0b"
+                          strokeWidth={2.5}
+                          dot={false}
+                          strokeDasharray="5 3"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  {comparisonLast && (
+                    <p className="section-subtitle" style={{ marginTop: 10 }}>
+                      מאז {formatDate(comparisonSeries[0].date)}: התיק שלי{' '}
+                      <span className={comparisonLast.portfolioIndexed >= 100 ? 'profit-positive' : 'profit-negative'}>
+                        {(comparisonLast.portfolioIndexed - 100).toFixed(1)}%
+                      </span>{' '}
+                      לעומת {selectedBenchmarkLabel}{' '}
+                      <span className={comparisonLast.benchmarkIndexed >= 100 ? 'profit-positive' : 'profit-negative'}>
+                        {(comparisonLast.benchmarkIndexed - 100).toFixed(1)}%
+                      </span>
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           <div className="analysis-section">
             <h2 className="section-title">פיזור לפי רכיבי תיק</h2>

@@ -1240,6 +1240,35 @@ body {
   margin-top: 12px;
 }
 
+.benchmark-toggle-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
+.benchmark-toggle-button {
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  background: white;
+  color: #667eea;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.benchmark-toggle-button:hover {
+  background: rgba(102, 126, 234, 0.08);
+}
+
+.benchmark-toggle-button.active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
 .pie-chart-container {
   background: white;
   border-radius: 12px;
