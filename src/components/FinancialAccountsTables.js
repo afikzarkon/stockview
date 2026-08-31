@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { calculatePensionRealGainTax } from '../utils/cpiTax';
-import { calculatePensionPeriodReturn } from '../utils/portfolioMath';
+import { calculatePensionPeriodReturn, hasAmbiguousPensionPeriod } from '../utils/portfolioMath';
 
 function FinancialAccountsTables({
   pensionFunds,
@@ -88,6 +88,11 @@ function FinancialAccountsTables({
                   // matches exactly what the % column next to it already
                   // does, so the two stay consistent.
                   const updateProfitLoss = previousValue > 0 ? currentValue - periodReturn.adjustedPreviousValue : null;
+                  // See hasAmbiguousPensionPeriod's own comment for the
+                  // full story - flags a same-day previous/current period,
+                  // which silently drops any deposit made before that
+                  // shared date from the return calculation above.
+                  const ambiguousPeriod = hasAmbiguousPensionPeriod(item);
 
                   // רווח ריאלי/אינפלציוני/מס לקופה הזו בלבד - לוידוא נקודתי מול
                   // הפירוק המצטבר שמוצג בסיכום התיק (PortfolioSummary.js)
@@ -208,6 +213,14 @@ function FinancialAccountsTables({
                       </td>
                       )}
                       <td className={previousProfitPercent > 0 ? 'profit-positive' : previousProfitPercent < 0 ? 'profit-negative' : ''}>
+                        {ambiguousPeriod && (
+                          <span
+                            className="ambiguous-period-warning"
+                            title='תאריך "שווי קודם" זהה לתאריך "שווי נוכחי" - כל הפקדה שקדמה לתאריך הזה, גם אם קדמה זמן רב, לא נלקחת בחשבון בחישוב הזה. ודאו שהתאריכים משקפים נכון מתי כל שווי היה נכון.'
+                          >
+                            ⚠️{' '}
+                          </span>
+                        )}
                         {formatPercent(previousProfitPercent)}
                       </td>
                       <td className={profitPercent > 0 ? 'profit-positive' : profitPercent < 0 ? 'profit-negative' : ''}>

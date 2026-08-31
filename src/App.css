@@ -349,6 +349,11 @@ body {
   box-shadow: 0 12px 35px rgba(243, 156, 18, 0.4);
 }
 
+.ambiguous-period-warning {
+  cursor: help;
+  font-size: 0.9em;
+}
+
 .btn-danger {
   background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
   box-shadow: 0 8px 25px rgba(231, 76, 60, 0.3);

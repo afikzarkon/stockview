@@ -3,7 +3,8 @@ import {
   calculateAmericanStockMetrics,
   applyPensionValueUpdate,
   sumDepositsInRange,
-  calculatePensionPeriodReturn
+  calculatePensionPeriodReturn,
+  hasAmbiguousPensionPeriod
 } from './portfolioMath';
 
 describe('calculateAmericanStockMetrics', () => {
@@ -238,5 +239,35 @@ describe('calculatePensionPeriodReturn', () => {
     const fund = { previousValue: 0, currentValue: 50000, deposits: [] };
     const result = calculatePensionPeriodReturn(fund);
     expect(result.percent).toBe(0);
+  });
+});
+
+describe('hasAmbiguousPensionPeriod', () => {
+  // Regression coverage for a real reported scenario: a fund with
+  // previousValueDate === currentValueDate (both 2026-08-26) had a
+  // ₪35,000 deposit dated 2026-07-01 silently excluded from the "since
+  // previous update" calculation, inflating the shown return - because
+  // the date that was supposed to mark the *start* of a real elapsed
+  // period actually equalled the *end* date, a degenerate zero-length
+  // period.
+  test('flags the exact reported case: previousValueDate equals currentValueDate', () => {
+    const fund = { previousValueDate: '2026-08-26', currentValueDate: '2026-08-26' };
+    expect(hasAmbiguousPensionPeriod(fund)).toBe(true);
+  });
+
+  test('does not flag a fund with a real elapsed period between the two dates', () => {
+    const fund = { previousValueDate: '2026-06-01', currentValueDate: '2026-08-26' };
+    expect(hasAmbiguousPensionPeriod(fund)).toBe(false);
+  });
+
+  test('does not flag when either date is missing (nothing to compare yet)', () => {
+    expect(hasAmbiguousPensionPeriod({ previousValueDate: '', currentValueDate: '2026-08-26' })).toBe(false);
+    expect(hasAmbiguousPensionPeriod({ previousValueDate: '2026-08-26', currentValueDate: '' })).toBe(false);
+    expect(hasAmbiguousPensionPeriod({})).toBe(false);
+  });
+
+  test('handles undefined/null input gracefully without throwing', () => {
+    expect(hasAmbiguousPensionPeriod(undefined)).toBe(false);
+    expect(hasAmbiguousPensionPeriod(null)).toBe(false);
   });
 });

@@ -121,3 +121,26 @@ export const calculatePensionPeriodReturn = (pensionFund) => {
   return { adjustedPreviousValue, depositsInPeriod, percent };
 };
 
+// Detects a pension fund whose "previous" and "current" value snapshots
+// share the same date - a degenerate, zero-length period that's a strong
+// signal something went wrong during data entry, not a real edge case to
+// silently accept.
+//
+// Why this matters: editing "שווי נוכחי" in the table always stamps
+// TODAY as its date (see handleInlineEdit's 'currentValue' case in
+// App.js), and relies on the user separately, manually fixing the date
+// afterward if "today" isn't actually correct - easy to forget, since
+// nothing in the UI prompts for it. When that correction is skipped, the
+// next time the fund is updated, that same (wrong) date rolls forward
+// into previousValueDate too, and BOTH ends up sharing one date. A
+// same-day period can't produce a meaningful return - and worse, ANY
+// deposit made before that shared date, no matter how long before, is
+// silently excluded from "since previous update" - which is exactly the
+// bug this flag is meant to surface before it produces a wrong number.
+export const hasAmbiguousPensionPeriod = (pensionFund) => {
+  const prev = pensionFund?.previousValueDate;
+  const curr = pensionFund?.currentValueDate;
+  if (!prev || !curr) return false;
+  return prev === curr;
+};
+
