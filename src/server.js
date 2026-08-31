@@ -8,6 +8,7 @@ const { mountAuthRoutes } = require('./server/authRoutes');
 const { mountPortfolioRoutes } = require('./server/portfolioRoutes');
 const { mountQuotesRoutes } = require('./server/quotesRoutes');
 const { mountCpiRoutes } = require('./server/cpiRoutes');
+const { mountSnapshotRoutes } = require('./server/snapshotRoutes');
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
@@ -23,6 +24,7 @@ initDataStore()
   .then((store) => {
     mountAuthRoutes(app, store);
     mountPortfolioRoutes(app, store);
+    mountSnapshotRoutes(app, store);
     console.log(`DB: ${store.kind === 'postgres' ? 'PostgreSQL (DATABASE_URL)' : 'SQLite local file'}`);
     app.listen(PORT, () => {
       console.log(`StockView API http://localhost:${PORT}`);

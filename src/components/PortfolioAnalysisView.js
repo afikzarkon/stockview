@@ -1,7 +1,28 @@
-import React from 'react';
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import React, { useMemo } from 'react';
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip
+} from 'recharts';
+import { computePortfolioStats } from '../utils/portfolioStats';
+import { formatDate } from '../utils/formatters';
 
-function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
+function PortfolioAnalysisView({
+  analysis,
+  formatPriceWithSign,
+  onBack,
+  snapshots = [],
+  snapshotsLoading = false
+}) {
+  const stats = useMemo(() => computePortfolioStats(snapshots), [snapshots]);
+
   return (
     <div className="App">
       <div className="analysis-container">
@@ -71,6 +92,77 @@ function PortfolioAnalysisView({ analysis, formatPriceWithSign, onBack }) {
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="analysis-section">
+            <h2 className="section-title">ביצועי התיק לאורך זמן</h2>
+            <p className="section-subtitle">
+              מבוסס על נקודות מדידה שנשמרות אוטומטית (אחת ליום) מהרגע שהפיצ'ר הזה עלה - לא נתונים רטרואקטיביים.
+            </p>
+            {!stats.hasHistory ? (
+              <div className="history-empty-note">
+                {snapshotsLoading
+                  ? 'טוען היסטוריית שווי תיק…'
+                  : 'עדיין אין מספיק נקודות מדידה כדי להציג מגמה. האפליקציה שומרת את שווי התיק אוטומטית בכל יום שבו אתם נכנסים - חזרו לכאן בעוד כמה ימים כדי לראות גרף, ירידה מקסימלית (drawdown) ותנודתיות אמיתית.'}
+              </div>
+            ) : (
+              <>
+                <div className="equity-chart-container">
+                  <ResponsiveContainer width="100%" height={280}>
+                    <LineChart data={stats.series} margin={{ top: 10, right: 24, left: 8, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(102,126,234,0.15)" />
+                      <XAxis dataKey="date" tickFormatter={(d) => formatDate(d)} tick={{ fontSize: 12 }} />
+                      <YAxis
+                        tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                        tick={{ fontSize: 12 }}
+                        width={50}
+                      />
+                      <Tooltip
+                        labelFormatter={(d) => formatDate(d)}
+                        formatter={(value) => [`${formatPriceWithSign(value)} ₪`, 'שווי תיק']}
+                      />
+                      <Line type="monotone" dataKey="value" stroke="#667eea" strokeWidth={2.5} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="distribution-grid" style={{ marginTop: 16 }}>
+                  <div className="distribution-card">
+                    <h3>תשואה מאז תחילת המעקב</h3>
+                    <div className={`distribution-value ${stats.totalReturnPercent >= 0 ? 'profit-positive' : 'profit-negative'}`}>
+                      {stats.totalReturnPercent != null ? `${stats.totalReturnPercent.toFixed(1)}%` : '—'}
+                    </div>
+                    <div className="distribution-percentage">
+                      {formatDate(stats.firstDate)} - {formatDate(stats.lastDate)}
+                    </div>
+                  </div>
+                  <div className="distribution-card">
+                    <h3>ירידה מקסימלית (Drawdown)</h3>
+                    <div className="distribution-value profit-negative">
+                      -{stats.maxDrawdownPercent.toFixed(1)}%
+                    </div>
+                    <div className="distribution-percentage">
+                      {stats.drawdownPeakDate && stats.drawdownTroughDate
+                        ? `${formatDate(stats.drawdownPeakDate)} ← ${formatDate(stats.drawdownTroughDate)}`
+                        : 'אין ירידה עדיין'}
+                    </div>
+                  </div>
+                  <div className="distribution-card">
+                    <h3>תנודתיות שנתית (משוערת)</h3>
+                    <div className="distribution-value">
+                      {stats.volatilityPercent != null ? `${stats.volatilityPercent.toFixed(1)}%` : 'עוד לא מספיק נתונים'}
+                    </div>
+                    <div className="distribution-percentage">סטיית תקן שנתית של תשואות התיק</div>
+                  </div>
+                  <div className="distribution-card">
+                    <h3>Sharpe Ratio (משוער)</h3>
+                    <div className="distribution-value">
+                      {stats.sharpeRatio != null ? stats.sharpeRatio.toFixed(2) : 'עוד לא מספיק נתונים'}
+                    </div>
+                    <div className="distribution-percentage">תשואה עודפת ביחס לתנודתיות (ריבית חסרת סיכון = 0%)</div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="analysis-section">

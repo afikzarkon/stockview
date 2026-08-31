@@ -1,5 +1,5 @@
 import './App.css';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { formatPriceWithSign, normalizeIsraeliStocksFromStorage } from './utils/formatters';
 import { calculatePortfolioSummary } from './utils/portfolioSummary';
 import { applyPensionValueUpdate } from './utils/portfolioMath';
@@ -10,6 +10,7 @@ import { useAuth } from './hooks/useAuth';
 import { usePortfolioData } from './hooks/usePortfolioData';
 import { usePriceRefresh } from './hooks/usePriceRefresh';
 import { useCpiIndex } from './hooks/useCpiIndex';
+import { usePortfolioSnapshots } from './hooks/usePortfolioSnapshots';
 import { monthKeyFromDate } from './utils/cpiTax';
 import StockFormView from './components/StockFormView';
 import PortfolioAnalysisView from './components/PortfolioAnalysisView';
@@ -139,6 +140,36 @@ function App() {
   ].filter(Boolean);
 
   const cpi = useCpiIndex(relevantCpiMonths);
+
+  // Computed once here (not just inside the "show analysis" branch) so it
+  // can also feed the snapshot-saving hook below, regardless of which
+  // screen is currently visible. Cheap pure-JS reduce over the portfolio
+  // arrays, so recomputing on relevant changes is fine.
+  const analysis = useMemo(
+    () => calculatePortfolioAnalysis(israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances),
+    [israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances]
+  );
+
+  const snapshotBreakdown = useMemo(
+    () => ({
+      israeli: analysis.exchangeDistribution.israeli.value,
+      american: analysis.exchangeDistribution.american.value,
+      pension: analysis.exchangeDistribution.pension.value,
+      cashFunds: analysis.exchangeDistribution.cashFunds.value,
+      bank: analysis.exchangeDistribution.bank.value
+    }),
+    [analysis]
+  );
+
+  // Only start saving snapshots once the portfolio has actually loaded from
+  // the server (portfolioReady) - otherwise the brief "empty arrays" state
+  // during initial load would save a bogus 0-value snapshot for today.
+  const { snapshots, snapshotsLoading } = usePortfolioSnapshots(
+    user,
+    authHeader,
+    portfolioReady ? analysis.summaryMetrics.overallTotalValueILS : null,
+    snapshotBreakdown
+  );
 
   useEffect(() => {
     if (!user || !user.id) {
@@ -601,19 +632,13 @@ function App() {
   }
 
   if (showAnalysis) {
-    const analysis = calculatePortfolioAnalysis(
-      israeliStocks,
-      americanStocks,
-      pensionFunds,
-      cashFunds,
-      bankBalances
-    );
-    
     return (
       <PortfolioAnalysisView
         analysis={analysis}
         formatPriceWithSign={formatPriceWithSign}
         onBack={() => setShowAnalysis(false)}
+        snapshots={snapshots}
+        snapshotsLoading={snapshotsLoading}
       />
     );
   }

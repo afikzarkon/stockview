@@ -1212,6 +1212,34 @@ body {
   color: #667eea;
 }
 
+.section-subtitle {
+  font-size: 0.85rem;
+  color: #8a94a6;
+  margin-top: -4px;
+  margin-bottom: 4px;
+}
+
+.history-empty-note {
+  background: white;
+  border-radius: 10px;
+  padding: 20px;
+  margin-top: 12px;
+  color: #5a6474;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  text-align: center;
+  border: 1px dashed rgba(102, 126, 234, 0.3);
+}
+
+.equity-chart-container {
+  background: white;
+  border-radius: 12px;
+  padding: 20px 12px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  margin-top: 12px;
+}
+
 .pie-chart-container {
   background: white;
   border-radius: 12px;

@@ -29,6 +29,15 @@ function openSqlite() {
       payload TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      snapshot_date TEXT NOT NULL,
+      total_value_ils REAL NOT NULL,
+      breakdown TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, snapshot_date)
+    );
   `);
   return db;
 }
@@ -75,6 +84,30 @@ function sqliteStore(db) {
            ORDER BY u.id`
         )
         .all();
+    },
+    async upsertPortfolioSnapshot(userId, snapshotDate, totalValueILS, breakdownJson) {
+      db.prepare(
+        `INSERT INTO portfolio_snapshots (user_id, snapshot_date, total_value_ils, breakdown)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id, snapshot_date) DO UPDATE SET
+           total_value_ils = excluded.total_value_ils,
+           breakdown = excluded.breakdown`
+      ).run(userId, snapshotDate, totalValueILS, breakdownJson || null);
+    },
+    async listPortfolioSnapshots(userId) {
+      return db
+        .prepare(
+          `SELECT snapshot_date, total_value_ils, breakdown
+           FROM portfolio_snapshots
+           WHERE user_id = ?
+           ORDER BY snapshot_date ASC`
+        )
+        .all(userId)
+        .map((row) => ({
+          date: row.snapshot_date,
+          totalValueILS: row.total_value_ils,
+          breakdown: row.breakdown ? JSON.parse(row.breakdown) : null
+        }));
     }
   };
 }
@@ -101,6 +134,20 @@ async function pgStore(connectionString) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+      id BIGSERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      snapshot_date DATE NOT NULL,
+      total_value_ils DOUBLE PRECISION NOT NULL,
+      breakdown JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, snapshot_date)
+    );
+  `);
+  await pool.query(
+    'CREATE INDEX IF NOT EXISTS portfolio_snapshots_user_date_idx ON portfolio_snapshots (user_id, snapshot_date)'
+  );
   const portfolioTables = [
     'user_israeli_stocks',
     'user_american_stocks',
@@ -418,6 +465,30 @@ async function pgStore(connectionString) {
         ORDER BY u.id
       `);
       return rows;
+    },
+    async upsertPortfolioSnapshot(userId, snapshotDate, totalValueILS, breakdownJson) {
+      await pool.query(
+        `INSERT INTO portfolio_snapshots (user_id, snapshot_date, total_value_ils, breakdown)
+         VALUES ($1, $2::date, $3, $4::jsonb)
+         ON CONFLICT (user_id, snapshot_date) DO UPDATE SET
+           total_value_ils = EXCLUDED.total_value_ils,
+           breakdown = EXCLUDED.breakdown`,
+        [userId, snapshotDate, totalValueILS, breakdownJson || null]
+      );
+    },
+    async listPortfolioSnapshots(userId) {
+      const { rows } = await pool.query(
+        `SELECT snapshot_date::text AS snapshot_date, total_value_ils, breakdown
+         FROM portfolio_snapshots
+         WHERE user_id = $1
+         ORDER BY snapshot_date ASC`,
+        [userId]
+      );
+      return rows.map((row) => ({
+        date: row.snapshot_date,
+        totalValueILS: row.total_value_ils,
+        breakdown: row.breakdown || null
+      }));
     }
   };
 }
