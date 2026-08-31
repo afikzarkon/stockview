@@ -9,6 +9,7 @@ const {
   scrapeTaseWithPuppeteer,
   scrapeTaseFallbackWithAxios
 } = require('./taseScraper');
+const { isTaseApiConfigured, fetchTaseQuoteFromApi } = require('./taseApi');
 const { getYahooPayload } = require('./yahooQuotes');
 
 const taseInFlight = new Map();
@@ -21,6 +22,24 @@ function errMessage(err) {
 }
 
 async function fetchTaseQuote(stockId, req) {
+  // Official TASE Data Hub API - tried first when configured. This will
+  // simply fail (and fall through to scraping below) until TASE approves
+  // the "Securities Prices - Online" product registration in the
+  // developer portal (it starts in a "PENDING" state) - no code change
+  // needed once it's approved, it just starts working.
+  if (isTaseApiConfigured()) {
+    try {
+      const payload = await fetchTaseQuoteFromApi(stockId);
+      writeCachedTaseQuote(stockId, payload);
+      return payload;
+    } catch (err) {
+      console.warn('[tase] official API failed, falling back to scraping', {
+        stockId,
+        error: errMessage(err)
+      });
+    }
+  }
+
   const taseUrl = `https://market.tase.co.il/he/market_data/security/${stockId}/major_data`;
   try {
     let result;
