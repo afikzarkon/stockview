@@ -20,12 +20,11 @@ import { calculateAmericanStockMetrics } from './portfolioMath';
 import { normalizeIsraeliPrice } from './formatters';
 
 const buildIsraeliPosition = (stock, cpi) => {
-  // normalizeIsraeliPrice matters here: a live-refreshed price is already
-  // in shekels, but a manually-entered one may still be in agorot (TASE's
-  // own display convention) - see IsraeliStocksTable.js / portfolioSummary.js
-  // for the same pattern. Skipping this would silently overstate the
-  // position's value 100x whenever the raw stored price happens to be in
-  // agorot, which would show a real gain/loss ~100x too large here.
+  // currentPrice is always already in shekels by the time it reaches here
+  // (see formatters.js:normalizeIsraeliPrice for the full explanation) -
+  // still routed through normalizeIsraeliPrice for consistency with every
+  // other place this value is displayed/calculated, and for graceful
+  // string/null/NaN handling, not because it performs any conversion.
   const displayCurrentPrice = normalizeIsraeliPrice(stock.currentPrice);
   const totalCurrentValue = (displayCurrentPrice || 0) * (stock.quantity || 0);
   const currentIndex = cpi ? cpi.currentIndex : null;

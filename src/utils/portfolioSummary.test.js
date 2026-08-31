@@ -10,10 +10,10 @@ describe('calculatePortfolioSummary', () => {
 
   test('aggregates a single profitable Israeli stock correctly', () => {
     const israeliStocks = [
-      { stockName: 'TEVA', quantity: 100, purchasePrice: 30, currentPrice: 3500, dailyChangePercent: 1.2, purchaseDate: '2023-01-15' }
+      { stockName: 'TEVA', quantity: 100, purchasePrice: 30, currentPrice: 35, dailyChangePercent: 1.2, purchaseDate: '2023-01-15' }
     ];
     const summary = calculatePortfolioSummary(israeliStocks, [], [], [], []);
-    // currentPrice 3500 agorot -> 35 shekels; value = 35*100=3500; purchase = 30*100=3000
+    // currentPrice is always already in shekels (see formatters.js:normalizeIsraeliPrice) - no conversion here.
     expect(summary.israeliOnlyPurchaseILS).toBe(3000);
     expect(summary.israeliOnlyCurrentValueILS).toBe(3500);
     expect(summary.israeliOnlyProfitILS).toBe(500);
@@ -22,7 +22,7 @@ describe('calculatePortfolioSummary', () => {
 
   test('does not tax an Israeli stock at a loss', () => {
     const israeliStocks = [
-      { stockName: 'TEVA', quantity: 100, purchasePrice: 50, currentPrice: 3500, dailyChangePercent: 0, purchaseDate: '2023-01-15' }
+      { stockName: 'TEVA', quantity: 100, purchasePrice: 50, currentPrice: 35, dailyChangePercent: 0, purchaseDate: '2023-01-15' }
     ];
     const summary = calculatePortfolioSummary(israeliStocks, [], [], [], []);
     expect(summary.israeliOnlyProfitILS).toBeLessThan(0);
@@ -92,7 +92,7 @@ describe('calculatePortfolioSummary', () => {
       // קניתי ב-1,000 (מדד=100), היום שווה 1,300 (מדד=130) - זו בדיוק
       // אינפלציה, אין רווח ריאלי, ולכן אין מס - למרות שהרווח הנומינלי 300.
       const israeliStocks = [
-        { stockName: 'A', quantity: 100, purchasePrice: 10, currentPrice: 1300, dailyChangePercent: 0, purchaseDate: '2020-01-15' }
+        { stockName: 'A', quantity: 100, purchasePrice: 10, currentPrice: 13, dailyChangePercent: 0, purchaseDate: '2020-01-15' }
       ];
       const summary = calculatePortfolioSummary(israeliStocks, [], [], [], [], cpi);
       expect(summary.israeliOnlyProfitILS).toBe(300); // נומינלי, לא משתנה
@@ -101,7 +101,7 @@ describe('calculatePortfolioSummary', () => {
 
     test('falls back to the flat nominal tax for an Israeli stock when its purchase month has no CPI data', () => {
       const israeliStocks = [
-        { stockName: 'A', quantity: 100, purchasePrice: 10, currentPrice: 1300, dailyChangePercent: 0, purchaseDate: '1999-06-15' }
+        { stockName: 'A', quantity: 100, purchasePrice: 10, currentPrice: 13, dailyChangePercent: 0, purchaseDate: '1999-06-15' }
       ];
       const summary = calculatePortfolioSummary(israeliStocks, [], [], [], [], cpi);
       expect(summary.israeliOnlyTaxILS).toBeCloseTo(300 * 0.25, 5);
@@ -142,7 +142,7 @@ describe('calculatePortfolioSummary', () => {
       // רווח נומינלי 300 (1300-1000), אינפלציה 30% -> אין רווח ריאלי,
       // כל ה-300 הוא רכיב אינפלציוני פטור.
       const israeliStocks = [
-        { stockName: 'A', quantity: 100, purchasePrice: 10, currentPrice: 1300, dailyChangePercent: 0, purchaseDate: '2020-01-15' }
+        { stockName: 'A', quantity: 100, purchasePrice: 10, currentPrice: 13, dailyChangePercent: 0, purchaseDate: '2020-01-15' }
       ];
       const summary = calculatePortfolioSummary(israeliStocks, [], [], [], [], cpi);
       expect(summary.israeliOnlyRealGainILS).toBeCloseTo(0, 5);

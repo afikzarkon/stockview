@@ -34,10 +34,30 @@ export const formatPriceWithSign = (price) => {
 };
 
 // Normalize Israeli price: if saved in agorot (big number), convert to shekels
+// Returns a stock's current price as a plain number (string/null/NaN
+// handled gracefully) - it does NOT divide by 100 anymore.
+//
+// This used to guess "if the value looks like it's over 1000, it must
+// still be raw agorot and needs dividing by 100" - but every code path
+// that actually SETS stock.currentPrice already converts agorot to
+// shekels itself before the value reaches state: the initial fetch in
+// App.js's handleSubmit, the live-refresh loop in usePriceRefresh.js, and
+// (for data coming back from storage/an older format) the one-time
+// migration in normalizeIsraeliStocksFromStorage below, which already
+// runs on every portfolio load (see usePortfolioData.js). currentPrice is
+// also never a manually-editable field (see IsraeliStocksTable.js's
+// editable fields list) - there's no path for a user to type a raw agorot
+// value into it either.
+//
+// That old magnitude-based guess was therefore always wrong for any
+// legitimately-priced stock over ~1000 ILS/share - it silently divided an
+// already-correct price by 100 a second time (a real ₪2,457/share holding
+// would display as ₪24.57, a 100x error), which is exactly what this
+// fixes.
 export const normalizeIsraeliPrice = (price) => {
   const num = typeof price === 'string' ? parseFloat(price) : price;
   if (num === null || num === undefined || isNaN(num)) return 0;
-  return num > 1000 ? num / 100 : num;
+  return num;
 };
 
 export const calculateProfitPercentage = (purchaseValue, currentValue) => {
@@ -60,19 +80,36 @@ export const toNum = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-// Normalize an array of Israeli stocks loaded from storage: if a stock's
-// currentPrice looks like it was saved in agorot (a big number), convert it
-// to shekels.
+// Normalizes an array of Israeli stocks loaded from storage.
+//
+// IMPORTANT CORRECTION: this used to divide currentPrice by 100 whenever
+// it looked "too big" (>1000), on the theory that it was a one-time
+// migration for legacy raw-agorot data. That reasoning was wrong in a way
+// that mattered: this function runs on EVERY portfolio load (see
+// usePortfolioData.js), not once - so for any stock legitimately priced
+// above ~1000 ILS/share, it was silently re-dividing an already-correct
+// stored price every single time the page loaded or refreshed (a real
+// ₪2,457/share holding would load as ₪24.57, every time - the exact bug
+// reported in production, which persisted even after fixing
+// normalizeIsraeliPrice's identical heuristic, because this is a second,
+// separate function with the same flaw).
+//
+// As established in normalizeIsraeliPrice above: every code path that
+// writes stock.currentPrice (the initial fetch in App.js, the live
+// refresh loop in usePriceRefresh.js) already converts agorot to shekels
+// itself, unconditionally, before the value is ever persisted - so there
+// is no legitimate raw-agorot value left for this function to "fix" by
+// guessing. It now just coerces types (string/null/NaN handling) without
+// dividing, exactly like normalizeIsraeliPrice.
 export const normalizeIsraeliStocksFromStorage = (parsed) => {
   if (!Array.isArray(parsed)) return [];
   return parsed.map((stock) => {
     const priceNum =
       typeof stock.currentPrice === 'string' ? parseFloat(stock.currentPrice) : stock.currentPrice;
-    const needsDivide =
-      priceNum !== null && priceNum !== undefined && !isNaN(priceNum) && priceNum > 1000;
+    const cleanPrice = priceNum === null || priceNum === undefined || isNaN(priceNum) ? 0 : priceNum;
     return {
       ...stock,
-      currentPrice: needsDivide ? priceNum / 100 : priceNum
+      currentPrice: cleanPrice
     };
   });
 };

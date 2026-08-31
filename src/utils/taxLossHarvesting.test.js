@@ -24,14 +24,17 @@ describe('computeTaxLossHarvestingOpportunities', () => {
     expect(result.lossPositions[0].taxValue).toBeCloseTo(1500 * 0.25, 5);
   });
 
-  test('normalizes an Israeli currentPrice still stored in agorot (>1000), matching IsraeliStocksTable.js behavior', () => {
-    // currentPrice 3500 agorot = 35 ILS; purchasePrice already in shekels
+  test('does not double-divide a legitimately high shekel price (currentPrice is always already in shekels)', () => {
+    // Regression coverage for the fix in formatters.js:normalizeIsraeliPrice -
+    // a real ₪2,457/share holding must not be silently divided by 100 to
+    // ₪24.57 just because the number happens to be large.
     const israeliStocks = [
-      { id: 1, stockName: 'TEVA', quantity: 100, purchasePrice: 50, currentPrice: 3500, purchaseDate: '2023-01-15' }
+      { id: 1, stockName: 'EXPENSIVE', quantity: 10, purchasePrice: 2500, currentPrice: 2457, purchaseDate: '2023-01-15' }
     ];
     const result = computeTaxLossHarvestingOpportunities(israeliStocks, [], [], null);
     expect(result.lossPositions).toHaveLength(1);
-    expect(result.lossPositions[0].harvestableLoss).toBeCloseTo(1500, 5);
+    // loss = (2457-2500)*10 = -430 -> harvestable loss = 430, NOT 429970-ish from a bogus 100x-off calc
+    expect(result.lossPositions[0].harvestableLoss).toBeCloseTo(430, 5);
   });
 
   test('a profitable Israeli stock is classified as a gain position, not a loss', () => {

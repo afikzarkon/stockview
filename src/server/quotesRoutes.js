@@ -69,6 +69,16 @@ async function fetchTaseQuote(stockId, req) {
       });
       throw new Error('puppeteer returned unusable payload');
     }
+    // Logged on every success too (not just failures) - a scrape can look
+    // "usable" (both fields are finite numbers) while still being wrong,
+    // e.g. if the regex matched a different field on the page than
+    // intended. This shows exactly what label/text produced the price,
+    // so a scaling bug can be diagnosed directly instead of guessed at.
+    console.log('[tase] puppeteer scrape succeeded', {
+      stockId,
+      payload,
+      priceMatch: result._debugPriceMatch
+    });
     writeCachedTaseQuote(stockId, payload);
     return payload;
   } catch (err) {
@@ -87,6 +97,11 @@ async function fetchTaseQuote(stockId, req) {
         });
         throw new Error('axios fallback returned unusable payload');
       }
+      console.log('[tase] axios fallback succeeded', {
+        stockId,
+        payload,
+        priceMatch: result._debugPriceMatch
+      });
       writeCachedTaseQuote(stockId, payload);
       return payload;
     } catch (e2) {

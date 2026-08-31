@@ -39,6 +39,24 @@ function writeCachedTaseQuote(stockId, data) {
   taseQuoteCache.set(stockId, { data, ts: Date.now() });
 }
 
+// Mirrors the parsePriceToken() closures inside scrapeTaseWithPuppeteer and
+// scrapeTaseFallbackWithAxios above - duplicated for the same reason as
+// hasUsableTasePriceText (Puppeteer serializes its copy to run in-browser,
+// so it can't reference this module's code), kept here standalone so the
+// logic is unit-testable. If either copy changes, update this one too.
+function parseTasePriceToken(token) {
+  if (!token) return null;
+  const cleaned = token
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+    .replace(/\s+/g, '')
+    .replace(/,/g, '');
+  const num = parseFloat(cleaned);
+  if (!Number.isFinite(num)) return null;
+  // NOT multiplied by *100 - see the full explanation on the in-browser
+  // copy in scrapeTaseWithPuppeteer.
+  return Math.round(num);
+}
+
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -142,8 +160,14 @@ async function scrapeTaseWithPuppeteer(taseUrl) {
           .replace(/,/g, '');
         const num = parseFloat(cleaned);
         if (!Number.isFinite(num)) return null;
-        // return price in agorot (multiply by 100)
-        return Math.round(num * 100);
+        // NOT multiplied by *100 - confirmed directly against the live
+        // TASE page (the field is explicitly labeled "שער אחרון (באגורות)",
+        // i.e. "last price IN AGOROT"), so the scraped text is already the
+        // agorot value. Multiplying it again was the actual source of a
+        // real 100x-too-large price bug (a ₪2,476.70 holding scraped as
+        // "247,670" on the page, correctly parsed to 247670 here, then
+        // wrongly multiplied to 24,767,000).
+        return Math.round(num);
       };
 
       const text = normalizeText(document.body.innerText || '');
@@ -190,7 +214,28 @@ async function scrapeTaseWithPuppeteer(taseUrl) {
         } catch (_) {}
       }
 
-      return { currentPrice, changePercent, _debugTextSnippet: text.slice(0, 400) };
+      return {
+        currentPrice,
+        changePercent,
+        _debugTextSnippet: text.slice(0, 400),
+        // Diagnostics only - not used by any calculation. Shows exactly
+        // which label matched and what raw text was captured as the price
+        // BEFORE parsePriceToken's *100 conversion, so a scaling bug (the
+        // captured token already being a large/agorot-looking number, a
+        // different field being matched than intended, etc.) can be seen
+        // directly instead of guessed at.
+        _debugPriceMatch: priceMatch
+          ? {
+              matchedLabel: text.match(lastPriceRx)
+                ? 'שער אחרון'
+                : text.match(priceRx)
+                ? 'שווי יחידה'
+                : 'שער פתיחה',
+              rawToken: priceMatch[1],
+              fullMatch: priceMatch[0]
+            }
+          : null
+      };
     });
   } finally {
     await page.close().catch(() => {});
@@ -233,7 +278,9 @@ async function scrapeTaseFallbackWithAxios(taseUrl) {
       .replace(/,/g, '');
     const num = parseFloat(cleaned);
     if (!Number.isFinite(num)) return null;
-    return Math.round(num * 100);
+    // Not multiplied by *100 - see the identical fix (and full
+    // explanation) in scrapeTaseWithPuppeteer's parsePriceToken above.
+    return Math.round(num);
   };
   const currentPrice = priceMatch ? parsePriceToken(priceMatch[1]) : null;
   const parsePercentToken = (token) => {
@@ -249,7 +296,13 @@ async function scrapeTaseFallbackWithAxios(taseUrl) {
   const rawToken = percentMatch ? percentMatch[1] : null;
   const changePercent = percentMatch ? parsePercentToken(rawToken) : null;
   // include raw for server-side log only
-  return { currentPrice, changePercent, _rawPercentToken: rawToken, _debugTextSnippet: fullText.slice(0, 400) };
+  return {
+    currentPrice,
+    changePercent,
+    _rawPercentToken: rawToken,
+    _debugTextSnippet: fullText.slice(0, 400),
+    _debugPriceMatch: priceMatch ? { rawToken: priceMatch[1], fullMatch: priceMatch[0] } : null
+  };
 }
 
 module.exports = {
@@ -258,6 +311,7 @@ module.exports = {
   writeCachedTaseQuote,
   isUsableTasePayload,
   hasUsableTasePriceText,
+  parseTasePriceToken,
   scrapeTaseWithPuppeteer,
   scrapeTaseFallbackWithAxios
 };

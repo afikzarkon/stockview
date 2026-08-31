@@ -21,8 +21,8 @@ describe('groupStocksByName', () => {
 describe('calculateGroupSummary', () => {
   test('sums quantity and purchase/current values across lots', () => {
     const stocks = [
-      { quantity: 100, purchasePrice: 30, currentPrice: 3500 }, // 3500 agorot -> 35 shekels
-      { quantity: 50, purchasePrice: 32, currentPrice: 3500 }
+      { quantity: 100, purchasePrice: 30, currentPrice: 35 }, // currentPrice is always already in shekels
+      { quantity: 50, purchasePrice: 32, currentPrice: 35 }
     ];
     const summary = calculateGroupSummary(stocks);
     expect(summary.totalQuantity).toBe(150);
@@ -32,8 +32,8 @@ describe('calculateGroupSummary', () => {
 
   test('averagePurchasePrice/averageCurrentPrice are quantity-weighted', () => {
     const stocks = [
-      { quantity: 100, purchasePrice: 30, currentPrice: 3500 },
-      { quantity: 50, purchasePrice: 32, currentPrice: 3500 }
+      { quantity: 100, purchasePrice: 30, currentPrice: 35 },
+      { quantity: 50, purchasePrice: 32, currentPrice: 35 }
     ];
     const summary = calculateGroupSummary(stocks);
     expect(summary.averagePurchasePrice).toBeCloseTo(summary.totalPurchaseValue / 150, 5);

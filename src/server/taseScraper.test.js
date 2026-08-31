@@ -17,7 +17,41 @@
 jest.mock('puppeteer', () => ({}));
 jest.mock('cheerio', () => ({}));
 
-const { hasUsableTasePriceText } = require('./taseScraper');
+const { hasUsableTasePriceText, parseTasePriceToken } = require('./taseScraper');
+
+describe('parseTasePriceToken', () => {
+  // Regression test for a real, confirmed production bug: TASE's own page
+  // labels this field "שער אחרון (באגורות)" - "last price IN AGOROT" - so
+  // the scraped text is already the agorot value. The code used to
+  // multiply it by 100 again, assuming it needed converting from shekels,
+  // which is what turned a real ₪2,476.70 holding into ₪24,767.00's worth
+  // of agorot (24,767,000) instead of the correct 247,670 agorot.
+  test('the exact case confirmed against the live TASE page: "247,670" parses to 247670, not 24767000', () => {
+    expect(parseTasePriceToken('247,670')).toBe(247670);
+  });
+
+  test('strips thousands-separator commas without multiplying', () => {
+    expect(parseTasePriceToken('1,538')).toBe(1538);
+  });
+
+  test('handles a token with no comma the same way', () => {
+    expect(parseTasePriceToken('1538')).toBe(1538);
+  });
+
+  test('handles decimal agorot values by rounding, not truncating', () => {
+    expect(parseTasePriceToken('1538.6')).toBe(1539);
+  });
+
+  test('null/empty/non-numeric token returns null', () => {
+    expect(parseTasePriceToken(null)).toBeNull();
+    expect(parseTasePriceToken('')).toBeNull();
+    expect(parseTasePriceToken('not a number')).toBeNull();
+  });
+
+  test('strips bidi/control characters before parsing', () => {
+    expect(parseTasePriceToken('\u200E1,538\u200F')).toBe(1538);
+  });
+});
 
 describe('hasUsableTasePriceText', () => {
   test('the exact page text seen in production BEFORE the fix (labels present, no digits) is correctly rejected', () => {

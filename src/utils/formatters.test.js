@@ -34,18 +34,32 @@ describe('formatPriceWithSign', () => {
 });
 
 describe('normalizeIsraeliPrice', () => {
-  test('leaves small numbers (already in shekels) unchanged', () => {
+  // Regression test for a real production bug: this used to guess that
+  // any value over 1000 must still be raw agorot and divide it by 100 -
+  // but currentPrice is always already in shekels by the time it reaches
+  // here (see the comment on the function itself), so a legitimately
+  // priced ₪2,457/share stock was displaying as ₪24.57, a 100x error.
+  test('does NOT divide a legitimately high shekel price (the exact user-reported bug: 2457 should stay 2457, not become 24.57)', () => {
+    expect(normalizeIsraeliPrice(2457)).toBe(2457);
+  });
+
+  test('leaves small numbers unchanged', () => {
     expect(normalizeIsraeliPrice(35.5)).toBe(35.5);
   });
-  test('divides large numbers (agorot) by 100', () => {
-    expect(normalizeIsraeliPrice(3500)).toBe(35);
+
+  test('leaves large numbers unchanged too - no magnitude-based guessing', () => {
+    expect(normalizeIsraeliPrice(3500)).toBe(3500);
   });
-  test('handles string input', () => {
-    expect(normalizeIsraeliPrice('3500')).toBe(35);
+
+  test('handles string input via numeric coercion, without dividing', () => {
+    expect(normalizeIsraeliPrice('3500')).toBe(3500);
+    expect(normalizeIsraeliPrice('35.5')).toBe(35.5);
   });
-  test('handles null/undefined as 0', () => {
+
+  test('handles null/undefined/NaN as 0', () => {
     expect(normalizeIsraeliPrice(null)).toBe(0);
     expect(normalizeIsraeliPrice(undefined)).toBe(0);
+    expect(normalizeIsraeliPrice(NaN)).toBe(0);
   });
 });
 
@@ -62,15 +76,43 @@ describe('calculateProfitPercentage', () => {
 });
 
 describe('normalizeIsraeliStocksFromStorage', () => {
-  test('converts agorot prices to shekels for each stock in the array', () => {
+  // Regression test for a real production bug (a second instance of the
+  // same flaw fixed in normalizeIsraeliPrice above): this used to divide
+  // currentPrice by 100 whenever it looked "too big", but it runs on
+  // EVERY portfolio load, not once - so a legitimately-priced stock over
+  // ~1000 ILS/share was silently re-divided every single page refresh.
+  test('does NOT divide a legitimately high shekel price on every load (a ₪2,457 holding must stay ₪2,457, not become ₪24.57 on refresh)', () => {
+    const input = [{ stockName: 'A', currentPrice: 2457 }];
+    const result = normalizeIsraeliStocksFromStorage(input);
+    expect(result[0].currentPrice).toBe(2457);
+  });
+
+  test('leaves prices unchanged regardless of magnitude - no guessing', () => {
     const input = [
       { stockName: 'A', currentPrice: 3500 },
       { stockName: 'B', currentPrice: 25 }
     ];
     const result = normalizeIsraeliStocksFromStorage(input);
-    expect(result[0].currentPrice).toBe(35);
+    expect(result[0].currentPrice).toBe(3500);
     expect(result[1].currentPrice).toBe(25);
   });
+
+  test('coerces string prices to numbers without dividing', () => {
+    const input = [{ stockName: 'A', currentPrice: '2457' }];
+    const result = normalizeIsraeliStocksFromStorage(input);
+    expect(result[0].currentPrice).toBe(2457);
+  });
+
+  test('handles null/undefined/NaN currentPrice as 0', () => {
+    const input = [
+      { stockName: 'A', currentPrice: null },
+      { stockName: 'B', currentPrice: undefined },
+      { stockName: 'C', currentPrice: NaN }
+    ];
+    const result = normalizeIsraeliStocksFromStorage(input);
+    expect(result.map((s) => s.currentPrice)).toEqual([0, 0, 0]);
+  });
+
   test('returns empty array for non-array input', () => {
     expect(normalizeIsraeliStocksFromStorage(null)).toEqual([]);
     expect(normalizeIsraeliStocksFromStorage(undefined)).toEqual([]);
