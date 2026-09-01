@@ -18,6 +18,7 @@ import { computeSectorDistribution } from '../utils/sectorAnalysis';
 import { sectorLabelHe } from '../utils/sectorLabels';
 import { buildCorrelationMatrix, highestCorrelatedPairs } from '../utils/correlationAnalysis';
 import { computeReceivedDividends, buildUpcomingDividendCalendar } from '../utils/dividendAnalysis';
+import { buildUpcomingEarningsCalendar } from '../utils/earningsCalendar';
 import { isValidTargetAllocation, computeRebalancingPlan } from '../utils/rebalancing';
 import {
   computePortfolioHealthScore,
@@ -170,6 +171,7 @@ function PortfolioAnalysisView({
   );
 
   const upcomingDividends = useMemo(() => buildUpcomingDividendCalendar(dividendsBySymbol), [dividendsBySymbol]);
+  const upcomingEarnings = useMemo(() => buildUpcomingEarningsCalendar(dividendsBySymbol), [dividendsBySymbol]);
 
   // Uses the persisted rebalanceTargets prop (not RebalancingSection's own
   // in-progress edit draft, which this component has no access to) - the
@@ -873,6 +875,34 @@ function PortfolioAnalysisView({
                   </>
                 )}
               </>
+            )}
+          </div>
+
+          <div className="analysis-section">
+            <h2 className="section-title">לוח רבעונים (מניות אמריקאיות)</h2>
+            <p className="section-subtitle">
+              תאריכי דוחות רבעוניים קרובים לפי Yahoo Finance, עם הערכת קונצנזוס לרווח למניה. תאריך עתידי הוא הערכה
+              (Yahoo לא תמיד מסמן זאת באופן מפורש) ולא תאריך מאושר סופית. לא כולל מניות ישראליות, קופות גמל, קרנות
+              כספיות או עו"ש.
+            </p>
+            {americanStocks.length === 0 ? (
+              <p className="history-empty-note">אין מניות אמריקאיות בתיק כרגע.</p>
+            ) : dividendsLoading && Object.keys(dividendsBySymbol).length === 0 ? (
+              <p className="history-empty-note">טוען נתוני דוחות…</p>
+            ) : upcomingEarnings.length === 0 ? (
+              <p className="history-empty-note">אין כרגע תאריכי דוח עתידיים ידועים עבור המניות בתיק.</p>
+            ) : (
+              <div className="date-list">
+                {upcomingEarnings.map((row) => (
+                  <div key={row.symbol} className="date-item">
+                    <span className="date-label">{row.symbol}</span>
+                    <span className="date-value">{formatDate(row.date)}</span>
+                    <span className="date-count">
+                      {row.epsEstimateAverage != null ? `EPS משוער: $${row.epsEstimateAverage.toFixed(2)}` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 

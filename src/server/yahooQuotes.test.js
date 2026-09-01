@@ -14,7 +14,7 @@ jest.mock('./yahooCrumb', () => ({
   invalidateYahooCrumb: jest.fn()
 }));
 
-const { unwrapYahooNumber, fetchYahooAssetProfile, fetchYahooDividendSummary, getYahooPayload } = require('./yahooQuotes');
+const { unwrapYahooNumber, fetchYahooAssetProfile, getYahooPayload } = require('./yahooQuotes');
 
 describe('unwrapYahooNumber', () => {
   test('passes through a plain finite number', () => {

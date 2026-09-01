@@ -1,6 +1,9 @@
 // Fetches dividend data (forward-looking yield/payout/next date + actual
 // historical payments) for multiple US tickers in one batched request, used
-// by the "מעקב דיבידנדים" section. Public data (see
+// by the "מעקב דיבידנדים" section. Also carries next-earnings-date fields
+// (earningsDateEpoch, epsEstimateAverage, ...) used by the "לוח רבעונים"
+// section — see fetchYahooDividendSummary in yahooQuotes.js for why they
+// ride along here instead of a separate fetch. Public data (see
 // server/dividendRoutes.js) — no auth needed. Mirrors useStockSectors.js.
 
 import { useEffect, useRef, useState } from 'react';
