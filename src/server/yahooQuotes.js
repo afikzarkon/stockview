@@ -309,10 +309,70 @@ async function fetchYahooAnalystData(symbol) {
   };
 }
 
+// Forward-looking dividend metrics for a US stock: current yield, payout
+// ratio, and the next expected ex-dividend/payment date. Same quoteSummary
+// endpoint/auth as fetchYahooAssetProfile above, different modules.
+//
+// dividendYield comes back from Yahoo as a fraction (0.0236, not 2.36) -
+// converted to a percent here so the UI doesn't have to remember which of
+// Yahoo's several "yield" fields is a fraction vs. already a percent (they
+// aren't consistent - fiveYearAvgDividendYield, deliberately not used here,
+// already comes back as a percent number).
+async function fetchYahooDividendSummary(symbol) {
+  const quoteSummary = await fetchYahooQuoteSummary(symbol, 'summaryDetail,calendarEvents');
+  const summaryDetail = quoteSummary?.summaryDetail || {};
+  const calendarEvents = quoteSummary?.calendarEvents || {};
+  const yieldFraction = unwrapYahooNumber(summaryDetail.dividendYield);
+
+  return {
+    dividendRate: unwrapYahooNumber(summaryDetail.dividendRate),
+    dividendYieldPercent: yieldFraction === null ? null : yieldFraction * 100,
+    payoutRatio: unwrapYahooNumber(summaryDetail.payoutRatio),
+    exDividendDateEpoch:
+      unwrapYahooNumber(summaryDetail.exDividendDate) ?? unwrapYahooNumber(calendarEvents.exDividendDate),
+    nextDividendDateEpoch: unwrapYahooNumber(calendarEvents.dividendDate)
+  };
+}
+
+// Actual historical dividend payments (date + $/share) for a US stock, via
+// the same public chart endpoint as fetchYahooHistoricalCloses (events=div)
+// — no crumb/cookie needed, unlike fetchYahooDividendSummary above. Used to
+// compute "total dividends received" against a holding's actual purchase
+// history, not just a forward-looking yield estimate.
+async function fetchYahooDividendHistory(symbol, fromDateStr) {
+  const encoded = encodeURIComponent(symbol);
+  const period1 = fromDateStr
+    ? Math.floor(new Date(`${fromDateStr}T00:00:00Z`).getTime() / 1000)
+    : Math.floor(Date.now() / 1000) - 5 * 365 * 24 * 60 * 60; // 5y default: dividends pay quarterly, so a
+  // short lookback (like fetchYahooHistoricalCloses's ~400 days) would miss
+  // most of a long-held position's payment history.
+  const period2 = Math.floor(Date.now() / 1000);
+
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}`;
+  const response = await axios.get(yahooUrl, {
+    params: { period1, period2, interval: '1d', events: 'div' },
+    timeout: 15000,
+    headers: YAHOO_HEADERS
+  });
+
+  const dividends = response?.data?.chart?.result?.[0]?.events?.dividends;
+  if (!dividends || typeof dividends !== 'object') return [];
+
+  return Object.values(dividends)
+    .map((d) => ({
+      date: new Date(d.date * 1000).toISOString().slice(0, 10),
+      amountPerShare: Number(d.amount)
+    }))
+    .filter((d) => Number.isFinite(d.amountPerShare))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
 module.exports = {
   getYahooPayload,
   fetchYahooHistoricalCloses,
   fetchYahooAssetProfile,
   fetchYahooAnalystData,
+  fetchYahooDividendSummary,
+  fetchYahooDividendHistory,
   unwrapYahooNumber
 };

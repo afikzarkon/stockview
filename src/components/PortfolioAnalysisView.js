@@ -17,6 +17,7 @@ import { buildComparisonSeries } from '../utils/benchmarkComparison';
 import { computeSectorDistribution } from '../utils/sectorAnalysis';
 import { sectorLabelHe } from '../utils/sectorLabels';
 import { buildCorrelationMatrix, highestCorrelatedPairs } from '../utils/correlationAnalysis';
+import { computeReceivedDividends, buildUpcomingDividendCalendar } from '../utils/dividendAnalysis';
 import {
   recommendationLabelHe,
   recommendationSentiment,
@@ -28,6 +29,7 @@ import { useBenchmarkHistory } from '../hooks/useBenchmarkHistory';
 import { useStockSectors } from '../hooks/useStockSectors';
 import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
 import { useHoldingsPriceHistory } from '../hooks/useHoldingsPriceHistory';
+import { useDividendData } from '../hooks/useDividendData';
 import { formatDate } from '../utils/formatters';
 import { computeTaxLossHarvestingOpportunities } from '../utils/taxLossHarvesting';
 import RebalancingSection from './RebalancingSection';
@@ -108,6 +110,60 @@ function PortfolioAnalysisView({
     () => highestCorrelatedPairs(correlationMatrix.symbols, correlationMatrix.matrix, 3),
     [correlationMatrix]
   );
+
+  // Grouped by symbol (not deduped like uniqueAmericanHoldings) because
+  // computeReceivedDividends needs each lot's own quantity/purchaseDate,
+  // not just the aggregated current value.
+  const lotsBySymbol = useMemo(() => {
+    const map = new Map();
+    americanStocks.forEach((stock) => {
+      const symbol = String(stock.stockName || '').trim().toUpperCase();
+      if (!symbol) return;
+      if (!map.has(symbol)) map.set(symbol, []);
+      map.get(symbol).push({ quantity: stock.quantity || 0, purchaseDate: stock.purchaseDate || null });
+    });
+    return map;
+  }, [americanStocks]);
+
+  const earliestAmericanPurchaseDate = useMemo(
+    () =>
+      americanStocks.reduce((earliest, stock) => {
+        if (!stock.purchaseDate) return earliest;
+        return !earliest || stock.purchaseDate < earliest ? stock.purchaseDate : earliest;
+      }, null),
+    [americanStocks]
+  );
+
+  const { dividendsBySymbol, loading: dividendsLoading } = useDividendData(
+    uniqueAmericanSymbols,
+    earliestAmericanPurchaseDate
+  );
+
+  const dividendRows = useMemo(
+    () =>
+      uniqueAmericanHoldings.map((holding) => {
+        const data = dividendsBySymbol[holding.symbol];
+        const lots = lotsBySymbol.get(holding.symbol) || [];
+        return {
+          symbol: holding.symbol,
+          dividendRate: data?.dividendRate ?? null,
+          dividendYieldPercent: data?.dividendYieldPercent ?? null,
+          payoutRatio: data?.payoutRatio ?? null,
+          nextDate: data
+            ? formatEpochDateISO(data.nextDividendDateEpoch) || formatEpochDateISO(data.exDividendDateEpoch)
+            : null,
+          receivedUSD: data ? computeReceivedDividends(data.history, lots) : 0
+        };
+      }),
+    [uniqueAmericanHoldings, dividendsBySymbol, lotsBySymbol]
+  );
+
+  const totalReceivedUSD = useMemo(
+    () => dividendRows.reduce((sum, row) => sum + row.receivedUSD, 0),
+    [dividendRows]
+  );
+
+  const upcomingDividends = useMemo(() => buildUpcomingDividendCalendar(dividendsBySymbol), [dividendsBySymbol]);
 
   const [benchmarkKey, setBenchmarkKey] = useState('sp500');
   const {
@@ -679,6 +735,74 @@ function PortfolioAnalysisView({
                       .map((p) => `${p.a} ↔ ${p.b} (${p.correlation.toFixed(2)})`)
                       .join(' · ')}
                   </p>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="analysis-section">
+            <h2 className="section-title">מעקב דיבידנדים (מניות אמריקאיות)</h2>
+            <p className="section-subtitle">
+              תשואת דיבידנד ותאריך תשלום קרוב לפי Yahoo Finance. "סה"כ שהתקבל" מבוסס על תשלומי דיבידנד היסטוריים
+              בפועל מאז תאריך הרכישה, בדולר - לא מומר לשקלים (אין נתון על שער החליפין בכל תאריך תשלום בעבר). לא כולל
+              מניות ישראליות, קופות גמל, קרנות כספיות או עו"ש.
+            </p>
+            {americanStocks.length === 0 ? (
+              <p className="history-empty-note">אין מניות אמריקאיות בתיק כרגע.</p>
+            ) : dividendsLoading && Object.keys(dividendsBySymbol).length === 0 ? (
+              <p className="history-empty-note">טוען נתוני דיבידנד…</p>
+            ) : (
+              <>
+                <div className="distribution-grid">
+                  <div className="distribution-card">
+                    <h3>סה"כ דיבידנדים שהתקבלו</h3>
+                    <div className="distribution-value profit-positive">${totalReceivedUSD.toFixed(2)}</div>
+                    <div className="distribution-percentage">מצטבר, מאז תאריך הרכישה של כל פוזיציה</div>
+                  </div>
+                </div>
+
+                <div className="stocks-table-container" style={{ marginTop: 16 }}>
+                  <table className="analysis-table">
+                    <thead>
+                      <tr>
+                        <th>מנייה</th>
+                        <th>דיבידנד שנתי ($/מניה)</th>
+                        <th>תשואת דיבידנד</th>
+                        <th>יחס חלוקה (Payout)</th>
+                        <th>תאריך תשלום קרוב</th>
+                        <th>סה"כ שהתקבל ($)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dividendRows.map((row) => (
+                        <tr key={row.symbol}>
+                          <td>{row.symbol}</td>
+                          <td>{row.dividendRate != null ? `$${row.dividendRate.toFixed(2)}` : '—'}</td>
+                          <td>{row.dividendYieldPercent != null ? `${row.dividendYieldPercent.toFixed(2)}%` : '—'}</td>
+                          <td>{row.payoutRatio != null ? `${(row.payoutRatio * 100).toFixed(0)}%` : '—'}</td>
+                          <td>{row.nextDate ? formatDate(row.nextDate) : '—'}</td>
+                          <td>${row.receivedUSD.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {upcomingDividends.length > 0 && (
+                  <>
+                    <h3 style={{ marginTop: 20 }}>לוח דיבידנדים קרובים</h3>
+                    <div className="date-list">
+                      {upcomingDividends.map((row) => (
+                        <div key={row.symbol} className="date-item">
+                          <span className="date-label">{row.symbol}</span>
+                          <span className="date-value">{formatDate(row.date)}</span>
+                          <span className="date-count">
+                            {row.dividendRate != null ? `$${row.dividendRate.toFixed(2)}/מניה` : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 )}
               </>
             )}
