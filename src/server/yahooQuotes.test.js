@@ -14,7 +14,7 @@ jest.mock('./yahooCrumb', () => ({
   invalidateYahooCrumb: jest.fn()
 }));
 
-const { unwrapYahooNumber, fetchYahooAssetProfile, getYahooPayload } = require('./yahooQuotes');
+const { unwrapYahooNumber, fetchYahooAssetProfile, fetchYahooDividendSummary, getYahooPayload } = require('./yahooQuotes');
 
 describe('unwrapYahooNumber', () => {
   test('passes through a plain finite number', () => {
@@ -119,6 +119,97 @@ describe('fetchYahooQuoteSummary 429 handling (via fetchYahooAssetProfile)', () 
     // take noticeably longer than either one alone.
     expect(elapsed).toBeGreaterThanOrEqual(300);
   }, 10000);
+});
+
+// fetchYahooDividendSummary parses both dividend AND earnings-date fields
+// out of one quoteSummary response (see the "why" comment on the function
+// itself in yahooQuotes.js). The response shape below is captured from a
+// real KO (Coca-Cola) quoteSummary call made during development, not
+// invented - real Yahoo responses nest fields in ways that are easy to get
+// wrong from memory (e.g. dividendYield is a fraction, but
+// fiveYearAvgDividendYield in the same module is already a percent).
+describe('fetchYahooDividendSummary', () => {
+  let fetchYahooDividendSummaryFresh;
+
+  beforeEach(() => {
+    // Same reasoning as the 429-handling describe block above: resetModules
+    // gives a clean module graph (and re-runs the './yahooCrumb' mock
+    // factory, restoring its .mockResolvedValue) instead of reusing
+    // whichever stale instance an earlier describe block's resetModules()
+    // call left cached.
+    jest.resetModules();
+    mockAxios.get.mockReset();
+    // eslint-disable-next-line global-require
+    fetchYahooDividendSummaryFresh = require('./yahooQuotes').fetchYahooDividendSummary;
+  });
+
+  const realKoQuoteSummaryResponse = {
+    data: {
+      quoteSummary: {
+        result: [
+          {
+            summaryDetail: {
+              dividendRate: 2.12,
+              dividendYield: 0.023599999,
+              exDividendDate: 1789430400,
+              payoutRatio: 0.6246,
+              fiveYearAvgDividendYield: 2.87 // deliberately not used - already a percent, unlike dividendYield above
+            },
+            calendarEvents: {
+              earnings: {
+                earningsDate: [1792499400],
+                earningsCallDate: [1785241800],
+                isEarningsDateEstimate: false,
+                earningsAverage: 0.87893,
+                earningsLow: 0.85077,
+                earningsHigh: 0.89022,
+                revenueAverage: 12901487840,
+                revenueLow: 12813800000,
+                revenueHigh: 13029000000
+              },
+              exDividendDate: 1789430400,
+              dividendDate: 1790812800
+            }
+          }
+        ]
+      }
+    }
+  };
+
+  test('parses dividend fields, converting dividendYield from a fraction to a percent', async () => {
+    mockAxios.get.mockResolvedValueOnce(realKoQuoteSummaryResponse);
+    const result = await fetchYahooDividendSummaryFresh('KO');
+    expect(result.dividendRate).toBe(2.12);
+    expect(result.dividendYieldPercent).toBeCloseTo(2.36, 2); // 0.0236 -> 2.36, not 0.0236
+    expect(result.payoutRatio).toBe(0.6246);
+    expect(result.exDividendDateEpoch).toBe(1789430400);
+    expect(result.nextDividendDateEpoch).toBe(1790812800);
+  });
+
+  test('parses earnings fields, taking the first entry of the earningsDate array', async () => {
+    mockAxios.get.mockResolvedValueOnce(realKoQuoteSummaryResponse);
+    const result = await fetchYahooDividendSummaryFresh('KO');
+    expect(result.earningsDateEpoch).toBe(1792499400);
+    expect(result.isEarningsDateEstimate).toBe(false);
+    expect(result.epsEstimateAverage).toBeCloseTo(0.87893, 5);
+    expect(result.revenueEstimateAverage).toBe(12901487840);
+  });
+
+  test('returns nulls (not throwing) when summaryDetail/calendarEvents/earnings are all missing', async () => {
+    mockAxios.get.mockResolvedValueOnce({ data: { quoteSummary: { result: [{}] } } });
+    const result = await fetchYahooDividendSummaryFresh('NODATA');
+    expect(result).toEqual({
+      dividendRate: null,
+      dividendYieldPercent: null,
+      payoutRatio: null,
+      exDividendDateEpoch: null,
+      nextDividendDateEpoch: null,
+      earningsDateEpoch: null,
+      isEarningsDateEstimate: null,
+      epsEstimateAverage: null,
+      revenueEstimateAverage: null
+    });
+  });
 });
 
 // Regression tests for a real production bug: getYahooPayload used to

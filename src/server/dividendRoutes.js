@@ -4,6 +4,13 @@
 // benchmarkRoutes.js). The two need different underlying data - a forward
 // estimate vs. an actual payment ledger - so they're fetched and cached
 // independently, and only combined here at the route layer.
+//
+// Also carries next-earnings-date fields (earningsDateEpoch,
+// epsEstimateAverage, ...) - see fetchYahooDividendSummary in
+// yahooQuotes.js for why: Yahoo's calendarEvents module returns dividend
+// and earnings dates together in one response, so splitting them into two
+// routes would mean two quoteSummary calls (two slots on the shared
+// rate-limited queue) for data already fetched once here.
 const { fetchYahooDividendSummary, fetchYahooDividendHistory } = require('./yahooQuotes');
 
 const SUMMARY_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h, matches analystRoutes.js
@@ -42,7 +49,11 @@ async function getCachedDividendSummary(symbol) {
         dividendYieldPercent: null,
         payoutRatio: null,
         exDividendDateEpoch: null,
-        nextDividendDateEpoch: null
+        nextDividendDateEpoch: null,
+        earningsDateEpoch: null,
+        isEarningsDateEstimate: null,
+        epsEstimateAverage: null,
+        revenueEstimateAverage: null
       };
       summaryCache.set(symbol, { data: fallback, ts: Date.now(), isFailure: true });
       return fallback;

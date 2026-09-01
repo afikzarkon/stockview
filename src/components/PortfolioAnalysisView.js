@@ -18,6 +18,12 @@ import { computeSectorDistribution } from '../utils/sectorAnalysis';
 import { sectorLabelHe } from '../utils/sectorLabels';
 import { buildCorrelationMatrix, highestCorrelatedPairs } from '../utils/correlationAnalysis';
 import { computeReceivedDividends, buildUpcomingDividendCalendar } from '../utils/dividendAnalysis';
+import { isValidTargetAllocation, computeRebalancingPlan } from '../utils/rebalancing';
+import {
+  computePortfolioHealthScore,
+  healthScoreLabelHe,
+  HEALTH_SCORE_SUBSCORE_LABELS_HE
+} from '../utils/portfolioHealthScore';
 import {
   recommendationLabelHe,
   recommendationSentiment,
@@ -165,6 +171,28 @@ function PortfolioAnalysisView({
 
   const upcomingDividends = useMemo(() => buildUpcomingDividendCalendar(dividendsBySymbol), [dividendsBySymbol]);
 
+  // Uses the persisted rebalanceTargets prop (not RebalancingSection's own
+  // in-progress edit draft, which this component has no access to) - the
+  // health score reflects saved targets, not an unsaved edit.
+  const rebalancingPlan = useMemo(() => {
+    if (!rebalanceTargets || !isValidTargetAllocation(rebalanceTargets)) return null;
+    return computeRebalancingPlan(analysis.exchangeDistribution, rebalanceTargets);
+  }, [rebalanceTargets, analysis.exchangeDistribution]);
+
+  const healthScore = useMemo(
+    () =>
+      computePortfolioHealthScore({
+        concentrationTop3Percent: analysis.summaryMetrics.concentrationTop3Percent,
+        topSectorPercent: sectorDistribution.hasData ? sectorDistribution.topSectorPercent : null,
+        correlationSymbols: correlationMatrix.symbols,
+        correlationMatrix: correlationMatrix.matrix,
+        volatilityPercent: stats.hasHistory ? stats.volatilityPercent : null,
+        maxDrawdownPercent: stats.hasHistory ? stats.maxDrawdownPercent : null,
+        allocationMaxAbsDiffPercent: rebalancingPlan ? rebalancingPlan.maxAbsDiffPercent : null
+      }),
+    [analysis.summaryMetrics.concentrationTop3Percent, sectorDistribution, correlationMatrix, stats, rebalancingPlan]
+  );
+
   const [benchmarkKey, setBenchmarkKey] = useState('sp500');
   const {
     points: benchmarkPoints,
@@ -188,6 +216,46 @@ function PortfolioAnalysisView({
           <button className="back-button" onClick={onBack}>
             חזרה לדף הבית
           </button>
+
+          <div className="analysis-section">
+            <h2 className="section-title">ציון בריאות תיק</h2>
+            <p className="section-subtitle">
+              ציון מרוכז 0-100, ממוצע של כמה מדדים שכבר מוצגים בעמוד הזה (ריכוזיות, ריכוזיות סקטור, קורלציה בין
+              אחזקות, תנודתיות, ירידה מקסימלית, וסטייה מיעדי איזון - אם הוגדרו). זו היוריסטיקה פשוטה להתמצאות מהירה,
+              לא ייעוץ השקעות ולא ציון מבוסס-מחקר. מדד שאין לו עדיין מספיק נתונים פשוט לא נכלל בממוצע.
+            </p>
+            {healthScore.overallScore === null ? (
+              <p className="history-empty-note">
+                עדיין אין מספיק נתונים לחשב ציון - נדרשת היסטוריית שווי תיק, נתוני מניות אמריקאיות, או יעדי איזון
+                שמורים.
+              </p>
+            ) : (
+              <div className="distribution-grid">
+                <div className="distribution-card">
+                  <h3>ציון כולל</h3>
+                  <div
+                    className={`distribution-value ${
+                      healthScore.overallScore >= 60
+                        ? 'profit-positive'
+                        : healthScore.overallScore >= 40
+                        ? ''
+                        : 'profit-negative'
+                    }`}
+                  >
+                    {healthScore.overallScore}/100
+                  </div>
+                  <div className="distribution-percentage">{healthScoreLabelHe(healthScore.overallScore)}</div>
+                </div>
+                {Object.entries(healthScore.breakdown).map(([key, value]) => (
+                  <div className="distribution-card" key={key}>
+                    <h3>{HEALTH_SCORE_SUBSCORE_LABELS_HE[key]}</h3>
+                    <div className="distribution-value">{value !== null ? value : '—'}</div>
+                    <div className="distribution-percentage">{value !== null ? healthScoreLabelHe(value) : 'אין נתונים'}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="analysis-section">
             <h2 className="section-title">תקציר ניתוח</h2>

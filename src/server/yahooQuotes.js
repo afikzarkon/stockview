@@ -309,9 +309,15 @@ async function fetchYahooAnalystData(symbol) {
   };
 }
 
-// Forward-looking dividend metrics for a US stock: current yield, payout
-// ratio, and the next expected ex-dividend/payment date. Same quoteSummary
-// endpoint/auth as fetchYahooAssetProfile above, different modules.
+// Forward-looking dividend AND earnings-date metrics for a US stock: yield,
+// payout ratio, next ex-dividend/payment date, and next earnings date +
+// consensus EPS/revenue estimate. These come from Yahoo's calendarEvents
+// module (alongside summaryDetail) in a single response - earnings fields
+// are included here rather than in a separate fetch specifically to avoid
+// a second quoteSummary call (and a second slot on the shared rate-limited
+// queue, see scheduleOnQuoteSummaryQueue) for data Yahoo already returns
+// together. Same quoteSummary endpoint/auth as fetchYahooAssetProfile
+// above, different modules.
 //
 // dividendYield comes back from Yahoo as a fraction (0.0236, not 2.36) -
 // converted to a percent here so the UI doesn't have to remember which of
@@ -322,7 +328,13 @@ async function fetchYahooDividendSummary(symbol) {
   const quoteSummary = await fetchYahooQuoteSummary(symbol, 'summaryDetail,calendarEvents');
   const summaryDetail = quoteSummary?.summaryDetail || {};
   const calendarEvents = quoteSummary?.calendarEvents || {};
+  const earnings = calendarEvents.earnings || {};
   const yieldFraction = unwrapYahooNumber(summaryDetail.dividendYield);
+
+  // earningsDate is an array - Yahoo sometimes gives a 1- or 2-date
+  // estimated range for the upcoming report; the first entry is the
+  // primary estimate.
+  const earningsDateRaw = Array.isArray(earnings.earningsDate) ? earnings.earningsDate[0] : null;
 
   return {
     dividendRate: unwrapYahooNumber(summaryDetail.dividendRate),
@@ -330,7 +342,11 @@ async function fetchYahooDividendSummary(symbol) {
     payoutRatio: unwrapYahooNumber(summaryDetail.payoutRatio),
     exDividendDateEpoch:
       unwrapYahooNumber(summaryDetail.exDividendDate) ?? unwrapYahooNumber(calendarEvents.exDividendDate),
-    nextDividendDateEpoch: unwrapYahooNumber(calendarEvents.dividendDate)
+    nextDividendDateEpoch: unwrapYahooNumber(calendarEvents.dividendDate),
+    earningsDateEpoch: unwrapYahooNumber(earningsDateRaw),
+    isEarningsDateEstimate: typeof earnings.isEarningsDateEstimate === 'boolean' ? earnings.isEarningsDateEstimate : null,
+    epsEstimateAverage: unwrapYahooNumber(earnings.earningsAverage),
+    revenueEstimateAverage: unwrapYahooNumber(earnings.revenueAverage)
   };
 }
 
