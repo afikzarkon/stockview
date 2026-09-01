@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { TAX_RATE, calculateAmericanStockMetrics } from '../utils/portfolioMath';
 import {
   formatDate,
@@ -50,6 +50,40 @@ function HomeView({
   handleDelete,
   toggleGroup
 }) {
+  const [exportError, setExportError] = useState('');
+  const hasAnyData =
+    israeliStocks.length > 0 ||
+    americanStocks.length > 0 ||
+    pensionFunds.length > 0 ||
+    cashFunds.length > 0 ||
+    bankBalances.length > 0;
+  const exportPortfolioData = { summary, israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances };
+
+  // exportReport.js pulls in exceljs + jsPDF + the embedded Hebrew font -
+  // several hundred KB gzipped (confirmed: it blew up the main bundle by
+  // ~458KB when imported statically). Loaded on demand here instead, so
+  // that weight only hits users who actually click export, not everyone
+  // who opens their portfolio.
+  const handleExportExcel = async () => {
+    setExportError('');
+    try {
+      const { downloadPortfolioExcel } = await import('../utils/exportReport');
+      await downloadPortfolioExcel(exportPortfolioData);
+    } catch {
+      setExportError('שגיאה בייצוא לאקסל, נסה שוב');
+    }
+  };
+
+  const handleExportPdf = async () => {
+    setExportError('');
+    try {
+      const { downloadPortfolioPdf } = await import('../utils/exportReport');
+      downloadPortfolioPdf(exportPortfolioData);
+    } catch {
+      setExportError('שגיאה בייצוא ל-PDF, נסה שוב');
+    }
+  };
+
   return (
     <div className="App">
       <div className="welcome-container">
@@ -119,6 +153,22 @@ function HomeView({
             <button className="analysis-button" onClick={() => setShowAnalysis(true)}>
               ניתוח התיק
             </button>
+
+            {hasAnyData && (
+              <div className="control-buttons">
+                <button className="btn btn-info" onClick={handleExportExcel}>
+                  ייצוא ל-Excel
+                </button>
+                <button className="btn btn-info" onClick={handleExportPdf}>
+                  ייצוא ל-PDF
+                </button>
+              </div>
+            )}
+            {exportError && (
+              <span className="user-email" style={{ fontSize: 12, color: '#b00020' }}>
+                {exportError}
+              </span>
+            )}
 
             {/* כפתורי בקרה */}
             <div className="control-buttons">

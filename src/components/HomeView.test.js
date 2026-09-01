@@ -1,6 +1,7 @@
-import { render } from '@testing-library/react';
+import { render, fireEvent, waitFor } from '@testing-library/react';
 import HomeView from './HomeView';
 import { calculatePortfolioSummary } from '../utils/portfolioSummary';
+import * as exportReport from '../utils/exportReport';
 
 const noop = () => {};
 
@@ -104,6 +105,58 @@ test('shows the save error message when present', () => {
 test('shows the legacy import banner when present', () => {
   const { getByText } = render(<HomeView {...makeProps({ legacyImportBanner: 'ייבוא מהדפדפן הושלם — הנתונים נשמרו בשרת.' })} />);
   expect(getByText('ייבוא מהדפדפן הושלם — הנתונים נשמרו בשרת.')).toBeInTheDocument();
+});
+
+test('shows export buttons for a populated portfolio and wires them to downloadPortfolioExcel/Pdf', async () => {
+  const excelSpy = jest.spyOn(exportReport, 'downloadPortfolioExcel').mockResolvedValue(undefined);
+  const pdfSpy = jest.spyOn(exportReport, 'downloadPortfolioPdf').mockImplementation(() => {});
+
+  const { getByText } = render(<HomeView {...makeProps()} />);
+
+  fireEvent.click(getByText('ייצוא ל-Excel'));
+  fireEvent.click(getByText('ייצוא ל-PDF'));
+
+  // Both handlers dynamically import('../utils/exportReport') now (code
+  // splitting - see the comment in HomeView.js), which resolves on a later
+  // microtask than a plain sync call would, so the spies aren't called yet
+  // synchronously after fireEvent.click.
+  await waitFor(() => {
+    expect(pdfSpy).toHaveBeenCalledWith({ summary, israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances });
+    expect(excelSpy).toHaveBeenCalledWith({ summary, israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances });
+  });
+
+  excelSpy.mockRestore();
+  pdfSpy.mockRestore();
+});
+
+test('hides export buttons for an empty portfolio', () => {
+  const emptySummary = calculatePortfolioSummary([], [], [], [], []);
+  const { queryByText } = render(
+    <HomeView
+      {...makeProps({
+        israeliStocks: [],
+        americanStocks: [],
+        pensionFunds: [],
+        cashFunds: [],
+        bankBalances: [],
+        summary: emptySummary
+      })}
+    />
+  );
+  expect(queryByText('ייצוא ל-Excel')).toBeNull();
+  expect(queryByText('ייצוא ל-PDF')).toBeNull();
+});
+
+test('shows an error message if the PDF export throws', async () => {
+  const pdfSpy = jest.spyOn(exportReport, 'downloadPortfolioPdf').mockImplementation(() => {
+    throw new Error('boom');
+  });
+
+  const { findByText } = render(<HomeView {...makeProps()} />);
+  fireEvent.click(await findByText('ייצוא ל-PDF'));
+
+  expect(await findByText('שגיאה בייצוא ל-PDF, נסה שוב')).toBeInTheDocument();
+  pdfSpy.mockRestore();
 });
 
 test('shows the edit-mode notice only in edit mode', () => {
