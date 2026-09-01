@@ -13,6 +13,7 @@ const { mountBenchmarkRoutes } = require('./server/benchmarkRoutes');
 const { mountSectorRoutes } = require('./server/sectorRoutes');
 const { mountAnalystRoutes } = require('./server/analystRoutes');
 const { mountRebalanceRoutes } = require('./server/rebalanceRoutes');
+const { mountCorrelationRoutes } = require('./server/correlationRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -25,6 +26,7 @@ mountCpiRoutes(app);
 mountBenchmarkRoutes(app);
 mountSectorRoutes(app);
 mountAnalystRoutes(app);
+mountCorrelationRoutes(app);
 
 const PORT = Number(process.env.PORT) || 5000;
 

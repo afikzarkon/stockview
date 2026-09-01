@@ -16,6 +16,7 @@ import { computePortfolioStats } from '../utils/portfolioStats';
 import { buildComparisonSeries } from '../utils/benchmarkComparison';
 import { computeSectorDistribution } from '../utils/sectorAnalysis';
 import { sectorLabelHe } from '../utils/sectorLabels';
+import { buildCorrelationMatrix, highestCorrelatedPairs } from '../utils/correlationAnalysis';
 import {
   recommendationLabelHe,
   recommendationSentiment,
@@ -26,6 +27,7 @@ import {
 import { useBenchmarkHistory } from '../hooks/useBenchmarkHistory';
 import { useStockSectors } from '../hooks/useStockSectors';
 import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
+import { useHoldingsPriceHistory } from '../hooks/useHoldingsPriceHistory';
 import { formatDate } from '../utils/formatters';
 import { computeTaxLossHarvestingOpportunities } from '../utils/taxLossHarvesting';
 import RebalancingSection from './RebalancingSection';
@@ -36,6 +38,16 @@ const BENCHMARK_OPTIONS = [
   { key: 'sp500', label: 'S&P 500' },
   { key: 'ta125', label: 'TA-125' }
 ];
+
+// Red for positive correlation (moves together - less real diversification
+// than it looks), green for negative (moves oppositely - real
+// diversification). Intensity scales with |value|; null (not enough
+// shared history) gets no fill.
+function correlationCellColor(value) {
+  if (value === null || value === undefined) return 'transparent';
+  const intensity = Math.min(Math.abs(value), 1) * 0.55;
+  return value >= 0 ? `rgba(220, 38, 38, ${intensity})` : `rgba(22, 163, 74, ${intensity})`;
+}
 
 function PortfolioAnalysisView({
   analysis,
@@ -88,6 +100,14 @@ function PortfolioAnalysisView({
   }, [americanStocks]);
 
   const { recommendationsBySymbol, loading: analystLoading } = useAnalystRecommendations(americanSymbols);
+
+  const uniqueAmericanSymbols = useMemo(() => uniqueAmericanHoldings.map((h) => h.symbol), [uniqueAmericanHoldings]);
+  const { historyBySymbol, loading: historyLoading } = useHoldingsPriceHistory(uniqueAmericanSymbols);
+  const correlationMatrix = useMemo(() => buildCorrelationMatrix(historyBySymbol), [historyBySymbol]);
+  const topCorrelatedPairs = useMemo(
+    () => highestCorrelatedPairs(correlationMatrix.symbols, correlationMatrix.matrix, 3),
+    [correlationMatrix]
+  );
 
   const [benchmarkKey, setBenchmarkKey] = useState('sp500');
   const {
@@ -604,6 +624,60 @@ function PortfolioAnalysisView({
                     שימו לב: {sectorDistribution.topSectorPercent.toFixed(0)}% מהרכיב האמריקאי מרוכז בסקטור אחד (
                     {sectorLabelHe(sectorDistribution.sectors[0].sectorKey)}) — ריכוזיות מסוג הזה לא נראית בפיזור
                     "ישראלי מול אמריקאי" הרגיל.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="analysis-section">
+            <h2 className="section-title">קורלציה בין אחזקות (מניות אמריקאיות)</h2>
+            <p className="section-subtitle">
+              מבוסס על תשואות יומיות היסטוריות (כשנה אחורה) מ-Yahoo Finance. ערך קרוב ל-1 אומר שהמניות נעות ביחד -
+              כלומר פחות פיזור אמיתי גם אם מדובר בטיקרים שונים; קרוב ל-1- אומר שהן נעות בכיוונים מנוגדים. לא כולל
+              מניות ישראליות, קופות גמל, קרנות כספיות או עו"ש.
+            </p>
+            {uniqueAmericanSymbols.length < 2 ? (
+              <p className="history-empty-note">נדרשות לפחות 2 מניות אמריקאיות שונות כדי לחשב קורלציה.</p>
+            ) : historyLoading && correlationMatrix.symbols.length < 2 ? (
+              <p className="history-empty-note">טוען היסטוריית מחירים…</p>
+            ) : correlationMatrix.symbols.length < 2 ? (
+              <p className="history-empty-note">לא נמצאה מספיק היסטוריית מחירים חופפת כדי לחשב קורלציה.</p>
+            ) : (
+              <>
+                <div className="stocks-table-container" style={{ overflowX: 'auto' }}>
+                  <table className="analysis-table correlation-matrix-table">
+                    <thead>
+                      <tr>
+                        <th></th>
+                        {correlationMatrix.symbols.map((symbol) => (
+                          <th key={symbol}>{symbol}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {correlationMatrix.symbols.map((rowSymbol, i) => (
+                        <tr key={rowSymbol}>
+                          <th>{rowSymbol}</th>
+                          {correlationMatrix.symbols.map((colSymbol, j) => {
+                            const value = correlationMatrix.matrix[i][j];
+                            return (
+                              <td key={colSymbol} style={{ backgroundColor: correlationCellColor(value) }}>
+                                {value === null || value === undefined ? '—' : value.toFixed(2)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {topCorrelatedPairs.length > 0 && (
+                  <p className="section-subtitle" style={{ marginTop: 10 }}>
+                    הזוגות הקשורים ביותר:{' '}
+                    {topCorrelatedPairs
+                      .map((p) => `${p.a} ↔ ${p.b} (${p.correlation.toFixed(2)})`)
+                      .join(' · ')}
                   </p>
                 )}
               </>
