@@ -107,6 +107,17 @@ export const applyPensionValueUpdate = (pensionFund, newCurrentValue, newCurrent
   };
 };
 
+// Entry point for the table's "שווי נוכחי" edit UI (FinancialAccountsTables).
+// The UI asks for the value and date together in one action, so payload is
+// normally { value, date }. A bare number is accepted too, defaulting to
+// today's date, purely as a defensive fallback for any other caller.
+export const applyPensionValueEditPayload = (pensionFund, payload) => {
+  const hasDate = payload && typeof payload === 'object' && payload.date;
+  const newValue = hasDate ? payload.value : payload;
+  const newDate = hasDate ? payload.date : new Date().toISOString().slice(0, 10);
+  return applyPensionValueUpdate(pensionFund, newValue, newDate);
+};
+
 // תשואת התקופה (מעדכון קודם לעדכון נוכחי), מנוטרלת אוטומטית מהפקדות
 // שבוצעו בתקופה הזו: השווי הקודם "מותאם" בהוספת סכום ההפקדות שנפלו
 // בין previousValueDate ל-currentValueDate, כך שהתשואה משקפת רק
@@ -126,14 +137,11 @@ export const calculatePensionPeriodReturn = (pensionFund) => {
 // signal something went wrong during data entry, not a real edge case to
 // silently accept.
 //
-// Why this matters: editing "שווי נוכחי" in the table always stamps
-// TODAY as its date (see handleInlineEdit's 'currentValue' case in
-// App.js), and relies on the user separately, manually fixing the date
-// afterward if "today" isn't actually correct - easy to forget, since
-// nothing in the UI prompts for it. When that correction is skipped, the
-// next time the fund is updated, that same (wrong) date rolls forward
-// into previousValueDate too, and BOTH ends up sharing one date. A
-// same-day period can't produce a meaningful return - and worse, ANY
+// Why this matters: the table's "שווי נוכחי" edit dialog asks for the date
+// together with the value (see applyPensionValueEditPayload above), which
+// closes the main way this used to happen - but nothing stops a user from
+// still entering the same date on purpose, or old data imported before that
+// fix. A same-day period can't produce a meaningful return - and worse, ANY
 // deposit made before that shared date, no matter how long before, is
 // silently excluded from "since previous update" - which is exactly the
 // bug this flag is meant to surface before it produces a wrong number.

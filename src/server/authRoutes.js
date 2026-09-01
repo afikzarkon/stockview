@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { PG_UNIQUE_VIOLATION } = require('./dataStore');
+const { createRateLimiter } = require('./rateLimit');
 
 const COOKIE_NAME = 'auth_token';
 const BCRYPT_ROUNDS = 12;
@@ -71,6 +72,17 @@ function readAuthUserFromRequest(req, jwtSecret) {
 function mountAuthRoutes(app, store) {
   const JWT_SECRET = getJwtSecret();
 
+  const loginLimiter = createRateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: 'יותר מדי ניסיונות התחברות, נסה שוב בעוד כמה דקות'
+  });
+  const registerLimiter = createRateLimiter({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    message: 'יותר מדי ניסיונות הרשמה, נסה שוב בעוד כמה דקות'
+  });
+
   app.get('/api/auth/me', (req, res) => {
     try {
       const authUser = readAuthUserFromRequest(req, JWT_SECRET);
@@ -84,7 +96,7 @@ function mountAuthRoutes(app, store) {
     }
   });
 
-  app.post('/api/auth/register', async (req, res) => {
+  app.post('/api/auth/register', registerLimiter, async (req, res) => {
     const email = normalizeEmail(req.body && req.body.email);
     const password = req.body && req.body.password != null ? String(req.body.password) : '';
 
@@ -125,7 +137,7 @@ function mountAuthRoutes(app, store) {
     }
   });
 
-  app.post('/api/auth/login', async (req, res) => {
+  app.post('/api/auth/login', loginLimiter, async (req, res) => {
     const email = normalizeEmail(req.body && req.body.email);
     const password = req.body && req.body.password != null ? String(req.body.password) : '';
 

@@ -2,6 +2,7 @@ import {
   TAX_RATE,
   calculateAmericanStockMetrics,
   applyPensionValueUpdate,
+  applyPensionValueEditPayload,
   sumDepositsInRange,
   calculatePensionPeriodReturn,
   hasAmbiguousPensionPeriod
@@ -188,6 +189,25 @@ describe('applyPensionValueUpdate', () => {
     const updated = applyPensionValueUpdate(fund, 111000, '2024-06-30');
     expect(updated.deposits).toEqual(fund.deposits); // ללא שינוי - נשאר בדיוק אותו מערך
     expect(updated.lastDeposit).toBeUndefined();
+  });
+});
+
+describe('applyPensionValueEditPayload', () => {
+  test('uses the date supplied in the { value, date } payload, not today', () => {
+    const fund = { currentValue: 100000, currentValueDate: '2024-03-31' };
+    const updated = applyPensionValueEditPayload(fund, { value: 111000, date: '2024-06-30' });
+    expect(updated.currentValue).toBe(111000);
+    expect(updated.currentValueDate).toBe('2024-06-30');
+    expect(updated.previousValue).toBe(100000);
+    expect(updated.previousValueDate).toBe('2024-03-31');
+  });
+
+  test('falls back to a bare number and defaults to today only as a defensive fallback', () => {
+    const fund = { currentValue: 100000, currentValueDate: '2024-03-31' };
+    const updated = applyPensionValueEditPayload(fund, 111000);
+    const today = new Date().toISOString().slice(0, 10);
+    expect(updated.currentValue).toBe(111000);
+    expect(updated.currentValueDate).toBe(today);
   });
 });
 

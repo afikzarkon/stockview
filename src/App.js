@@ -2,7 +2,7 @@ import './App.css';
 import React, { useEffect, useMemo, useState } from 'react';
 import { formatPriceWithSign, normalizeIsraeliStocksFromStorage } from './utils/formatters';
 import { calculatePortfolioSummary } from './utils/portfolioSummary';
-import { applyPensionValueUpdate } from './utils/portfolioMath';
+import { applyPensionValueEditPayload } from './utils/portfolioMath';
 import { calculatePortfolioAnalysis } from './utils/portfolioAnalysis';
 import { fetchCurrentPrice, fetchIsraeliStockPrice } from './api/stockPrices';
 import { apiUrl } from './apiBase';
@@ -538,11 +538,10 @@ function App() {
         // להיות "השווי הקודם" (עם התאריך הישן שלו). הפקדות שבוצעו בין
         // שני התאריכים מזוהות אוטומטית לפי הפנקס בזמן חישוב התשואה
         // (ראו calculatePensionPeriodReturn), לא כאן.
-        // ⚠️ סדר עריכה נדרש: קודם לערוך "שווי נוכחי" (מפעיל את הגלגול),
-        // ורק אח"כ לערוך "תאריך שווי נוכחי" אם צריך תאריך שונה מהיום.
+        // value מגיע כ-{ value, date } מדיאלוג העריכה ב-FinancialAccountsTables
+        // (שמבקש את שניהם באותה פעולה, ראו applyPensionValueEditPayload).
         if (field === 'currentValue') {
-          const today = new Date().toISOString().slice(0, 10);
-          return applyPensionValueUpdate(item, value, today);
+          return applyPensionValueEditPayload(item, value);
         }
         return { ...item, [field]: value };
       });

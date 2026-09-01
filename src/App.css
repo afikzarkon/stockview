@@ -1073,6 +1073,12 @@ body {
   border: 1px solid #667eea;
 }
 
+.pension-value-edit-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .edit-row td {
   padding: 6px 8px;
   vertical-align: middle;

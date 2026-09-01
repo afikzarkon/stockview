@@ -15,6 +15,7 @@ const { mountAnalystRoutes } = require('./server/analystRoutes');
 const { mountRebalanceRoutes } = require('./server/rebalanceRoutes');
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());

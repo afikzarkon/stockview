@@ -29,6 +29,26 @@ function FinancialAccountsTables({
   const toggleFundExpanded = (fundId) => {
     setExpandedFunds((prev) => ({ ...prev, [fundId]: !prev[fundId] }));
   };
+
+  // עריכת "שווי נוכחי" מבקשת גם את התאריך באותה פעולה (במקום שני שדות
+  // נפרדים לערוך בזה אחר זה) - ראו applyPensionValueEditPayload ב-
+  // portfolioMath.js להסבר המלא על הבאג שזה מונע.
+  const [pensionValueDraft, setPensionValueDraft] = useState({ value: '', date: '' });
+  const startPensionValueEdit = (item) => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    setPensionValueDraft({
+      value: item.currentValue ?? item.amount ?? '',
+      date: item.currentValueDate || todayStr
+    });
+    handleCellClick(item.id, 'currentValue', 'pension');
+  };
+  const commitPensionValueEdit = (item) => {
+    const numValue = parseFloat(pensionValueDraft.value);
+    if (!Number.isNaN(numValue) && pensionValueDraft.date) {
+      handleInlineEdit(item.id, 'currentValue', { value: numValue, date: pensionValueDraft.date }, 'pension');
+    }
+    finishInlineEdit();
+  };
   const deleteDeposit = (fund, depositIndex) => {
     const deposits = Array.isArray(fund.deposits) ? fund.deposits : [];
     const updatedDeposits = deposits.filter((_, i) => i !== depositIndex);
@@ -133,18 +153,35 @@ function FinancialAccountsTables({
                         ) : item.fundName}
                       </td>
                       <td>{`${formatPriceWithSign(initialInvestment)} ₪`}</td>
-                      <td onClick={() => handleCellClick(item.id, 'currentValue', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
+                      <td
+                        onClick={() => { if (editingField !== `${item.id}-currentValue`) startPensionValueEdit(item); }}
+                        className={isEditMode ? 'editable-cell' : ''}
+                      >
                         {editingField === `${item.id}-currentValue` ? (
-                          <input
-                            type="number"
-                            value={item.currentValue ?? item.amount ?? ''}
-                            onChange={(e) => handleInlineEdit(item.id, 'currentValue', parseFloat(e.target.value), 'pension')}
-                            onBlur={finishInlineEdit}
-                            onKeyDown={(e) => handleKeyDown(e, item.id, 'currentValue', 'pension')}
-                            autoFocus
-                            step="0.01"
-                            min="0"
-                          />
+                          <div
+                            className="pension-value-edit-group"
+                            onBlur={(e) => {
+                              if (!e.currentTarget.contains(e.relatedTarget)) {
+                                commitPensionValueEdit(item);
+                              }
+                            }}
+                          >
+                            <input
+                              type="number"
+                              value={pensionValueDraft.value}
+                              onChange={(e) => setPensionValueDraft((d) => ({ ...d, value: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === 'Enter') commitPensionValueEdit(item); }}
+                              autoFocus
+                              step="0.01"
+                              min="0"
+                            />
+                            <input
+                              type="date"
+                              value={pensionValueDraft.date}
+                              onChange={(e) => setPensionValueDraft((d) => ({ ...d, date: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === 'Enter') commitPensionValueEdit(item); }}
+                            />
+                          </div>
                         ) : `${formatPriceWithSign(currentValue)} ₪`}
                       </td>
                       <td onClick={() => handleCellClick(item.id, 'currentValueDate', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
