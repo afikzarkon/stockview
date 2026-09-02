@@ -5,11 +5,214 @@
   box-sizing: border-box;
 }
 
+/* ===== Site-wide theme system =====
+   Dark is the default look (per explicit product decision - this app's
+   "real" design language is the one proven out on the stock-research page,
+   not the original purple-gradient light theme); :root[data-theme='light']
+   below is the opt-out. Applied via a data-theme attribute on <html> (see
+   public/index.html for the no-JS-yet default, and src/hooks/useTheme.js
+   for the toggle) rather than a class, so it composes cleanly with
+   existing classes. Originated on .sw-page (StockResearchView) as a
+   page-scoped block - promoted to :root here so the same variables now
+   drive the whole site; nothing about .sw-page's ~700 lines of rules
+   needed to change, since they already referenced var(--sw-*).
+
+   Palette v2: a "private wealth" identity - warm charcoal (a hint of
+   green, not flat black) with a champagne-gold primary accent and a deep
+   emerald/teal secondary, replacing the first pass's generic indigo/violet
+   SaaS-dashboard look with something that reads as premium AND fits a
+   portfolio tracker's own subject matter (gold = value, emerald = growth)
+   rather than "any SaaS product". Semantic green/red for pass/fail stay
+   distinct hues from the gold accent so a checkmark's color never gets
+   confused with a decorative highlight. Chart colors in
+   StockResearchView.js are literal hex (recharts needs literal SVG
+   attribute values) but are hand-matched to this same palette. */
+:root {
+  --sw-bg: #0a0b0a;
+  --sw-surface: #131513;
+  --sw-surface-2: #191c19;
+  --sw-surface-3: #20241f;
+  --sw-border: #262a25;
+  --sw-border-hover: #3a4038;
+  --sw-text: #f2f0e9;
+  --sw-text-secondary: #a3a99e;
+  --sw-text-muted: #6f766b;
+  --sw-accent: #d4af6a;
+  --sw-accent-strong: #c9a054;
+  --sw-accent-2: #2dd4bf;
+  --sw-accent-soft: rgba(212, 175, 106, 0.14);
+  --sw-cyan: #38bdf8;
+  --sw-green: #34d399;
+  --sw-green-soft: rgba(52, 211, 153, 0.16);
+  --sw-red: #f43f5e;
+  --sw-red-soft: rgba(244, 63, 94, 0.16);
+  --sw-amber: #f59e0b;
+}
+
+:root[data-theme='light'] {
+  --sw-bg: #faf8f3;
+  --sw-surface: #ffffff;
+  --sw-surface-2: #f5f2ea;
+  --sw-surface-3: #ece6d6;
+  --sw-border: #e3ddc9;
+  --sw-border-hover: #cfc7ab;
+  --sw-text: #1c1d18;
+  --sw-text-secondary: #5c5f52;
+  --sw-text-muted: #8b8d7d;
+  --sw-accent: #a9822f;
+  --sw-accent-strong: #8f6d24;
+  --sw-accent-2: #0f9488;
+  --sw-accent-soft: rgba(169, 130, 47, 0.12);
+  --sw-cyan: #0284c7;
+  --sw-green: #059669;
+  --sw-green-soft: rgba(5, 150, 105, 0.12);
+  --sw-red: #e11d48;
+  --sw-red-soft: rgba(225, 29, 72, 0.12);
+  --sw-amber: #b45309;
+}
+
 body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: radial-gradient(1200px 600px at 15% -10%, rgba(169, 130, 47, 0.07), transparent 60%), var(--sw-bg);
   min-height: 100vh;
   direction: rtl;
+  color: var(--sw-text);
+}
+
+[data-theme='dark'] body {
+  background: radial-gradient(1100px 560px at 12% -8%, rgba(212, 175, 106, 0.09), transparent 62%),
+    radial-gradient(900px 520px at 100% 0%, rgba(45, 212, 191, 0.08), transparent 58%), var(--sw-bg);
+}
+
+/* ===== Shared top navigation (src/components/TopNav.js) =====
+   New component, theme-aware from the start via the --sw-* variables -
+   no light/dark duplication needed the way the older pages required. */
+.top-nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--sw-surface);
+  border-bottom: 1px solid var(--sw-border);
+}
+
+.top-nav-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.top-nav-brand {
+  font-weight: 800;
+  font-size: 1.15rem;
+  background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  flex-shrink: 0;
+}
+
+.top-nav-links {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.top-nav-link {
+  background: none;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  color: var(--sw-text-secondary);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.top-nav-link:hover {
+  background: var(--sw-accent-soft);
+  color: var(--sw-text);
+}
+
+.top-nav-link.active {
+  background: var(--sw-accent-soft);
+  color: var(--sw-accent);
+}
+
+.top-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.top-nav-user {
+  direction: ltr;
+  font-size: 0.85rem;
+  color: var(--sw-text-secondary);
+  font-weight: 600;
+}
+
+.top-nav-logout {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface-2);
+  color: var(--sw-text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.top-nav-logout:hover {
+  background: var(--sw-surface-3);
+  border-color: var(--sw-border-hover);
+}
+
+.theme-toggle-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface-2);
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.theme-toggle-button:hover {
+  border-color: var(--sw-border-hover);
+  transform: rotate(-12deg);
+}
+
+.auth-theme-toggle-wrap {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 30;
+}
+
+@media (max-width: 700px) {
+  .top-nav-inner {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+
+  .top-nav-links {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 .App {
@@ -46,7 +249,7 @@ body {
   color: #2c3e50;
   margin-bottom: 20px;
   line-height: 1.3;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -126,7 +329,7 @@ body {
 /* Expand button styles */
 .expand-button {
   font-size: 14px;
-  color: #667eea;
+  color: var(--sw-accent);
   transition: all 0.2s ease;
   padding: 2px 4px;
   border-radius: 3px;
@@ -134,7 +337,7 @@ body {
 
 .expand-button:hover {
   background-color: #f0f0f0;
-  color: #764ba2;
+  color: var(--sw-accent-2);
 }
 
 /* Detail row styles */
@@ -173,7 +376,7 @@ body {
   color: #2c3e50;
   margin-bottom: 20px;
   text-align: center;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -191,7 +394,7 @@ body {
   border-radius: 12px;
   padding: 20px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(169, 130, 47, 0.1);
 }
 
 .summary-section-title {
@@ -201,7 +404,7 @@ body {
   margin-bottom: 15px;
   text-align: center;
   padding-bottom: 10px;
-  border-bottom: 2px solid #667eea;
+  border-bottom: 2px solid var(--sw-accent);
 }
 
 .summary-item {
@@ -296,6 +499,77 @@ body {
   .summary-label,
   .summary-value {
     font-size: 0.9rem;
+  }
+}
+
+/* Page header row: title + primary/secondary actions in one toolbar,
+   replacing the old pattern of a centered title followed, much further
+   down the page, by a big stack of buttons. */
+.page-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.page-header-row .welcome-title {
+  margin-bottom: 0;
+  text-align: right;
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.export-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.export-button {
+  background: var(--sw-surface-2);
+  color: var(--sw-text-secondary);
+  border: 1px solid var(--sw-border);
+  padding: 10px 18px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+}
+
+.export-button:hover {
+  border-color: var(--sw-accent);
+  color: var(--sw-accent);
+  background: var(--sw-accent-soft);
+}
+
+.export-error {
+  color: var(--sw-red);
+  font-size: 0.85rem;
+  text-align: left;
+  margin: -12px 0 12px;
+}
+
+@media (max-width: 640px) {
+  .page-header-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-header-row .welcome-title {
+    text-align: center;
+  }
+
+  .page-header-actions {
+    justify-content: center;
   }
 }
 
@@ -403,85 +677,32 @@ body {
   transform: none;
 }
 
-/* Add info button */
+/* Add info button - a compact primary CTA, meant for the page-header-row
+   toolbar (see HomeView.js) rather than the old large center-stacked
+   button pile. */
 .add-info-button {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: linear-gradient(135deg, var(--sw-accent-strong), var(--sw-accent));
+  color: #1a1508;
   border: none;
-  padding: 18px 40px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  border-radius: 50px;
+  padding: 12px 26px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  border-radius: 999px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 8px 20px -6px rgba(212, 175, 106, 0.55);
   font-family: inherit;
-  text-transform: none;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
 }
 
 .add-info-button:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 35px rgba(102, 126, 234, 0.4);
-  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 26px -6px rgba(212, 175, 106, 0.65);
 }
 
 .add-info-button:active {
-  transform: translateY(-1px);
-}
-
-/* Additional data button */
-.additional-data-button {
-  background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
-  color: white;
-  border: none;
-  padding: 18px 40px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  border-radius: 50px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 8px 25px rgba(243, 156, 18, 0.3);
-  font-family: inherit;
-  text-transform: none;
-  letter-spacing: 0.5px;
-}
-
-.additional-data-button:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 35px rgba(243, 156, 18, 0.4);
-  background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
-}
-
-.additional-data-button:active {
-  transform: translateY(-1px);
-}
-
-/* Edit button */
-.edit-button {
-  background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
-  color: white;
-  border: none;
-  padding: 18px 40px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  border-radius: 50px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 8px 25px rgba(39, 174, 96, 0.3);
-  font-family: inherit;
-  text-transform: none;
-  letter-spacing: 0.5px;
-}
-
-.edit-button:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 35px rgba(39, 174, 96, 0.4);
-  background: linear-gradient(135deg, #229954 0%, #27ae60 100%);
-}
-
-.edit-button:active {
-  transform: translateY(-1px);
+  transform: translateY(0);
 }
 
 /* Features grid */
@@ -498,7 +719,7 @@ body {
   border-radius: 15px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
   transition: all 0.3s ease;
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(169, 130, 47, 0.1);
 }
 
 .feature-card:hover {
@@ -545,9 +766,7 @@ body {
     margin-bottom: 40px;
   }
   
-  .add-info-button,
-  .additional-data-button,
-  .edit-button {
+  .add-info-button {
     padding: 15px 30px;
     font-size: 1rem;
   }
@@ -693,7 +912,7 @@ body {
   color: #2c3e50;
   margin-bottom: 30px;
   text-align: center;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -733,8 +952,8 @@ body {
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: var(--sw-accent);
+  box-shadow: 0 0 0 3px rgba(169, 130, 47, 0.1);
 }
 
 .form-group input::placeholder {
@@ -799,23 +1018,22 @@ body {
 }
 
 .submit-button {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: linear-gradient(135deg, var(--sw-accent-strong), var(--sw-accent));
+  color: #1a1508;
   border: none;
   padding: 15px 30px;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 700;
   border-radius: 10px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
   font-family: inherit;
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+  box-shadow: 0 4px 15px -4px rgba(212, 175, 106, 0.5);
 }
 
 .submit-button:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
-  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+  box-shadow: 0 6px 20px -4px rgba(212, 175, 106, 0.6);
 }
 
 .submit-button:active {
@@ -861,7 +1079,7 @@ body {
   border-radius: 15px;
   padding: 20px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(169, 130, 47, 0.1);
   width: 100%;
   overflow: hidden;
 }
@@ -872,7 +1090,7 @@ body {
   color: #2c3e50;
   margin-bottom: 20px;
   text-align: center;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -894,8 +1112,9 @@ body {
 }
 
 .stocks-table thead {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: var(--sw-surface-3);
+  color: var(--sw-text);
+  border-bottom: 2px solid var(--sw-accent);
 }
 
 .stocks-table th {
@@ -1053,7 +1272,7 @@ body {
 .editable-cell input {
   width: 100%;
   padding: 4px 6px;
-  border: 1px solid #667eea;
+  border: 1px solid var(--sw-accent);
   border-radius: 4px;
   font-size: 0.85rem;
   text-align: center;
@@ -1064,13 +1283,13 @@ body {
 
 .editable-cell input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+  border-color: var(--sw-accent);
+  box-shadow: 0 0 0 2px rgba(169, 130, 47, 0.2);
 }
 
 .edit-row {
   background-color: #f8f9fa;
-  border: 1px solid #667eea;
+  border: 1px solid var(--sw-accent);
 }
 
 .pension-value-edit-group {
@@ -1098,12 +1317,12 @@ body {
 
 .edit-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+  border-color: var(--sw-accent);
+  box-shadow: 0 0 0 2px rgba(169, 130, 47, 0.2);
 }
 
 .edit-instruction {
-  color: #667eea;
+  color: var(--sw-accent);
   font-weight: 600;
   font-size: 0.9rem;
 }
@@ -1172,7 +1391,7 @@ body {
   color: #2c3e50;
   margin-bottom: 30px;
   text-align: center;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -1184,7 +1403,7 @@ body {
   border-radius: 12px;
   padding: 18px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.07);
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(169, 130, 47, 0.1);
 }
 
 .distribution-grid {
@@ -1200,7 +1419,7 @@ body {
   padding: 14px;
   text-align: center;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(169, 130, 47, 0.1);
 }
 
 .distribution-card h3 {
@@ -1220,7 +1439,7 @@ body {
 .distribution-percentage {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #667eea;
+  color: var(--sw-accent);
 }
 
 .section-subtitle {
@@ -1239,7 +1458,7 @@ body {
   font-size: 0.95rem;
   line-height: 1.6;
   text-align: center;
-  border: 1px dashed rgba(102, 126, 234, 0.3);
+  border: 1px dashed rgba(169, 130, 47, 0.3);
 }
 
 .equity-chart-container {
@@ -1247,7 +1466,7 @@ body {
   border-radius: 12px;
   padding: 20px 12px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(169, 130, 47, 0.1);
   margin-top: 12px;
 }
 
@@ -1259,9 +1478,9 @@ body {
 }
 
 .benchmark-toggle-button {
-  border: 1px solid rgba(102, 126, 234, 0.3);
+  border: 1px solid rgba(169, 130, 47, 0.3);
   background: white;
-  color: #667eea;
+  color: var(--sw-accent);
   border-radius: 999px;
   padding: 6px 16px;
   font-size: 0.9rem;
@@ -1271,13 +1490,13 @@ body {
 }
 
 .benchmark-toggle-button:hover {
-  background: rgba(102, 126, 234, 0.08);
+  background: rgba(169, 130, 47, 0.08);
 }
 
 .benchmark-toggle-button.active {
-  background: #667eea;
+  background: var(--sw-accent);
   color: white;
-  border-color: #667eea;
+  border-color: var(--sw-accent);
 }
 
 .rebalance-inputs-grid {
@@ -1291,13 +1510,13 @@ body {
   background: white;
   border-radius: 10px;
   padding: 10px 14px;
-  border: 1px solid rgba(102, 126, 234, 0.15);
+  border: 1px solid rgba(169, 130, 47, 0.15);
 }
 
 .rebalance-input-item label {
   display: block;
   font-size: 0.85rem;
-  color: #667eea;
+  color: var(--sw-accent);
   font-weight: 600;
   margin-bottom: 4px;
 }
@@ -1310,7 +1529,7 @@ body {
 
 .rebalance-input-wrap input {
   width: 100%;
-  border: 1px solid rgba(102, 126, 234, 0.25);
+  border: 1px solid rgba(169, 130, 47, 0.25);
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 1rem;
@@ -1341,7 +1560,7 @@ body {
   border-radius: 12px;
   padding: 30px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(169, 130, 47, 0.1);
   margin-top: 20px;
   min-height: 500px;
   overflow: visible;
@@ -1369,7 +1588,7 @@ body {
   padding: 20px;
   border-radius: 12px;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(169, 130, 47, 0.1);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -1405,7 +1624,7 @@ body {
 
 .pie-label-item .label-percentage {
   font-weight: 600;
-  color: #667eea;
+  color: var(--sw-accent);
   font-size: 1rem;
 }
 
@@ -1457,7 +1676,7 @@ body {
   background: rgba(255, 255, 255, 0.9) !important;
   padding: 4px 8px !important;
   border-radius: 6px !important;
-  border: 1px solid rgba(102, 126, 234, 0.2) !important;
+  border: 1px solid rgba(169, 130, 47, 0.2) !important;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
 }
 
@@ -1476,8 +1695,9 @@ body {
 }
 
 .analysis-table thead {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: var(--sw-surface-3);
+  color: var(--sw-text);
+  border-bottom: 2px solid var(--sw-accent);
 }
 
 .analysis-table th {
@@ -1511,7 +1731,7 @@ body {
   border-radius: 10px;
   padding: 14px;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(169, 130, 47, 0.1);
 }
 
 .date-distribution-card h3 {
@@ -1545,7 +1765,7 @@ body {
 
 .date-value {
   font-weight: 600;
-  color: #667eea;
+  color: var(--sw-accent);
 }
 
 .date-count {
@@ -1565,7 +1785,7 @@ body {
   border-radius: 10px;
   padding: 14px;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(169, 130, 47, 0.1);
 }
 
 .report-card h3 {
@@ -1629,33 +1849,6 @@ body {
   margin-top: 4px;
   font-size: 0.85rem;
   color: #64748b;
-}
-
-/* Analysis button */
-.analysis-button {
-  background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
-  color: white;
-  border: none;
-  padding: 18px 40px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  border-radius: 50px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 8px 25px rgba(39, 174, 96, 0.3);
-  font-family: inherit;
-  text-transform: none;
-  letter-spacing: 0.5px;
-}
-
-.analysis-button:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 35px rgba(39, 174, 96, 0.4);
-  background: linear-gradient(135deg, #229954 0%, #27ae60 100%);
-}
-
-.analysis-button:active {
-  transform: translateY(-1px);
 }
 
 /* Responsive design for analysis page */
@@ -1768,7 +1961,7 @@ body {
 .auth-title {
   font-size: 1.85rem;
   font-weight: 700;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -1843,8 +2036,8 @@ body {
 
 .auth-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+  border-color: var(--sw-accent);
+  box-shadow: 0 0 0 3px rgba(169, 130, 47, 0.2);
 }
 
 .auth-error {
@@ -1865,8 +2058,8 @@ body {
   font-size: 1.05rem;
   font-weight: 700;
   cursor: pointer;
-  color: #fff;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #1a1508;
+  background: linear-gradient(135deg, var(--sw-accent-strong), var(--sw-accent));
   transition: opacity 0.2s;
 }
 
@@ -1882,7 +2075,7 @@ body {
   gap: 12px;
   flex-wrap: wrap;
   padding: 0 8px 16px;
-  border-bottom: 1px solid rgba(102, 126, 234, 0.2);
+  border-bottom: 1px solid rgba(169, 130, 47, 0.2);
   margin-bottom: 8px;
 }
 
@@ -1927,9 +2120,9 @@ body {
 }
 
 .user-legacy-import:hover:not(:disabled) {
-  background: #eef2ff;
-  border-color: #667eea;
-  color: #4338ca;
+  background: var(--sw-accent-soft);
+  border-color: var(--sw-accent);
+  color: var(--sw-accent-strong);
 }
 
 .user-import-banner {
@@ -1944,219 +2137,327 @@ body {
   border: 1px solid #a7f3d0;
 }
 
-/* Stock research page */
-.stock-search-box {
-  position: relative;
-  max-width: 480px;
-}
+/* ===== Dark-theme overrides for the app's original (light-first) pages =====
+   HomeView/PortfolioAnalysisView/StockFormView/AuthView/the stock tables
+   were all built before the theme system existed, with hardcoded light
+   colors throughout (white cards, #2c3e50 text, etc.) - rather than
+   rewrite ~2000 lines of already-working, already-tuned light-theme rules
+   in place (high risk with no browser here to verify), these rules ADD a
+   dark look on top, gated behind [data-theme='dark']. The light rules
+   above are completely unchanged and still ARE the light theme. Colorful
+   action-button gradients (add/analysis/edit/warning/danger/info buttons)
+   are deliberately left alone - vivid gradient buttons read fine against
+   a dark backdrop as-is, no override needed there. */
 
-.stock-search-input {
-  width: 100%;
-  padding: 10px 14px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font-size: 1rem;
-  box-sizing: border-box;
-}
-
-.stock-search-input:focus {
-  outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
-}
-
-.stock-search-suggestions {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  background: white;
-  border: 1px solid #e1e8ed;
-  border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-.stock-search-suggestion {
-  display: block;
-  width: 100%;
-  text-align: right;
-  padding: 10px 14px;
-  background: none;
+/* Outer page wrappers: transparent in dark mode so the page's own dark
+   background (see [data-theme='dark'] body above) shows through - the
+   *nested* cards inside them (summary-section, stocks-section, etc.,
+   below) are what should read as distinct surfaces, not this outer shell
+   too (avoids a "card inside a card" look). Mirrors .sw-page
+   .analysis-container's existing treatment. */
+[data-theme='dark'] .welcome-container,
+[data-theme='dark'] .analysis-container {
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
   border: none;
-  border-bottom: 1px solid #f1f5f9;
-  cursor: pointer;
-  font-size: 0.9rem;
-  color: #2c3e50;
 }
 
-.stock-search-suggestion:last-child {
-  border-bottom: none;
+/* Outer wrappers that stand alone with no nested cards (a login form, an
+   add/edit form) - these DO need their own visible card surface, or
+   they'd look like unstructured floating text. */
+[data-theme='dark'] .form-container,
+[data-theme='dark'] .auth-card {
+  background: var(--sw-surface);
+  backdrop-filter: none;
+  border: 1px solid var(--sw-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 24px 48px -28px rgba(0, 0, 0, 0.7);
 }
 
-.stock-search-suggestion:hover {
-  background: #f8f9fa;
+/* Every "nested surface" card across the app - same treatment as
+   .sw-card on the stock-research page. */
+[data-theme='dark'] .portfolio-summary,
+[data-theme='dark'] .summary-section,
+[data-theme='dark'] .stocks-section,
+[data-theme='dark'] .feature-card,
+[data-theme='dark'] .distribution-card,
+[data-theme='dark'] .equity-chart-container,
+[data-theme='dark'] .pie-chart-container,
+[data-theme='dark'] .pie-label-item,
+[data-theme='dark'] .rebalance-input-item,
+[data-theme='dark'] .date-distribution-card,
+[data-theme='dark'] .report-card,
+[data-theme='dark'] .history-empty-note,
+[data-theme='dark'] .no-data-message,
+[data-theme='dark'] .analysis-section {
+  background: var(--sw-surface);
+  border-color: var(--sw-border);
+  box-shadow: none;
 }
 
-.stock-search-exchange {
-  color: #94a3b8;
-  font-size: 0.8rem;
-  margin-right: 6px;
+/* Smaller inline "chip" surfaces nested one level deeper. */
+[data-theme='dark'] .date-item,
+[data-theme='dark'] .report-item,
+[data-theme='dark'] .news-item,
+[data-theme='dark'] .edit-row,
+[data-theme='dark'] .cpi-status-banner,
+[data-theme='dark'] .auth-tabs {
+  background: var(--sw-surface-2);
+  border-color: var(--sw-border);
 }
 
-.stock-search-suggestion-empty {
-  padding: 10px 14px;
-  color: #94a3b8;
-  font-size: 0.9rem;
+[data-theme='dark'] .auth-tab {
+  color: var(--sw-text-secondary);
 }
 
-.stock-verdict-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
-  border-radius: 10px;
-  margin: 14px 0;
-  font-size: 1.1rem;
+[data-theme='dark'] .benchmark-toggle-button {
+  background: var(--sw-surface-2);
+  color: var(--sw-accent);
+  border-color: var(--sw-border);
 }
 
-.stock-verdict-label {
-  font-weight: 800;
-  font-size: 1.3rem;
+[data-theme='dark'] .benchmark-toggle-button:hover {
+  background: var(--sw-accent-soft);
 }
 
-.stock-verdict-score {
-  font-size: 0.9rem;
-  opacity: 0.85;
+[data-theme='dark'] .auth-tab.active {
+  background: var(--sw-surface-3);
+  color: var(--sw-text);
 }
 
-.stock-verdict-buy {
-  background: #ecfdf5;
-  color: #166534;
-  border: 1px solid #a7f3d0;
+/* Primary text color, everywhere it's currently hardcoded to the light
+   theme's dark-navy (#2c3e50). */
+[data-theme='dark'] .summary-value,
+[data-theme='dark'] .distribution-card h3,
+[data-theme='dark'] .distribution-value,
+[data-theme='dark'] .date-distribution-card h3,
+[data-theme='dark'] .date-label,
+[data-theme='dark'] .report-card h3,
+[data-theme='dark'] .report-name,
+[data-theme='dark'] .news-title,
+[data-theme='dark'] .pie-label-item .label-name,
+[data-theme='dark'] .pie-label-item .label-value,
+[data-theme='dark'] .stocks-table td,
+[data-theme='dark'] .analysis-table td,
+[data-theme='dark'] .form-group label,
+[data-theme='dark'] .edit-display,
+[data-theme='dark'] .feature-card h3,
+[data-theme='dark'] .summary-section-title,
+[data-theme='dark'] .form-group input,
+[data-theme='dark'] .form-group select,
+[data-theme='dark'] .auth-label {
+  color: var(--sw-text);
 }
 
-.stock-verdict-sell {
-  background: #fef2f2;
-  color: #991b1b;
-  border: 1px solid #fecaca;
+/* Secondary/muted text, everywhere it's currently one of the light
+   theme's various gray tones. */
+[data-theme='dark'] .summary-label,
+[data-theme='dark'] .form-help,
+[data-theme='dark'] .form-hint,
+[data-theme='dark'] .date-count,
+[data-theme='dark'] .news-meta,
+[data-theme='dark'] .section-subtitle,
+[data-theme='dark'] .rebalance-sum-hint,
+[data-theme='dark'] .auth-subtitle,
+[data-theme='dark'] .auth-hint,
+[data-theme='dark'] .user-email,
+[data-theme='dark'] .feature-card p,
+[data-theme='dark'] .welcome-subtitle,
+[data-theme='dark'] .cpi-status-banner,
+[data-theme='dark'] .history-empty-note {
+  color: var(--sw-text-secondary);
 }
 
-.stock-verdict-hold {
-  background: #fffbeb;
-  color: #92400e;
-  border: 1px solid #fde68a;
+[data-theme='dark'] .no-data-message p {
+  color: var(--sw-text-secondary);
 }
 
-.stock-radar-container {
-  margin: 10px 0 16px;
+[data-theme='dark'] .no-data-message p:first-child {
+  color: var(--sw-text-muted);
 }
 
-.stock-category-block {
-  margin-top: 18px;
+/* Tables: dark row background/borders, header keeps its accent gradient
+   (already reads fine on dark). */
+[data-theme='dark'] .stocks-table,
+[data-theme='dark'] .analysis-table {
+  background: var(--sw-surface);
 }
 
-.stock-category-block h3 {
-  font-size: 1rem;
-  margin-bottom: 8px;
-  color: #2c3e50;
+[data-theme='dark'] .stocks-table td,
+[data-theme='dark'] .analysis-table td {
+  border-bottom-color: var(--sw-border);
 }
 
-.stock-checks-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+[data-theme='dark'] .stocks-table tbody tr:hover,
+[data-theme='dark'] .analysis-table tbody tr:hover {
+  background-color: var(--sw-surface-2);
 }
 
-.stock-checks-list li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: #f8f9fa;
-  font-size: 0.9rem;
+[data-theme='dark'] .editable-row:hover,
+[data-theme='dark'] .editable-cell:hover {
+  background-color: var(--sw-accent-soft) !important;
 }
 
-.stock-check-icon {
-  font-weight: 700;
-  width: 18px;
-  text-align: center;
+[data-theme='dark'] .summary-row-expanded {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+  border-color: var(--sw-amber) !important;
 }
 
-.stock-check-pass .stock-check-icon {
-  color: #27ae60;
+/* Form/edit inputs. */
+[data-theme='dark'] .form-group input,
+[data-theme='dark'] .form-group select,
+[data-theme='dark'] .auth-input,
+[data-theme='dark'] .edit-input,
+[data-theme='dark'] .editable-cell input,
+[data-theme='dark'] .rebalance-input-wrap input {
+  background: var(--sw-surface-2);
+  border-color: var(--sw-border);
+  color: var(--sw-text);
 }
 
-.stock-check-fail .stock-check-icon {
-  color: #e74c3c;
+[data-theme='dark'] .form-group input::placeholder,
+[data-theme='dark'] .auth-input::placeholder {
+  color: var(--sw-text-muted);
 }
 
-.stock-check-na .stock-check-icon {
-  color: #94a3b8;
+/* User bar / auth error / import banner - small colored status chips. */
+[data-theme='dark'] .user-logout,
+[data-theme='dark'] .user-legacy-import {
+  background: var(--sw-surface-2);
+  border-color: var(--sw-border);
+  color: var(--sw-text-secondary);
 }
 
-.stock-check-label {
-  flex: 1;
+[data-theme='dark'] .user-logout:hover {
+  background: var(--sw-surface-3);
 }
 
-.stock-check-detail {
-  color: #64748b;
-  font-size: 0.85rem;
+[data-theme='dark'] .auth-error {
+  background: var(--sw-red-soft);
+  color: var(--sw-red);
 }
 
-.similar-companies-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+[data-theme='dark'] .user-import-banner {
+  background: var(--sw-green-soft);
+  color: var(--sw-green);
+  border-color: var(--sw-green);
 }
 
-.similar-company-chip {
-  padding: 8px 16px;
-  border-radius: 999px;
-  border: 1px solid #cbd5e1;
-  background: #f8f9fa;
-  color: #2c3e50;
-  font-weight: 600;
-  font-size: 0.9rem;
-  cursor: pointer;
+/* Volatility badges - keep the semantic hue, adapt for a dark backdrop. */
+[data-theme='dark'] .volatility-indicator.low {
+  background-color: var(--sw-green-soft);
+  color: var(--sw-green);
 }
 
-.similar-company-chip:hover {
-  background: #eef2ff;
-  border-color: #667eea;
-  color: #4338ca;
+[data-theme='dark'] .volatility-indicator.medium {
+  background-color: rgba(245, 158, 11, 0.16);
+  color: var(--sw-amber);
 }
 
-/* ===== Stock Research page — dark "SimplyWall.st-style" theme =====
+[data-theme='dark'] .volatility-indicator.high {
+  background-color: var(--sw-red-soft);
+  color: var(--sw-red);
+}
+
+/* recharts pie-slice labels draw their own little background chip
+   (inline !important styles from the library's own defaults) - needs a
+   dark counterpart or the label text is invisible on a light chip. */
+[data-theme='dark'] .recharts-pie-label-text {
+  fill: var(--sw-text) !important;
+  background: var(--sw-surface-2) !important;
+  border-color: var(--sw-border) !important;
+  text-shadow: none !important;
+}
+
+/* .back-button (StockFormView) - keep it a clearly "neutral" action, not
+   the same as the other classes' accent surface color. */
+[data-theme='dark'] .back-button {
+  background: var(--sw-surface-3);
+  color: var(--sw-text);
+}
+
+[data-theme='dark'] .back-button:hover {
+  background: var(--sw-border-hover);
+}
+
+[data-theme='dark'] .portfolio-save-btn:disabled {
+  color: var(--sw-text-muted);
+  background: var(--sw-surface-2);
+  border-color: var(--sw-border);
+}
+
+/* ===== Stock Research page — modern 2026 dashboard theme =====
    Scoped entirely under .sw-page so it never leaks into the rest of the
    (light-themed) app - see StockResearchView.js for why this is a
-   per-page choice, not app-wide dark mode. */
+   per-page choice, not app-wide dark mode.
+
+   Palette: near-black graphite base with an indigo/violet accent (the
+   "AI dashboard" look common across 2025/2026 SaaS products - Linear,
+   Vercel, Raycast) - replaces the earlier olive-green/gold SimplyWall.st
+   copy, per explicit request for different, more modern colors. Semantic
+   pass/fail stays green/red but in softer, higher-contrast shades
+   (emerald/rose) that read better on a near-black background than pure
+   #22c55e/#ef4444 did. Variables are CSS custom properties so every rule
+   below stays a single source of truth - chart colors in
+   StockResearchView.js are literal hex (recharts needs literal SVG
+   attribute values) but are chosen to match this same palette by hand. */
 
 .sw-page {
-  background: #131518;
-  color: #e5e7eb;
   min-height: 100vh;
   padding-bottom: 40px;
 }
 
 .sw-page .analysis-title {
-  color: #f3f4f6;
+  letter-spacing: -0.01em;
+}
+
+/* .analysis-container/.analysis-section are shared wrapper classes from the
+   app's other (light-themed) pages - .analysis-container's own ~white
+   background was showing through in the gaps between this page's dark
+   cards (the "black text on a white background" report). This page only
+   wants the wrapper classes for their layout (max-width/padding/margin),
+   not their light-theme surface styling - .sw-page's own dark gradient
+   background is what should show through everywhere a .sw-card doesn't
+   cover. */
+.sw-page .analysis-container {
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+  border: none;
 }
 
 .sw-page .back-button {
-  background: #1c1f24;
-  border: 1px solid #2a2e35;
-  color: #e5e7eb;
+  background: var(--sw-surface);
+  border: 1px solid var(--sw-border);
+  color: var(--sw-text);
+  border-radius: 10px;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
 .sw-page .back-button:hover {
-  background: #22262c;
+  background: var(--sw-surface-2);
+  border-color: var(--sw-border-hover);
+  transform: translateY(-1px);
+}
+
+/* Thin, unobtrusive scrollbar for the sidebar/suggestions dropdown -
+   Firefox + WebKit variants. */
+.sw-page ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.sw-page ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sw-page ::-webkit-scrollbar-thumb {
+  background: var(--sw-border);
+  border-radius: 8px;
+}
+
+.sw-page ::-webkit-scrollbar-thumb:hover {
+  background: var(--sw-border-hover);
 }
 
 .sw-search-box {
@@ -2168,21 +2469,23 @@ body {
 .sw-search-input {
   width: 100%;
   padding: 12px 16px;
-  border-radius: 8px;
-  border: 1px solid #2a2e35;
-  background: #1c1f24;
-  color: #e5e7eb;
+  border-radius: 10px;
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface);
+  color: var(--sw-text);
   font-size: 1rem;
   box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .sw-search-input::placeholder {
-  color: #6b7280;
+  color: var(--sw-text-muted);
 }
 
 .sw-search-input:focus {
   outline: none;
-  border-color: #d4a017;
+  border-color: var(--sw-accent);
+  box-shadow: 0 0 0 3px var(--sw-accent-soft);
 }
 
 .sw-search-suggestions {
@@ -2191,10 +2494,10 @@ body {
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  background: #1c1f24;
-  border: 1px solid #2a2e35;
-  border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  background: var(--sw-surface-2);
+  border: 1px solid var(--sw-border);
+  border-radius: 10px;
+  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.6);
   max-height: 320px;
   overflow-y: auto;
 }
@@ -2206,10 +2509,11 @@ body {
   padding: 10px 14px;
   background: none;
   border: none;
-  border-bottom: 1px solid #2a2e35;
+  border-bottom: 1px solid var(--sw-border);
   cursor: pointer;
   font-size: 0.9rem;
-  color: #e5e7eb;
+  color: var(--sw-text);
+  transition: background-color 0.15s ease;
 }
 
 .sw-search-suggestion:last-child {
@@ -2217,23 +2521,23 @@ body {
 }
 
 .sw-search-suggestion:hover {
-  background: #22262c;
+  background: var(--sw-surface-3);
 }
 
 .sw-search-exchange {
-  color: #6b7280;
+  color: var(--sw-text-muted);
   font-size: 0.8rem;
   margin-right: 6px;
 }
 
 .sw-search-suggestion-empty {
   padding: 10px 14px;
-  color: #6b7280;
+  color: var(--sw-text-muted);
   font-size: 0.9rem;
 }
 
 .sw-empty-note {
-  color: #9ca3af;
+  color: var(--sw-text-secondary);
   padding: 12px 0;
 }
 
@@ -2246,30 +2550,33 @@ body {
 .sw-sidebar {
   position: sticky;
   top: 16px;
-  flex: 0 0 200px;
+  flex: 0 0 208px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  background: #1c1f24;
-  border: 1px solid #2a2e35;
-  border-radius: 10px;
+  background: var(--sw-surface);
+  border: 1px solid var(--sw-border);
+  border-radius: 14px;
   padding: 10px;
+  box-shadow: 0 20px 40px -24px rgba(0, 0, 0, 0.7);
 }
 
 .sw-sidebar-item {
   text-align: right;
-  padding: 8px 10px;
+  padding: 9px 12px;
   background: none;
   border: none;
-  border-radius: 6px;
-  color: #9ca3af;
+  border-radius: 8px;
+  color: var(--sw-text-secondary);
   font-size: 0.85rem;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, padding-right 0.15s ease;
 }
 
 .sw-sidebar-item:hover {
-  background: #22262c;
-  color: #e5e7eb;
+  background: var(--sw-accent-soft);
+  color: var(--sw-text);
+  padding-right: 16px;
 }
 
 .sw-main {
@@ -2281,33 +2588,50 @@ body {
 }
 
 .sw-card {
-  background: #1c1f24;
-  border: 1px solid #2a2e35;
-  border-radius: 12px;
-  padding: 20px 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 40%), var(--sw-surface);
+  border: 1px solid var(--sw-border);
+  border-radius: 18px;
+  padding: 22px 26px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 24px 48px -28px rgba(0, 0, 0, 0.7);
+  transition: border-color 0.2s ease;
+}
+
+.sw-card:hover {
+  border-color: var(--sw-border-hover);
 }
 
 .sw-overview-card {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.sw-overview-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--sw-accent-strong), var(--sw-accent-2), var(--sw-cyan));
 }
 
 .sw-overview-title {
-  font-size: 1.3rem;
+  font-size: 1.35rem;
   margin: 0 0 8px;
-  color: #f3f4f6;
+  color: var(--sw-text);
+  font-weight: 700;
 }
 
 .sw-overview-desc {
-  color: #9ca3af;
+  color: var(--sw-text-secondary);
   font-size: 0.9rem;
   line-height: 1.5;
   margin: 0 0 8px;
 }
 
 .sw-overview-sector {
-  color: #6b7280;
+  color: var(--sw-text-muted);
   font-size: 0.85rem;
   margin: 0 0 8px;
 }
@@ -2316,19 +2640,25 @@ body {
   background: none;
   border: none;
   padding: 0;
-  color: #d4a017;
+  color: var(--sw-accent);
   font-size: 0.85rem;
   cursor: pointer;
   margin-bottom: 16px;
   display: block;
+  transition: color 0.15s ease;
+}
+
+.sw-more-details-link:hover {
+  color: var(--sw-accent-2);
 }
 
 .sw-list-title {
-  color: #6b7280;
+  color: var(--sw-text-muted);
   font-size: 0.75rem;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   margin: 14px 0 6px;
   font-weight: 700;
+  text-transform: uppercase;
 }
 
 .sw-bullet-list {
@@ -2346,15 +2676,15 @@ body {
   align-items: flex-start;
   gap: 8px;
   font-size: 0.88rem;
-  color: #e5e7eb;
+  color: var(--sw-text);
 }
 
 .sw-bullet-reward .sw-bullet-icon {
-  color: #22c55e;
+  color: var(--sw-green);
 }
 
 .sw-bullet-risk .sw-bullet-icon {
-  color: #ef4444;
+  color: var(--sw-red);
 }
 
 .sw-bullet-icon {
@@ -2373,18 +2703,18 @@ body {
 }
 
 .sw-snowflake-caption strong {
-  color: #e5e7eb;
+  color: var(--sw-text);
   font-size: 0.9rem;
 }
 
 .sw-snowflake-caption p {
-  color: #9ca3af;
+  color: var(--sw-text-secondary);
   font-size: 0.85rem;
   margin: 4px 0 0;
 }
 
 .sw-disclaimer {
-  color: #6b7280;
+  color: var(--sw-text-muted);
   font-size: 0.78rem;
   line-height: 1.5;
   margin: -8px 0 0;
@@ -2399,33 +2729,36 @@ body {
 
 .sw-section-number {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
-  background: #2a2e35;
-  color: #d4a017;
+  background: linear-gradient(135deg, var(--sw-accent-strong), var(--sw-accent-2));
+  color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
+  box-shadow: 0 4px 14px -2px rgba(212, 175, 106, 0.45);
 }
 
 .sw-section-title {
   margin: 0 0 4px;
   font-size: 1.1rem;
-  color: #f3f4f6;
+  color: var(--sw-text);
+  font-weight: 700;
 }
 
 .sw-section-question {
   margin: 0;
-  color: #9ca3af;
+  color: var(--sw-text-secondary);
   font-size: 0.85rem;
 }
 
 .sw-subsection-title {
-  color: #d1d5db;
+  color: #c7cbdc;
   font-size: 0.95rem;
   margin: 18px 0 8px;
+  font-weight: 600;
 }
 
 .sw-checks-badge-row {
@@ -2433,15 +2766,15 @@ body {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  background: #17191d;
-  border: 1px solid #2a2e35;
-  border-radius: 8px;
+  background: var(--sw-surface-2);
+  border: 1px solid var(--sw-border);
+  border-radius: 10px;
   padding: 10px 14px;
   margin-bottom: 14px;
 }
 
 .sw-checks-badge-label {
-  color: #9ca3af;
+  color: var(--sw-text-secondary);
   font-size: 0.85rem;
   margin-left: 6px;
 }
@@ -2455,21 +2788,26 @@ body {
   border-radius: 50%;
   font-size: 0.75rem;
   font-weight: 700;
+  transition: transform 0.15s ease;
+}
+
+.sw-check-circle:hover {
+  transform: scale(1.15);
 }
 
 .sw-check-circle.sw-check-pass {
-  background: rgba(34, 197, 94, 0.18);
-  color: #22c55e;
+  background: var(--sw-green-soft);
+  color: var(--sw-green);
 }
 
 .sw-check-circle.sw-check-fail {
-  background: rgba(239, 68, 68, 0.18);
-  color: #ef4444;
+  background: var(--sw-red-soft);
+  color: var(--sw-red);
 }
 
 .sw-check-circle.sw-check-na {
-  background: rgba(107, 114, 128, 0.18);
-  color: #6b7280;
+  background: rgba(103, 108, 133, 0.18);
+  color: var(--sw-text-muted);
 }
 
 .sw-checks-list {
@@ -2485,10 +2823,15 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: #17191d;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--sw-surface-2);
   font-size: 0.88rem;
+  transition: background-color 0.15s ease;
+}
+
+.sw-check-row:hover {
+  background: var(--sw-surface-3);
 }
 
 .sw-check-icon {
@@ -2498,30 +2841,30 @@ body {
 }
 
 .sw-check-icon.sw-check-pass {
-  color: #22c55e;
+  color: var(--sw-green);
 }
 
 .sw-check-icon.sw-check-fail {
-  color: #ef4444;
+  color: var(--sw-red);
 }
 
 .sw-check-icon.sw-check-na {
-  color: #6b7280;
+  color: var(--sw-text-muted);
 }
 
 .sw-check-index {
-  color: #6b7280;
+  color: var(--sw-text-muted);
   font-size: 0.75rem;
   min-width: 30px;
 }
 
 .sw-check-label {
   flex: 1;
-  color: #e5e7eb;
+  color: var(--sw-text);
 }
 
 .sw-check-detail {
-  color: #9ca3af;
+  color: var(--sw-text-secondary);
   font-size: 0.82rem;
 }
 
@@ -2533,22 +2876,28 @@ body {
 }
 
 .sw-mini-card {
-  background: #17191d;
-  border: 1px solid #2a2e35;
-  border-radius: 8px;
+  background: var(--sw-surface-2);
+  border: 1px solid var(--sw-border);
+  border-radius: 12px;
   padding: 12px 14px;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.sw-mini-card:hover {
+  border-color: var(--sw-border-hover);
+  transform: translateY(-2px);
 }
 
 .sw-mini-card h4 {
   margin: 0 0 6px;
-  color: #6b7280;
+  color: var(--sw-text-muted);
   font-size: 0.78rem;
   font-weight: 600;
 }
 
 .sw-mini-value {
-  color: #e5e7eb;
-  font-size: 1.1rem;
+  color: var(--sw-text);
+  font-size: 1.15rem;
   font-weight: 700;
 }
 
@@ -2557,25 +2906,27 @@ body {
 }
 
 .sw-mini-sub {
-  color: #9ca3af;
+  color: var(--sw-text-secondary);
   font-size: 0.8rem;
   margin-top: 2px;
 }
 
 .sw-sentiment-positive {
-  color: #22c55e;
+  color: var(--sw-green);
 }
 
 .sw-sentiment-negative {
-  color: #ef4444;
+  color: var(--sw-red);
 }
 
 .sw-link {
-  color: #d4a017;
+  color: var(--sw-accent);
   text-decoration: none;
+  transition: color 0.15s ease;
 }
 
 .sw-link:hover {
+  color: var(--sw-accent-2);
   text-decoration: underline;
 }
 
@@ -2591,16 +2942,24 @@ body {
 
 .sw-table th {
   text-align: right;
-  color: #6b7280;
+  color: var(--sw-text-muted);
   font-weight: 600;
   padding: 8px 10px;
-  border-bottom: 1px solid #2a2e35;
+  border-bottom: 1px solid var(--sw-border);
 }
 
 .sw-table td {
   padding: 8px 10px;
-  border-bottom: 1px solid #22262c;
-  color: #e5e7eb;
+  border-bottom: 1px solid rgba(38, 40, 56, 0.6);
+  color: var(--sw-text);
+}
+
+.sw-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.sw-table tbody tr:hover {
+  background: var(--sw-surface-2);
 }
 
 .sw-chip-list {
@@ -2612,17 +2971,20 @@ body {
 .sw-chip {
   padding: 8px 16px;
   border-radius: 999px;
-  border: 1px solid #2a2e35;
-  background: #17191d;
-  color: #e5e7eb;
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface-2);
+  color: var(--sw-text);
   font-weight: 600;
   font-size: 0.85rem;
   cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease, background-color 0.15s ease;
 }
 
 .sw-chip:hover {
-  border-color: #d4a017;
-  color: #d4a017;
+  border-color: var(--sw-accent);
+  color: var(--sw-accent);
+  background: var(--sw-accent-soft);
+  transform: translateY(-1px);
 }
 
 .sw-news-grid {
@@ -2632,10 +2994,16 @@ body {
 }
 
 .sw-news-card {
-  background: #17191d;
-  border: 1px solid #2a2e35;
-  border-radius: 8px;
+  background: var(--sw-surface-2);
+  border: 1px solid var(--sw-border);
+  border-radius: 12px;
   padding: 12px 14px;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.sw-news-card:hover {
+  border-color: var(--sw-border-hover);
+  transform: translateY(-2px);
 }
 
 .sw-news-title {
@@ -2659,7 +3027,7 @@ body {
 .sw-ownership-extra {
   margin-top: 18px;
   padding-top: 18px;
-  border-top: 1px solid #2a2e35;
+  border-top: 1px solid var(--sw-border);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -2672,25 +3040,88 @@ body {
 }
 
 .sw-gauge {
-  background: #17191d;
-  border: 1px solid #2a2e35;
-  border-radius: 8px;
+  background: var(--sw-surface-2);
+  border: 1px solid var(--sw-border);
+  border-radius: 12px;
   padding: 10px;
   text-align: center;
+  transition: border-color 0.15s ease;
+}
+
+.sw-gauge:hover {
+  border-color: var(--sw-border-hover);
 }
 
 .sw-gauge-label {
   margin: 0 0 4px;
-  color: #9ca3af;
+  color: var(--sw-text-secondary);
   font-size: 0.78rem;
   font-weight: 600;
 }
 
 .sw-gauge-value {
-  color: #e5e7eb;
+  color: var(--sw-text);
   font-weight: 700;
   font-size: 1rem;
   margin-top: -6px;
+}
+
+/* Forces LTR layout on the chart itself (recharts' own axis/label math
+   assumes LTR and was clipping category labels inside this RTL page) -
+   see LtrChart in StockResearchView.js. Hebrew text inside tooltips/labels
+   still renders correctly right-to-left via the browser's own bidi
+   handling; only the chart's outer box direction changes. */
+.sw-chart-ltr {
+  direction: ltr;
+  width: 100%;
+}
+
+.sw-treemap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.sw-treemap-group-title {
+  color: #c7cbdc;
+  font-size: 0.85rem;
+  margin: 0 0 6px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.sw-treemap-legend {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sw-treemap-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  padding: 3px 0;
+}
+
+.sw-treemap-swatch {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.sw-treemap-legend-name {
+  flex: 1;
+  color: var(--sw-text-secondary);
+}
+
+.sw-treemap-legend-value {
+  color: var(--sw-text);
+  font-weight: 600;
 }
 
 @media (max-width: 800px) {

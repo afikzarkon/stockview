@@ -325,8 +325,25 @@ describe('StockResearchView', () => {
     expect(screen.queryByText('אין מספיק נתונים למודל DCF עבור מנייה זו.')).toBeNull();
     expect(container.textContent).toMatch(/שווי הוגן משוער: \$\d/);
 
-    // Balance sheet treemap, inside Financial Health
+    // Balance sheet treemap, inside Financial Health - rendered as two
+    // separate group treemaps (Assets / Liabilities & Equity), not one
+    // combined one (see the fix for the "boxes ended up mixed together"
+    // report).
     expect(container.textContent).toContain('פילוח מאזן (שנה אחרונה)');
+    const treemapGroupTitles = Array.from(container.querySelectorAll('.sw-treemap-group-title')).map(
+      (el) => el.textContent
+    );
+    expect(treemapGroupTitles).toEqual(['נכסים', 'התחייבויות והון']);
+
+    // Every treemap item is always listed in a legend regardless of its own
+    // box size (a box too narrow for its label was previously unreadable -
+    // see the fix in renderTreemapCell/the sw-treemap-legend list).
+    const legendLists = container.querySelectorAll('.sw-treemap-legend');
+    expect(legendLists.length).toBe(2);
+    expect(legendLists[0].querySelectorAll('li').length).toBe(3); // current assets, PP&E, cash (goodwill missing)
+    expect(legendLists[1].querySelectorAll('li').length).toBe(3); // current liabilities, long-term debt, equity
+    expect(legendLists[0].textContent).toContain('מזומן ושווי מזומן');
+    expect(legendLists[0].textContent).toContain('$200.00');
 
     // Gauges: ROE (0.2), ROA (0.1), ROCE (EBIT 200 / invested capital 1000 = 0.2)
     const gaugeValues = Array.from(container.querySelectorAll('.sw-gauge-value')).map((el) => el.textContent);

@@ -12,12 +12,15 @@ import { usePriceRefresh } from './hooks/usePriceRefresh';
 import { useCpiIndex } from './hooks/useCpiIndex';
 import { usePortfolioSnapshots } from './hooks/usePortfolioSnapshots';
 import { useRebalanceTargets } from './hooks/useRebalanceTargets';
+import { useTheme } from './hooks/useTheme';
 import { monthKeyFromDate } from './utils/cpiTax';
 import StockFormView from './components/StockFormView';
 import PortfolioAnalysisView from './components/PortfolioAnalysisView';
 import StockResearchView from './components/StockResearchView';
 import HomeView from './components/HomeView';
 import AuthView from './components/AuthView';
+import TopNav from './components/TopNav';
+import ThemeToggleButton from './components/ThemeToggleButton';
 
 const LEGACY_KEYS = [
   'israeliStocks',
@@ -72,6 +75,7 @@ function clearLegacyPortfolioKeys() {
 
 function App() {
   const { user, authLoading, authHeader, login, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const {
     israeliStocks,
     setIsraeliStocks,
@@ -401,6 +405,17 @@ function App() {
     setShowForm(false);
   };
 
+  // Single navigation entry point for TopNav (and, via onBack, the pages'
+  // own existing back buttons) - clears whichever "show X" flag isn't the
+  // target page. 'home' clears both, same as the original handleBackToHome.
+  const handleNavigate = (page) => {
+    setShowForm(false);
+    setShowAnalysis(page === 'analysis');
+    setShowStockResearch(page === 'research');
+  };
+
+  const activePage = showAnalysis ? 'analysis' : showStockResearch ? 'research' : 'home';
+
   // פונקציה למחיקת מנייה
   const handleDelete = (id, exchange) => {
     if (exchange === 'israeli') {
@@ -611,6 +626,9 @@ function App() {
   if (!user) {
     return (
       <div className="App">
+        <div className="auth-theme-toggle-wrap">
+          <ThemeToggleButton theme={theme} onToggleTheme={toggleTheme} />
+        </div>
         <AuthView onAuthenticated={login} />
       </div>
     );
@@ -628,42 +646,74 @@ function App() {
 
   if (showForm) {
     return (
-      <StockFormView
-        isEditMode={isEditMode}
-        formData={formData}
-        pensionFunds={pensionFunds}
-        handleSubmit={handleSubmit}
-        handleInputChange={handleInputChange}
-        handleBackToHome={handleBackToHome}
-        handleSaveEdit={handleSaveEdit}
-        handleCancelEdit={handleCancelEdit}
-      />
+      <>
+        <TopNav
+          activePage={activePage}
+          onNavigate={handleNavigate}
+          user={user}
+          onLogout={handleLogout}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
+        <StockFormView
+          isEditMode={isEditMode}
+          formData={formData}
+          pensionFunds={pensionFunds}
+          handleSubmit={handleSubmit}
+          handleInputChange={handleInputChange}
+          handleBackToHome={handleBackToHome}
+          handleSaveEdit={handleSaveEdit}
+          handleCancelEdit={handleCancelEdit}
+        />
+      </>
     );
   }
 
   if (showAnalysis) {
     return (
-      <PortfolioAnalysisView
-        analysis={analysis}
-        formatPriceWithSign={formatPriceWithSign}
-        onBack={() => setShowAnalysis(false)}
-        snapshots={snapshots}
-        snapshotsLoading={snapshotsLoading}
-        americanStocks={americanStocks}
-        israeliStocks={israeliStocks}
-        pensionFunds={pensionFunds}
-        cpi={cpi}
-        rebalanceTargets={rebalanceTargets}
-        rebalanceTargetsLoading={rebalanceTargetsLoading}
-        rebalanceSaving={rebalanceSaving}
-        rebalanceSaveError={rebalanceSaveError}
-        onSaveRebalanceTargets={saveRebalanceTargets}
-      />
+      <>
+        <TopNav
+          activePage={activePage}
+          onNavigate={handleNavigate}
+          user={user}
+          onLogout={handleLogout}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
+        <PortfolioAnalysisView
+          analysis={analysis}
+          formatPriceWithSign={formatPriceWithSign}
+          onBack={() => handleNavigate('home')}
+          snapshots={snapshots}
+          snapshotsLoading={snapshotsLoading}
+          americanStocks={americanStocks}
+          israeliStocks={israeliStocks}
+          pensionFunds={pensionFunds}
+          cpi={cpi}
+          rebalanceTargets={rebalanceTargets}
+          rebalanceTargetsLoading={rebalanceTargetsLoading}
+          rebalanceSaving={rebalanceSaving}
+          rebalanceSaveError={rebalanceSaveError}
+          onSaveRebalanceTargets={saveRebalanceTargets}
+        />
+      </>
     );
   }
 
   if (showStockResearch) {
-    return <StockResearchView onBack={() => setShowStockResearch(false)} />;
+    return (
+      <>
+        <TopNav
+          activePage={activePage}
+          onNavigate={handleNavigate}
+          user={user}
+          onLogout={handleLogout}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
+        <StockResearchView onBack={() => handleNavigate('home')} />
+      </>
+    );
   }
 
   const summary = calculatePortfolioSummary(
@@ -676,41 +726,47 @@ function App() {
   );
 
   return (
-    <HomeView
-      user={user}
-      showLegacyImportButton={showLegacyImportButton}
-      legacyImportLoading={legacyImportLoading}
-      handleLegacyImportOnce={handleLegacyImportOnce}
-      handleLogout={handleLogout}
-      savePortfolio={savePortfolio}
-      hasUnsavedChanges={hasUnsavedChanges}
-      saveLoading={saveLoading}
-      lastSavedAt={lastSavedAt}
-      saveError={saveError}
-      legacyImportBanner={legacyImportBanner}
-      summary={summary}
-      israeliStocks={israeliStocks}
-      americanStocks={americanStocks}
-      pensionFunds={pensionFunds}
-      cashFunds={cashFunds}
-      bankBalances={bankBalances}
-      cpi={cpi}
-      handleAddInfo={handleAddInfo}
-      setShowAnalysis={setShowAnalysis}
-      setShowStockResearch={setShowStockResearch}
-      isEditMode={isEditMode}
-      setIsEditMode={setIsEditMode}
-      showAmericanColumns={showAmericanColumns}
-      setShowAmericanColumns={setShowAmericanColumns}
-      expandedGroups={expandedGroups}
-      editingField={editingField}
-      handleCellClick={handleCellClick}
-      handleInlineEdit={handleInlineEdit}
-      finishInlineEdit={finishInlineEdit}
-      handleKeyDown={handleKeyDown}
-      handleDelete={handleDelete}
-      toggleGroup={toggleGroup}
-    />
+    <>
+      <TopNav
+        activePage={activePage}
+        onNavigate={handleNavigate}
+        user={user}
+        onLogout={handleLogout}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
+      <HomeView
+        showLegacyImportButton={showLegacyImportButton}
+        legacyImportLoading={legacyImportLoading}
+        handleLegacyImportOnce={handleLegacyImportOnce}
+        savePortfolio={savePortfolio}
+        hasUnsavedChanges={hasUnsavedChanges}
+        saveLoading={saveLoading}
+        lastSavedAt={lastSavedAt}
+        saveError={saveError}
+        legacyImportBanner={legacyImportBanner}
+        summary={summary}
+        israeliStocks={israeliStocks}
+        americanStocks={americanStocks}
+        pensionFunds={pensionFunds}
+        cashFunds={cashFunds}
+        bankBalances={bankBalances}
+        cpi={cpi}
+        handleAddInfo={handleAddInfo}
+        isEditMode={isEditMode}
+        setIsEditMode={setIsEditMode}
+        showAmericanColumns={showAmericanColumns}
+        setShowAmericanColumns={setShowAmericanColumns}
+        expandedGroups={expandedGroups}
+        editingField={editingField}
+        handleCellClick={handleCellClick}
+        handleInlineEdit={handleInlineEdit}
+        finishInlineEdit={finishInlineEdit}
+        handleKeyDown={handleKeyDown}
+        handleDelete={handleDelete}
+        toggleGroup={toggleGroup}
+      />
+    </>
   );
 }
 

@@ -7,6 +7,7 @@ import {
   Radar,
   ResponsiveContainer,
   Tooltip,
+  Legend,
   AreaChart,
   Area,
   ReferenceDot,
@@ -100,8 +101,105 @@ function formatUsdCompact(value) {
   return `${sign}$${abs.toFixed(2)}`;
 }
 
-const DONUT_COLORS = ['#a3c936', '#22c55e', '#d4a017', '#ef4444', '#9ca3af', '#3b82f6'];
-const TREEMAP_COLORS = ['#a3c936', '#22c55e', '#3b82f6', '#d4a017'];
+// Chart colors, kept as literal hex (recharts needs literal SVG attribute
+// values, not CSS custom properties) but hand-matched to the "private
+// wealth" palette (:root's --sw-* variables) in App.css - champagne-gold
+// primary accent + deep teal secondary, semantic green/red reserved for
+// pass/fail so a chart's own color choices never get confused with a
+// checkmark's meaning. These are always the dark-theme values (charts
+// don't currently re-theme with the light/dark toggle - a follow-up if
+// wanted, not part of this palette refresh).
+const SW = {
+  bg: '#0a0b0a',
+  surface: '#131513',
+  border: '#262a25',
+  textSecondary: '#a3a99e',
+  textMuted: '#6f766b',
+  text: '#f2f0e9',
+  accent: '#d4af6a', // champagne gold
+  accent2: '#2dd4bf', // deep teal
+  cyan: '#38bdf8',
+  green: '#34d399',
+  red: '#f43f5e',
+  amber: '#f59e0b'
+};
+
+const DONUT_COLORS = [SW.accent, SW.cyan, SW.amber, SW.red, SW.green, SW.accent2];
+const TREEMAP_COLORS = [SW.accent, SW.cyan, SW.accent2, SW.amber];
+
+// recharts lays out every chart (axis ticks, category label anchors, the
+// treemap's rect coordinates) assuming an LTR box, and gets visibly
+// confused inside this page's RTL container - vertical bar-chart category
+// labels were rendering clipped/truncated. Forcing dir="ltr" on a wrapper
+// around just the chart (not the surrounding Hebrew card text) fixes the
+// layout math; the individual Hebrew label strings inside still render
+// correctly RTL via the browser's own per-run bidi handling, only the
+// chart's own box direction changes.
+function LtrChart({ children, height }) {
+  return (
+    <div className="sw-chart-ltr" dir="ltr">
+      <ResponsiveContainer width="100%" height={height}>
+        {children}
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// Custom recharts Treemap cell. Two fixes over the default content
+// renderer, both from a real report against real data: (1) a label longer
+// than its box is wide was overflowing past the box's edges and getting
+// visually swallowed by whichever neighboring cell painted on top of it -
+// every label/value here is drawn inside a <clipPath> matching its own
+// box, so a too-long string gets cleanly cropped to its own cell instead of
+// bleeding into a neighbor. (2) whether a label is even attempted is based
+// on an estimated text width (no browser available here to measure real
+// text metrics; average bold-Hebrew glyph width at these font sizes is
+// roughly 7.5px/char at 11px, 6px/char at 10px) rather than a fixed
+// box-size threshold, so a box that's "big enough in pixels" but too
+// narrow for its specific (long) name just shows the value, or neither -
+// never a guaranteed-to-overflow label. See the treemap-group legend in
+// the JSX below for a size-independent way to always see every item.
+function renderTreemapCell({ x, y, width, height, name, value, fill }) {
+  if (!(width > 0) || !(height > 0)) return null;
+  const valueText = formatUsdCompact(value);
+  const showName = width > name.length * 7.5 + 12 && height > 30;
+  const showValue = width > valueText.length * 6 + 12 && height > (showName ? 44 : 20);
+  const clipId = `sw-tm-${Math.round(x)}-${Math.round(y)}-${Math.round(width)}-${Math.round(height)}`;
+  const textProps = {
+    textAnchor: 'middle',
+    fill: '#ffffff',
+    stroke: 'rgba(0,0,0,0.55)',
+    strokeWidth: 3,
+    paintOrder: 'stroke',
+    style: { fontWeight: 700, pointerEvents: 'none' }
+  };
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={height} fill={fill} stroke={SW.surface} strokeWidth={2} />
+      <clipPath id={clipId}>
+        <rect x={x + 2} y={y + 2} width={Math.max(0, width - 4)} height={Math.max(0, height - 4)} />
+      </clipPath>
+      <g clipPath={`url(#${clipId})`}>
+        {showName && (
+          <text x={x + width / 2} y={y + height / 2 - 6} fontSize={11} {...textProps}>
+            {name}
+          </text>
+        )}
+        {showValue && (
+          <text
+            x={x + width / 2}
+            y={y + height / 2 + (showName ? 11 : 4)}
+            fontSize={10}
+            {...textProps}
+            style={{ ...textProps.style, fontWeight: 400 }}
+          >
+            {valueText}
+          </text>
+        )}
+      </g>
+    </g>
+  );
+}
 
 function collectRewardsAndRisks(categories, limit) {
   const rewards = [];
@@ -258,7 +356,7 @@ function StockResearchView({ onBack }) {
           <p className="sw-empty-note">אין נתון</p>
         ) : (
           <>
-            <ResponsiveContainer width="100%" height={110}>
+            <LtrChart height={110}>
               <RadialBarChart
                 innerRadius="70%"
                 outerRadius="100%"
@@ -266,9 +364,9 @@ function StockResearchView({ onBack }) {
                 startAngle={90}
                 endAngle={-270}
               >
-                <RadialBar background dataKey="value" cornerRadius={8} />
+                <RadialBar background={{ fill: SW.border }} dataKey="value" cornerRadius={8} />
               </RadialBarChart>
-            </ResponsiveContainer>
+            </LtrChart>
             <div className="sw-gauge-value">{percent.toFixed(1)}%</div>
           </>
         )}
@@ -402,15 +500,15 @@ function StockResearchView({ onBack }) {
                   </div>
 
                   <div className="sw-overview-right">
-                    <ResponsiveContainer width="100%" height={260}>
+                    <LtrChart height={260}>
                       <RadarChart data={radarData}>
-                        <PolarGrid stroke="#2a2e35" />
-                        <PolarAngleAxis dataKey="category" tick={{ fontSize: 11, fill: '#9ca3af' }} />
+                        <PolarGrid stroke={SW.border} />
+                        <PolarAngleAxis dataKey="category" tick={{ fontSize: 11, fill: SW.textSecondary }} />
                         <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-                        <Radar dataKey="percent" stroke="#a3c936" fill="#a3c936" fillOpacity={0.55} />
+                        <Radar dataKey="percent" stroke={SW.accent} fill={SW.accent} fillOpacity={0.4} />
                         <Tooltip formatter={(value) => `${Number(value).toFixed(0)}%`} />
                       </RadarChart>
-                    </ResponsiveContainer>
+                    </LtrChart>
                     <div className="sw-snowflake-caption">
                       <strong>Snowflake Analysis</strong>
                       {scorecard?.verdict?.verdict && (
@@ -434,22 +532,34 @@ function StockResearchView({ onBack }) {
                     <p className="sw-empty-note">אין נתוני מחיר היסטוריים זמינים למנייה זו.</p>
                   ) : (
                     <>
-                      <ResponsiveContainer width="100%" height={260}>
-                        <AreaChart data={priceHistoryData}>
-                          <CartesianGrid stroke="#2a2e35" strokeDasharray="3 3" />
-                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} minTickGap={40} />
+                      <LtrChart height={260}>
+                        <AreaChart data={priceHistoryData} margin={{ top: 8, right: 16, bottom: 0, left: 4 }}>
+                          <defs>
+                            <linearGradient id="swPriceGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={SW.accent} stopOpacity={0.45} />
+                              <stop offset="100%" stopColor={SW.accent} stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid stroke={SW.border} strokeDasharray="3 3" />
+                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: SW.textSecondary }} minTickGap={40} />
                           <YAxis
-                            tick={{ fontSize: 10, fill: '#9ca3af' }}
+                            tick={{ fontSize: 10, fill: SW.textSecondary }}
                             domain={['auto', 'auto']}
                             width={50}
                           />
                           <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`} />
-                          <Area type="monotone" dataKey="close" stroke="#a3c936" fill="#a3c936" fillOpacity={0.25} />
+                          <Area
+                            type="monotone"
+                            dataKey="close"
+                            stroke={SW.accent}
+                            strokeWidth={2}
+                            fill="url(#swPriceGradient)"
+                          />
                           {dividendMarkers.map((m) => (
-                            <ReferenceDot key={m.date} x={m.date} y={m.close} r={4} fill="#d4a017" stroke="none" />
+                            <ReferenceDot key={m.date} x={m.date} y={m.close} r={4} fill={SW.amber} stroke="none" />
                           ))}
                         </AreaChart>
-                      </ResponsiveContainer>
+                      </LtrChart>
                       {dividendMarkers.length > 0 && (
                         <p className="sw-section-question">
                           הנקודות המסומנות (●) הן תאריכי תשלום דיבידנד בפועל.
@@ -469,7 +579,7 @@ function StockResearchView({ onBack }) {
                       {revenueBreakdown && (
                         <div>
                           <h4 className="sw-subsection-title">הרכב הכנסות (שנה אחרונה)</h4>
-                          <ResponsiveContainer width="100%" height={220}>
+                          <LtrChart height={220}>
                             <PieChart>
                               <Pie
                                 data={revenueBreakdown.slices}
@@ -477,29 +587,43 @@ function StockResearchView({ onBack }) {
                                 nameKey="label"
                                 innerRadius={50}
                                 outerRadius={80}
+                                paddingAngle={2}
+                                stroke={SW.surface}
+                                strokeWidth={2}
                               >
                                 {revenueBreakdown.slices.map((s, i) => (
                                   <Cell key={s.key} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
                                 ))}
                               </Pie>
                               <Tooltip formatter={(value) => formatUsdCompact(Number(value))} />
+                              <Legend
+                                layout="vertical"
+                                align="right"
+                                verticalAlign="middle"
+                                wrapperStyle={{ fontSize: 11, color: SW.textSecondary }}
+                              />
                             </PieChart>
-                          </ResponsiveContainer>
+                          </LtrChart>
                         </div>
                       )}
                       {revenueTrend && (
                         <div>
                           <h4 className="sw-subsection-title">הכנסות ורווח נקי לאורך זמן</h4>
-                          <ResponsiveContainer width="100%" height={220}>
-                            <BarChart data={revenueTrend}>
-                              <CartesianGrid stroke="#2a2e35" strokeDasharray="3 3" />
-                              <XAxis dataKey="year" tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                              <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} tickFormatter={formatUsdCompact} width={60} />
+                          <LtrChart height={220}>
+                            <BarChart data={revenueTrend} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
+                              <CartesianGrid stroke={SW.border} strokeDasharray="3 3" />
+                              <XAxis dataKey="year" tick={{ fontSize: 10, fill: SW.textSecondary }} />
+                              <YAxis
+                                tick={{ fontSize: 10, fill: SW.textSecondary }}
+                                tickFormatter={formatUsdCompact}
+                                width={60}
+                              />
                               <Tooltip formatter={(value) => formatUsdCompact(Number(value))} />
-                              <Bar dataKey="revenue" name="הכנסות" fill="#a3c936" />
-                              <Bar dataKey="netIncome" name="רווח נקי" fill="#d4a017" />
+                              <Legend wrapperStyle={{ fontSize: 11, color: SW.textSecondary }} />
+                              <Bar dataKey="revenue" name="הכנסות" fill={SW.accent} radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="netIncome" name="רווח נקי" fill={SW.cyan} radius={[4, 4, 0, 0]} />
                             </BarChart>
-                          </ResponsiveContainer>
+                          </LtrChart>
                         </div>
                       )}
                     </div>
@@ -557,24 +681,28 @@ function StockResearchView({ onBack }) {
                         {peerPeChartData.length > 0 && (
                           <div>
                             <h4 className="sw-subsection-title">מכפיל רווח (P/E) מול חברות דומות</h4>
-                            <ResponsiveContainer width="100%" height={Math.max(120, peerPeChartData.length * 32)}>
-                              <BarChart data={peerPeChartData} layout="vertical">
-                                <CartesianGrid stroke="#2a2e35" strokeDasharray="3 3" />
-                                <XAxis type="number" tick={{ fontSize: 10, fill: '#9ca3af' }} />
+                            <LtrChart height={Math.max(120, peerPeChartData.length * 32)}>
+                              <BarChart
+                                data={peerPeChartData}
+                                layout="vertical"
+                                margin={{ top: 4, right: 16, bottom: 4, left: 4 }}
+                              >
+                                <CartesianGrid stroke={SW.border} strokeDasharray="3 3" />
+                                <XAxis type="number" tick={{ fontSize: 10, fill: SW.textSecondary }} />
                                 <YAxis
                                   type="category"
                                   dataKey="symbol"
-                                  tick={{ fontSize: 11, fill: '#e5e7eb' }}
-                                  width={60}
+                                  tick={{ fontSize: 11, fill: SW.text }}
+                                  width={70}
                                 />
                                 <Tooltip formatter={(value) => Number(value).toFixed(1)} />
-                                <Bar dataKey="pe" name="P/E">
+                                <Bar dataKey="pe" name="P/E" radius={[0, 4, 4, 0]}>
                                   {peerPeChartData.map((d) => (
-                                    <Cell key={d.symbol} fill={d.isSelected ? '#d4a017' : '#a3c936'} />
+                                    <Cell key={d.symbol} fill={d.isSelected ? SW.amber : SW.accent} />
                                   ))}
                                 </Bar>
                               </BarChart>
-                            </ResponsiveContainer>
+                            </LtrChart>
                           </div>
                         )}
 
@@ -584,15 +712,15 @@ function StockResearchView({ onBack }) {
                             <p className="sw-section-question">
                               מבוסס על מחיר סוף שנה חלקי EPS מדווח בפועל לאותה שנה — קירוב, לא סדרת P/E רשמית.
                             </p>
-                            <ResponsiveContainer width="100%" height={160}>
-                              <BarChart data={historicalPe}>
-                                <CartesianGrid stroke="#2a2e35" strokeDasharray="3 3" />
-                                <XAxis dataKey="year" tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} width={40} />
+                            <LtrChart height={160}>
+                              <BarChart data={historicalPe} margin={{ top: 4, right: 8, bottom: 0, left: 4 }}>
+                                <CartesianGrid stroke={SW.border} strokeDasharray="3 3" />
+                                <XAxis dataKey="year" tick={{ fontSize: 10, fill: SW.textSecondary }} />
+                                <YAxis tick={{ fontSize: 10, fill: SW.textSecondary }} width={40} />
                                 <Tooltip formatter={(value) => Number(value).toFixed(1)} />
-                                <Bar dataKey="pe" fill="#a3c936" />
+                                <Bar dataKey="pe" fill={SW.accent} radius={[4, 4, 0, 0]} />
                               </BarChart>
-                            </ResponsiveContainer>
+                            </LtrChart>
                           </div>
                         )}
 
@@ -602,28 +730,30 @@ function StockResearchView({ onBack }) {
                             <p className="sw-empty-note">אין מספיק נתונים למודל DCF עבור מנייה זו.</p>
                           ) : (
                             <>
-                              <ResponsiveContainer width="100%" height={130}>
+                              <LtrChart height={140}>
                                 <BarChart
                                   layout="vertical"
                                   data={[
                                     { name: 'מחיר נוכחי', value: dcfResult.currentPrice },
                                     { name: 'שווי הוגן משוער', value: dcfResult.fairValuePerShare }
                                   ]}
+                                  margin={{ top: 8, right: 24, bottom: 8, left: 4 }}
                                 >
-                                  <XAxis type="number" tick={{ fontSize: 10, fill: '#9ca3af' }} />
+                                  <XAxis type="number" tick={{ fontSize: 10, fill: SW.textSecondary }} />
                                   <YAxis
                                     type="category"
                                     dataKey="name"
-                                    tick={{ fontSize: 11, fill: '#e5e7eb' }}
-                                    width={110}
+                                    tick={{ fontSize: 11, fill: SW.text }}
+                                    width={128}
+                                    interval={0}
                                   />
                                   <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`} />
-                                  <Bar dataKey="value">
-                                    <Cell fill="#9ca3af" />
-                                    <Cell fill="#a3c936" />
+                                  <Bar dataKey="value" barSize={28} radius={[0, 6, 6, 0]}>
+                                    <Cell fill={SW.textMuted} />
+                                    <Cell fill={SW.accent} />
                                   </Bar>
                                 </BarChart>
-                              </ResponsiveContainer>
+                              </LtrChart>
                               <p className="sw-section-question">
                                 שווי הוגן משוער: ${dcfResult.fairValuePerShare.toFixed(2)}
                                 {dcfResult.marginOfSafetyPercent != null &&
@@ -651,15 +781,43 @@ function StockResearchView({ onBack }) {
                         {treemapDataWithColors && (
                           <div>
                             <h4 className="sw-subsection-title">פילוח מאזן (שנה אחרונה)</h4>
-                            <ResponsiveContainer width="100%" height={220}>
-                              <Treemap data={treemapDataWithColors} dataKey="size" stroke="#131518" fill="#a3c936" />
-                            </ResponsiveContainer>
+                            {/* Two separate treemaps, one per group, rather than one combined
+                                treemap - squarifying assets and liabilities+equity together mixed
+                                the two groups' boxes with no visible group boundary. */}
+                            <div className="sw-treemap-grid">
+                              {treemapDataWithColors.map((group) => (
+                                <div key={group.name}>
+                                  <h5 className="sw-treemap-group-title">{group.name}</h5>
+                                  <LtrChart height={180}>
+                                    <Treemap
+                                      data={group.children}
+                                      dataKey="size"
+                                      stroke={SW.surface}
+                                      content={renderTreemapCell}
+                                      isAnimationActive={false}
+                                    />
+                                  </LtrChart>
+                                  {/* A box too small for its own in-box label still needs to be
+                                      identifiable - this legend lists every item regardless of its
+                                      box size (the in-box label report). */}
+                                  <ul className="sw-treemap-legend">
+                                    {group.children.map((c) => (
+                                      <li key={c.name}>
+                                        <span className="sw-treemap-swatch" style={{ background: c.fill }} />
+                                        <span className="sw-treemap-legend-name">{c.name}</span>
+                                        <span className="sw-treemap-legend-value">{formatUsdCompact(c.size)}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         )}
                         <div className="sw-gauge-row">
-                          {renderGauge('תשואה להון עצמי (ROE)', research?.returnOnEquity, '#a3c936')}
-                          {renderGauge('תשואה על הנכסים (ROA)', research?.returnOnAssets, '#22c55e')}
-                          {renderGauge('תשואה על ההון המושקע (ROCE)', latestRoce, '#d4a017')}
+                          {renderGauge('תשואה להון עצמי (ROE)', research?.returnOnEquity, SW.accent)}
+                          {renderGauge('תשואה על הנכסים (ROA)', research?.returnOnAssets, SW.cyan)}
+                          {renderGauge('תשואה על ההון המושקע (ROCE)', latestRoce, SW.amber)}
                         </div>
                       </div>
                     )}

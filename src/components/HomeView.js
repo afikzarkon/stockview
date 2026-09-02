@@ -17,11 +17,9 @@ import FinancialAccountsTables from './FinancialAccountsTables';
 // tables, and the empty-state message. Extracted from App.js's final
 // `return (...)` block — behavior is unchanged, only the location moved.
 function HomeView({
-  user,
   showLegacyImportButton,
   legacyImportLoading,
   handleLegacyImportOnce,
-  handleLogout,
   savePortfolio,
   hasUnsavedChanges,
   saveLoading,
@@ -36,8 +34,6 @@ function HomeView({
   bankBalances,
   cpi,
   handleAddInfo,
-  setShowAnalysis,
-  setShowStockResearch,
   isEditMode,
   setIsEditMode,
   showAmericanColumns,
@@ -89,7 +85,6 @@ function HomeView({
     <div className="App">
       <div className="welcome-container">
         <div className="user-bar">
-          <span className="user-email">{user.email}</span>
           {showLegacyImportButton ? (
             <button
               type="button"
@@ -100,11 +95,6 @@ function HomeView({
               {legacyImportLoading ? 'מייבא…' : 'ייבוא חד-פעמי מהדפדפן'}
             </button>
           ) : null}
-          <button type="button" className="user-logout" onClick={handleLogout}>
-            התנתקות
-          </button>
-        </div>
-        <div className="user-bar">
           <button
             type="button"
             className="btn portfolio-save-btn"
@@ -126,7 +116,25 @@ function HomeView({
         </div>
         {legacyImportBanner ? <p className="user-import-banner">{legacyImportBanner}</p> : null}
         <div className="welcome-content">
-          <h1 className="welcome-title">תיק ההשקעות שלך</h1>
+          <div className="page-header-row">
+            <h1 className="welcome-title">תיק ההשקעות שלך</h1>
+            <div className="page-header-actions">
+              {hasAnyData && (
+                <div className="export-actions">
+                  <button type="button" className="export-button" onClick={handleExportExcel}>
+                    ייצוא ל-Excel
+                  </button>
+                  <button type="button" className="export-button" onClick={handleExportPdf}>
+                    ייצוא ל-PDF
+                  </button>
+                </div>
+              )}
+              <button type="button" className="add-info-button" onClick={handleAddInfo}>
+                + הוספת מידע חדש
+              </button>
+            </div>
+          </div>
+          {exportError && <p className="export-error">{exportError}</p>}
 
           {/* מקור החישוב: המדד שנמשך ומשמש לחישוב מס רווח ההון הריאלי */}
           {cpi && (cpi.loading || cpi.currentIndex != null || cpi.error) && (
@@ -148,32 +156,6 @@ function HomeView({
           )}
 
           <div className="main-buttons-container">
-            <button className="add-info-button" onClick={handleAddInfo}>
-              הוספת מידע חדש
-            </button>
-            <button className="analysis-button" onClick={() => setShowAnalysis(true)}>
-              ניתוח התיק
-            </button>
-            <button className="analysis-button" onClick={() => setShowStockResearch(true)}>
-              חקר מניות
-            </button>
-
-            {hasAnyData && (
-              <div className="control-buttons">
-                <button className="btn btn-info" onClick={handleExportExcel}>
-                  ייצוא ל-Excel
-                </button>
-                <button className="btn btn-info" onClick={handleExportPdf}>
-                  ייצוא ל-PDF
-                </button>
-              </div>
-            )}
-            {exportError && (
-              <span className="user-email" style={{ fontSize: 12, color: '#b00020' }}>
-                {exportError}
-              </span>
-            )}
-
             {/* כפתורי בקרה */}
             <div className="control-buttons">
               <button

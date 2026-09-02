@@ -19,11 +19,9 @@ const summary = calculatePortfolioSummary(israeliStocks, americanStocks, pension
 
 function makeProps(overrides = {}) {
   return {
-    user: { email: 'test@example.com' },
     showLegacyImportButton: false,
     legacyImportLoading: false,
     handleLegacyImportOnce: noop,
-    handleLogout: noop,
     savePortfolio: noop,
     hasUnsavedChanges: false,
     saveLoading: false,
@@ -37,8 +35,6 @@ function makeProps(overrides = {}) {
     cashFunds,
     bankBalances,
     handleAddInfo: noop,
-    setShowAnalysis: noop,
-    setShowStockResearch: noop,
     isEditMode: false,
     setIsEditMode: noop,
     showAmericanColumns: true,
@@ -55,9 +51,8 @@ function makeProps(overrides = {}) {
   };
 }
 
-test('renders the user email and portfolio summary for a populated portfolio', () => {
-  const { getByText, container } = render(<HomeView {...makeProps()} />);
-  expect(getByText('test@example.com')).toBeInTheDocument();
+test('renders the portfolio summary and tables for a populated portfolio', () => {
+  const { container } = render(<HomeView {...makeProps()} />);
   expect(container.querySelectorAll('table').length).toBeGreaterThan(0);
 });
 

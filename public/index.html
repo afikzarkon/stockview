@@ -5,6 +5,20 @@
     <link rel="icon" href="%PUBLIC_URL%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
+    <!-- Sets the theme attribute before first paint, so the page never
+         flashes the wrong theme while React/useTheme (src/hooks/useTheme.js)
+         is still loading - dark is the default, light is the stored
+         opt-out. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('stockview_theme');
+          document.documentElement.setAttribute('data-theme', stored === 'light' ? 'light' : 'dark');
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
     <meta
       name="description"
       content="Web site created using create-react-app"
