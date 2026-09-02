@@ -15,6 +15,7 @@ import { useRebalanceTargets } from './hooks/useRebalanceTargets';
 import { monthKeyFromDate } from './utils/cpiTax';
 import StockFormView from './components/StockFormView';
 import PortfolioAnalysisView from './components/PortfolioAnalysisView';
+import StockResearchView from './components/StockResearchView';
 import HomeView from './components/HomeView';
 import AuthView from './components/AuthView';
 
@@ -95,6 +96,7 @@ function App() {
 
   const [showForm, setShowForm] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [showStockResearch, setShowStockResearch] = useState(false);
   const [isAddingNewStock, setIsAddingNewStock] = useState(false);
   const [formData, setFormData] = useState({
     itemType: 'stock',
@@ -660,6 +662,10 @@ function App() {
     );
   }
 
+  if (showStockResearch) {
+    return <StockResearchView onBack={() => setShowStockResearch(false)} />;
+  }
+
   const summary = calculatePortfolioSummary(
     israeliStocks,
     americanStocks,
@@ -691,6 +697,7 @@ function App() {
       cpi={cpi}
       handleAddInfo={handleAddInfo}
       setShowAnalysis={setShowAnalysis}
+      setShowStockResearch={setShowStockResearch}
       isEditMode={isEditMode}
       setIsEditMode={setIsEditMode}
       showAmericanColumns={showAmericanColumns}

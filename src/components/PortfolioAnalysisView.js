@@ -19,6 +19,7 @@ import { sectorLabelHe } from '../utils/sectorLabels';
 import { buildCorrelationMatrix, highestCorrelatedPairs } from '../utils/correlationAnalysis';
 import { computeReceivedDividends, buildUpcomingDividendCalendar } from '../utils/dividendAnalysis';
 import { buildUpcomingEarningsCalendar } from '../utils/earningsCalendar';
+import { buildNewsFeed } from '../utils/newsFeed';
 import { isValidTargetAllocation, computeRebalancingPlan } from '../utils/rebalancing';
 import {
   computePortfolioHealthScore,
@@ -37,6 +38,7 @@ import { useStockSectors } from '../hooks/useStockSectors';
 import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
 import { useHoldingsPriceHistory } from '../hooks/useHoldingsPriceHistory';
 import { useDividendData } from '../hooks/useDividendData';
+import { useStockNews } from '../hooks/useStockNews';
 import { formatDate } from '../utils/formatters';
 import { computeTaxLossHarvestingOpportunities } from '../utils/taxLossHarvesting';
 import RebalancingSection from './RebalancingSection';
@@ -172,6 +174,9 @@ function PortfolioAnalysisView({
 
   const upcomingDividends = useMemo(() => buildUpcomingDividendCalendar(dividendsBySymbol), [dividendsBySymbol]);
   const upcomingEarnings = useMemo(() => buildUpcomingEarningsCalendar(dividendsBySymbol), [dividendsBySymbol]);
+
+  const { newsBySymbol, loading: newsLoading } = useStockNews(uniqueAmericanSymbols);
+  const newsFeed = useMemo(() => buildNewsFeed(newsBySymbol, 15), [newsBySymbol]);
 
   // Uses the persisted rebalanceTargets prop (not RebalancingSection's own
   // in-progress edit draft, which this component has no access to) - the
@@ -900,6 +905,36 @@ function PortfolioAnalysisView({
                     <span className="date-count">
                       {row.epsEstimateAverage != null ? `EPS משוער: $${row.epsEstimateAverage.toFixed(2)}` : ''}
                     </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="analysis-section">
+            <h2 className="section-title">חדשות רלוונטיות (מניות אמריקאיות)</h2>
+            <p className="section-subtitle">
+              כותרות חדשות אחרונות לפי Yahoo Finance, לכל מניה אמריקאית בתיק. סיפור שרלוונטי ליותר ממניה אחת מוצג
+              פעם אחת בלבד. לא כולל מניות ישראליות, קופות גמל, קרנות כספיות או עו"ש.
+            </p>
+            {americanStocks.length === 0 ? (
+              <p className="history-empty-note">אין מניות אמריקאיות בתיק כרגע.</p>
+            ) : newsLoading && newsFeed.length === 0 ? (
+              <p className="history-empty-note">טוען חדשות…</p>
+            ) : newsFeed.length === 0 ? (
+              <p className="history-empty-note">לא נמצאו חדשות עדכניות עבור המניות בתיק.</p>
+            ) : (
+              <div className="news-list">
+                {newsFeed.map((story) => (
+                  <div className="news-item" key={story.uuid}>
+                    <a className="news-title" href={story.link} target="_blank" rel="noopener noreferrer">
+                      {story.title}
+                    </a>
+                    <div className="news-meta">
+                      {[story.publisher, story.date ? formatDate(story.date) : null, story.relatedSymbols.join(', ')]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </div>
                   </div>
                 ))}
               </div>

@@ -135,6 +135,56 @@ async function fetchYahooHistoricalCloses(symbol, fromDateStr) {
   return points;
 }
 
+// Recent news headlines for a US stock, via Yahoo's public search endpoint
+// (same "no crumb/cookie needed" family as fetchYahooHistoricalCloses
+// above — confirmed with a real request during development: works with
+// just a User-Agent header, unlike the quoteSummary-based functions
+// below). quotesCount:0 skips the ticker/company autocomplete results
+// this endpoint also returns, which aren't needed here.
+async function fetchYahooNews(symbol, count = 10) {
+  const response = await axios.get('https://query1.finance.yahoo.com/v1/finance/search', {
+    params: { q: symbol, newsCount: count, quotesCount: 0 },
+    timeout: 15000,
+    headers: YAHOO_HEADERS
+  });
+
+  const news = response?.data?.news;
+  if (!Array.isArray(news)) return [];
+
+  return news
+    .map((item) => ({
+      uuid: item.uuid || null,
+      title: item.title || null,
+      publisher: item.publisher || null,
+      link: item.link || null,
+      publishedAtEpoch: unwrapYahooNumber(item.providerPublishTime),
+      relatedTickers: Array.isArray(item.relatedTickers) ? item.relatedTickers : []
+    }))
+    .filter((item) => item.uuid && item.title && item.link);
+}
+
+// Ticker/company autocomplete suggestions, via the same public search
+// endpoint as fetchYahooNews above — quotesCount (not newsCount) this time.
+// No crumb/cookie needed, same as fetchYahooNews.
+async function fetchYahooSymbolSearch(query, count = 8) {
+  const response = await axios.get('https://query1.finance.yahoo.com/v1/finance/search', {
+    params: { q: query, newsCount: 0, quotesCount: count },
+    timeout: 15000,
+    headers: YAHOO_HEADERS
+  });
+
+  const quotes = response?.data?.quotes;
+  if (!Array.isArray(quotes)) return [];
+
+  return quotes
+    .filter((q) => q.quoteType === 'EQUITY' && q.symbol)
+    .map((q) => ({
+      symbol: q.symbol,
+      name: q.longname || q.shortname || q.symbol,
+      exchange: q.exchDisp || q.exchange || null
+    }));
+}
+
 // Sector/industry classification for a US stock (module=assetProfile),
 // used for the "diversification by sector" breakdown - a very different
 // question from "how much is it worth" (exchangeDistribution): someone can
@@ -179,19 +229,23 @@ function scheduleOnQuoteSummaryQueue(task) {
   return run;
 }
 
-async function fetchYahooQuoteSummary(symbol, modules) {
-  const encoded = encodeURIComponent(symbol);
-  const yahooUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encoded}`;
-
+// Shared by every crumb-authenticated Yahoo endpoint (quoteSummary below,
+// and fetchYahooFundamentalsTimeseries further down - same auth, same
+// rate-limit behavior, verified against real responses for both): retries
+// once with a freshly-fetched crumb on a stale-auth failure (401/403),
+// retries once more after a short backoff on a burst-rate-limit failure
+// (429), and always goes through the shared queue so concurrent callers
+// don't fire requests at Yahoo back-to-back.
+async function fetchYahooWithCrumbRetry(url, extraParams) {
   const doRequest = async (forceRefreshCrumb) => {
     const { crumb, cookie } = await getYahooCrumbAndCookie(forceRefreshCrumb);
-    return axios.get(yahooUrl, {
+    return axios.get(url, {
       // formatted=false asks Yahoo for plain numbers (e.g. targetMeanPrice:
       // 150.5) instead of its default display-ready shape
       // ({ raw: 150.5, fmt: "150.50" }) - without this, every numeric field
       // silently becomes an object and fails a plain Number.isFinite()
       // check downstream.
-      params: { modules, crumb, formatted: false },
+      params: { ...extraParams, crumb, formatted: false },
       timeout: 12000,
       headers: { ...YAHOO_HEADERS, Cookie: cookie }
     });
@@ -210,9 +264,8 @@ async function fetchYahooQuoteSummary(symbol, modules) {
     }
   };
 
-  let response;
   try {
-    response = await scheduleOnQuoteSummaryQueue(attemptWithCrumbRetry);
+    return await scheduleOnQuoteSummaryQueue(attemptWithCrumbRetry);
   } catch (err) {
     const status = err.response && err.response.status;
     if (status === 429) {
@@ -220,17 +273,96 @@ async function fetchYahooQuoteSummary(symbol, modules) {
       // position - a short burst of concurrent symbol lookups is the
       // typical cause here, not a sustained block.
       await new Promise((resolve) => setTimeout(resolve, QUOTE_SUMMARY_429_BACKOFF_MS));
-      response = await scheduleOnQuoteSummaryQueue(attemptWithCrumbRetry);
-    } else {
-      throw err;
+      return await scheduleOnQuoteSummaryQueue(attemptWithCrumbRetry);
     }
+    throw err;
   }
+}
+
+async function fetchYahooQuoteSummary(symbol, modules) {
+  const encoded = encodeURIComponent(symbol);
+  const yahooUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encoded}`;
+  const response = await fetchYahooWithCrumbRetry(yahooUrl, { modules });
 
   const result = response?.data?.quoteSummary?.result;
   if (!Array.isArray(result) || result.length === 0) {
     throw new Error('missing yahoo quoteSummary data');
   }
   return result[0];
+}
+
+// Real historical financial-statement line items (EPS, EBIT, invested
+// capital, net income, total assets - see FUNDAMENTALS_TIMESERIES_TYPES),
+// via Yahoo's newer fundamentals-timeseries endpoint (what yahoo finance's
+// own site currently uses for its Financials tab). Verified during
+// development against a real KO request: this genuinely works and returns
+// 4+ years of populated data, unlike quoteSummary's balanceSheetHistory/
+// incomeStatementHistory modules, which return empty statement shells
+// (dates only, no actual figures) for real tickers - this replaces those
+// for every multi-year trend check in stockScorecard.js's Past Performance
+// category.
+const FUNDAMENTALS_TIMESERIES_TYPES = [
+  'annualDilutedEPS',
+  'annualEBIT',
+  'annualInvestedCapital',
+  'annualNetIncome',
+  'annualTotalAssets',
+  // Added for the "phase 2" data-depth visualizations (revenue/cost donut,
+  // revenue trend bar, balance-sheet treemap, DCF free-cash-flow input) -
+  // every one of these was verified during development to return real,
+  // populated data (not empty shells) for real tickers via this endpoint,
+  // same as the original 5 types above.
+  'annualTotalRevenue',
+  'annualCostOfRevenue',
+  'annualOperatingExpense',
+  'annualTaxProvision',
+  'annualPretaxIncome',
+  'annualInterestExpense',
+  'annualFreeCashFlow',
+  'annualOperatingCashFlow',
+  'annualCapitalExpenditure',
+  'annualCashAndCashEquivalents',
+  'annualCurrentAssets',
+  'annualCurrentLiabilities',
+  'annualTotalLiabilitiesNetMinorityInterest',
+  'annualCurrentDebt',
+  'annualLongTermDebt',
+  'annualStockholdersEquity',
+  'annualWorkingCapital',
+  'annualNetPPE',
+  'annualGoodwillAndOtherIntangibleAssets',
+  'annualRetainedEarnings'
+];
+
+async function fetchYahooFundamentalsTimeseries(symbol) {
+  const encoded = encodeURIComponent(symbol);
+  const url = `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encoded}`;
+  const period1 = Math.floor(Date.now() / 1000) - 6 * 365 * 24 * 60 * 60; // ~6y back - a margin over the 5y trend the checks want
+  const period2 = Math.floor(Date.now() / 1000);
+
+  const response = await fetchYahooWithCrumbRetry(url, {
+    type: FUNDAMENTALS_TIMESERIES_TYPES.join(','),
+    period1,
+    period2
+  });
+
+  const results = response?.data?.timeseries?.result;
+  if (!Array.isArray(results)) return {};
+
+  const byType = {};
+  results.forEach((entry) => {
+    const type = entry?.meta?.type?.[0];
+    if (!type) return;
+    // Yahoo intersperses null placeholders for periods with no reported
+    // value (rather than omitting them) - filter those out rather than
+    // letting a null break the sort/consumers below.
+    byType[type] = (entry[type] || [])
+      .filter(Boolean)
+      .map((point) => ({ date: point.asOfDate, value: unwrapYahooNumber(point.reportedValue) }))
+      .filter((point) => point.date && point.value !== null)
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  });
+  return byType;
 }
 
 
@@ -383,12 +515,226 @@ async function fetchYahooDividendHistory(symbol, fromDateStr) {
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 
+// "Similar Companies" (SimplyWall.st's peer-comparison feature) via a
+// public Yahoo endpoint - confirmed during development to need no
+// crumb/cookie at all, same "no auth" family as fetchYahooHistoricalCloses.
+// Distinct from fetchYahooAssetProfile's sector/industry (same *category*
+// idea, different mechanism) - this is Yahoo's own similarity scoring, not
+// something derived from sector matching.
+async function fetchYahooSimilarCompanies(symbol) {
+  const encoded = encodeURIComponent(symbol);
+  const response = await axios.get(`https://query1.finance.yahoo.com/v6/finance/recommendationsbysymbol/${encoded}`, {
+    timeout: 15000,
+    headers: YAHOO_HEADERS
+  });
+
+  const recommended = response?.data?.finance?.result?.[0]?.recommendedSymbols;
+  if (!Array.isArray(recommended)) return [];
+  return recommended
+    .map((r) => ({ symbol: r.symbol || null, score: unwrapYahooNumber(r.score) }))
+    .filter((r) => r.symbol);
+}
+
+// Trailing P/E for a batch of peer symbols (the "PE vs. similar companies"
+// chart) - a single v7/finance/quote call for all of them at once, verified
+// during development against a real multi-symbol request. Same crumb/cookie
+// auth family as quoteSummary, so routed through the same
+// fetchYahooWithCrumbRetry queue for consistent retry/backoff behavior.
+// Called with fetchYahooSimilarCompanies's own results, not independently -
+// there's no "similar companies" concept without it.
+async function fetchYahooPeerQuotes(symbols) {
+  if (!Array.isArray(symbols) || symbols.length === 0) return [];
+  const url = 'https://query1.finance.yahoo.com/v7/finance/quote';
+  const response = await fetchYahooWithCrumbRetry(url, { symbols: symbols.join(',') });
+
+  const rows = response?.data?.quoteResponse?.result;
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((r) => ({ symbol: r.symbol || null, trailingPE: unwrapYahooNumber(r.trailingPE) }))
+    .filter((r) => r.symbol);
+}
+
+// Fundamentals for the stock research/"Snowflake" scorecard (see
+// src/utils/stockScorecard.js), for a single searched-up symbol - not
+// batched across a whole portfolio like the other fetchYahoo* functions,
+// so this can afford several combined requests (quoteSummary +
+// fundamentals-timeseries + recommendationsbysymbol) without worrying
+// about the shared rate-limited queue the way a portfolio-wide batch
+// would need to.
+//
+// balanceSheetHistory and incomeStatementHistory (quoteSummary modules)
+// were deliberately left OUT of the modules list below - verified during
+// development that Yahoo returns those modules' statement shells (dates
+// only) with nearly every actual line item empty/zero for real tickers.
+// financialData's pre-computed ratios (currentRatio, debtToEquity,
+// returnOnEquity, operatingCashflow, totalDebt, earningsGrowth,
+// revenueGrowth) cover current-year Financial Health reliably instead;
+// fundamentalsHistory (fetchYahooFundamentalsTimeseries, a different
+// endpoint entirely) covers the multi-year trend checks (Past
+// Performance) that balanceSheetHistory/incomeStatementHistory would
+// have, had they actually worked.
+async function fetchYahooStockResearch(symbol) {
+  const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const [quoteSummary, fundamentalsHistory, similarCompanies, priceHistory] = await Promise.all([
+    fetchYahooQuoteSummary(
+      symbol,
+      'summaryDetail,defaultKeyStatistics,financialData,earningsTrend,insiderHolders,institutionOwnership,assetProfile,insiderTransactions'
+    ),
+    // A failure here shouldn't sink the whole research response - the
+    // scorecard's Past Performance category just comes back empty
+    // (null checks, not faked), same "degrade one category, not the
+    // page" principle as everywhere else in this project.
+    fetchYahooFundamentalsTimeseries(symbol).catch((err) => {
+      console.warn('[stock-research] fundamentals-timeseries fetch failed', { symbol, error: err && err.message });
+      return {};
+    }),
+    fetchYahooSimilarCompanies(symbol).catch((err) => {
+      console.warn('[stock-research] similar-companies fetch failed', { symbol, error: err && err.message });
+      return [];
+    }),
+    // Public endpoint, no crumb needed - same as fetchYahooHistoricalCloses's
+    // other callers. ~3y back gives the Price History chart a meaningful
+    // range without an unbounded lookback.
+    fetchYahooHistoricalCloses(symbol, threeYearsAgo).catch((err) => {
+      console.warn('[stock-research] price-history fetch failed', { symbol, error: err && err.message });
+      return [];
+    })
+  ]);
+
+  // Depends on similarCompanies's own symbols, so it can't join the
+  // Promise.all above - fetched right after, same graceful-degradation
+  // pattern as everything else here.
+  const peerSymbols = similarCompanies.map((c) => c.symbol).filter(Boolean);
+  const peerQuotes = await fetchYahooPeerQuotes(peerSymbols).catch((err) => {
+    console.warn('[stock-research] peer-quotes fetch failed', { symbol, error: err && err.message });
+    return [];
+  });
+
+  const summaryDetail = quoteSummary?.summaryDetail || {};
+  const defaultKeyStatistics = quoteSummary?.defaultKeyStatistics || {};
+  const financialData = quoteSummary?.financialData || {};
+  const assetProfile = quoteSummary?.assetProfile || {};
+  const nextYearTrend = (quoteSummary?.earningsTrend?.trend || []).find((t) => t.period === '+1y');
+  const insiderHolders = Array.isArray(quoteSummary?.insiderHolders?.holders)
+    ? quoteSummary.insiderHolders.holders
+    : [];
+  const institutionOwnership = Array.isArray(quoteSummary?.institutionOwnership?.ownershipList)
+    ? quoteSummary.institutionOwnership.ownershipList
+    : [];
+  // Detailed per-transaction insider trading log (distinct from
+  // insiderHolders above, which is each holder's own latest transaction
+  // only) - verified during development to return real filer names,
+  // relations, $ values and dates for real tickers.
+  const insiderTransactionsRaw = Array.isArray(quoteSummary?.insiderTransactions?.transactions)
+    ? quoteSummary.insiderTransactions.transactions
+    : [];
+  const insiderTransactions = insiderTransactionsRaw
+    .map((t) => ({
+      filerName: t.filerName || null,
+      filerRelation: t.filerRelation || null,
+      transactionText: t.transactionText || null,
+      shares: unwrapYahooNumber(t.shares),
+      value: unwrapYahooNumber(t.value),
+      startDateEpoch: unwrapYahooNumber(t.startDate)
+    }))
+    .filter((t) => t.startDateEpoch !== null)
+    .sort((a, b) => b.startDateEpoch - a.startDateEpoch)
+    .slice(0, 10);
+  // Yahoo's real officer names sometimes have doubled internal whitespace
+  // (e.g. "Mr. Kevan  Parekh", confirmed against a real AAPL response) -
+  // collapsed here rather than displayed as-is.
+  const companyOfficers = Array.isArray(assetProfile.companyOfficers)
+    ? assetProfile.companyOfficers.map((o) => ({
+        name: o.name ? o.name.replace(/\s+/g, ' ').trim() : null,
+        title: o.title || null,
+        age: unwrapYahooNumber(o.age),
+        totalPay: unwrapYahooNumber(o.totalPay)
+      }))
+    : [];
+
+  return {
+    // Value
+    trailingPE: unwrapYahooNumber(summaryDetail.trailingPE),
+    forwardPE: unwrapYahooNumber(summaryDetail.forwardPE),
+    pegRatio: unwrapYahooNumber(defaultKeyStatistics.pegRatio),
+    priceToBook: unwrapYahooNumber(defaultKeyStatistics.priceToBook),
+    // Future growth
+    earningsGrowth: unwrapYahooNumber(financialData.earningsGrowth),
+    revenueGrowth: unwrapYahooNumber(financialData.revenueGrowth),
+    nextYearEarningsGrowth: unwrapYahooNumber(nextYearTrend?.growth),
+    targetMeanPrice: unwrapYahooNumber(financialData.targetMeanPrice),
+    currentPrice: unwrapYahooNumber(financialData.currentPrice),
+    // Financial health
+    currentRatio: unwrapYahooNumber(financialData.currentRatio),
+    debtToEquity: unwrapYahooNumber(financialData.debtToEquity),
+    returnOnEquity: unwrapYahooNumber(financialData.returnOnEquity),
+    returnOnAssets: unwrapYahooNumber(financialData.returnOnAssets),
+    operatingCashflow: unwrapYahooNumber(financialData.operatingCashflow),
+    totalDebt: unwrapYahooNumber(financialData.totalDebt),
+    // DCF inputs (see src/utils/dcfValuation.js) - beta drives the CAPM
+    // discount rate, sharesOutstanding converts a total equity value into
+    // a per-share fair value.
+    beta: unwrapYahooNumber(defaultKeyStatistics.beta),
+    sharesOutstanding: unwrapYahooNumber(defaultKeyStatistics.sharesOutstanding),
+    // Ownership
+    heldPercentInsiders: unwrapYahooNumber(defaultKeyStatistics.heldPercentInsiders),
+    heldPercentInstitutions: unwrapYahooNumber(defaultKeyStatistics.heldPercentInstitutions),
+    // Each holder's own latest transaction, not a full transaction log -
+    // a rough "are insiders net buying or selling" signal, same spirit as
+    // (not the same data source as) SimplyWall.st's insider trading check.
+    insiderRecentSales: insiderHolders.filter((h) => /sale/i.test(h.transactionDescription || '')).length,
+    insiderRecentPurchases: insiderHolders.filter((h) => /purchase/i.test(h.transactionDescription || '')).length,
+    topInstitutionalHolders: institutionOwnership.slice(0, 5).map((h) => ({
+      organization: h.organization || null,
+      pctHeld: unwrapYahooNumber(h.pctHeld)
+    })),
+    // Detailed per-transaction insider trading log - see insiderTransactions
+    // extraction above.
+    insiderTransactions,
+    // Real multi-year statement history - see FUNDAMENTALS_TIMESERIES_TYPES
+    // for exactly which line items, and stockScorecard.js's
+    // computePastPerformanceChecks for how they become checks.
+    fundamentalsHistory,
+    // ~3y of daily closes for the Price History chart - see
+    // fetchYahooHistoricalCloses above.
+    priceHistory,
+    // Peer trailing P/E for the "PE vs. similar companies" chart - matched
+    // against similarCompanies by symbol in the frontend (this app doesn't
+    // have an industry-wide P/E distribution to compare against instead).
+    peerQuotes,
+    // Company info + management roster - display-only, not part of the
+    // scorecard: SimplyWall.st itself keeps "Management" out of its
+    // Snowflake score too (no peer-benchmark data available for CEO comp
+    // or tenure via this API, only the current officer roster).
+    companyProfile: {
+      sector: assetProfile.sector || null,
+      industry: assetProfile.industry || null,
+      website: assetProfile.website || null,
+      longBusinessSummary: assetProfile.longBusinessSummary || null,
+      fullTimeEmployees: unwrapYahooNumber(assetProfile.fullTimeEmployees),
+      city: assetProfile.city || null,
+      country: assetProfile.country || null,
+      companyOfficers
+    },
+    // Yahoo's own similarity scoring (not derived from our sector data) -
+    // see fetchYahooSimilarCompanies above.
+    similarCompanies
+  };
+}
+
 module.exports = {
   getYahooPayload,
   fetchYahooHistoricalCloses,
+  fetchYahooNews,
+  fetchYahooSymbolSearch,
   fetchYahooAssetProfile,
   fetchYahooAnalystData,
   fetchYahooDividendSummary,
   fetchYahooDividendHistory,
+  fetchYahooStockResearch,
+  fetchYahooFundamentalsTimeseries,
+  fetchYahooSimilarCompanies,
+  fetchYahooPeerQuotes,
   unwrapYahooNumber
 };

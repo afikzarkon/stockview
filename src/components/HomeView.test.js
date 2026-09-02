@@ -38,6 +38,7 @@ function makeProps(overrides = {}) {
     bankBalances,
     handleAddInfo: noop,
     setShowAnalysis: noop,
+    setShowStockResearch: noop,
     isEditMode: false,
     setIsEditMode: noop,
     showAmericanColumns: true,

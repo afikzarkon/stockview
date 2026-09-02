@@ -37,6 +37,7 @@ function HomeView({
   cpi,
   handleAddInfo,
   setShowAnalysis,
+  setShowStockResearch,
   isEditMode,
   setIsEditMode,
   showAmericanColumns,
@@ -152,6 +153,9 @@ function HomeView({
             </button>
             <button className="analysis-button" onClick={() => setShowAnalysis(true)}>
               ניתוח התיק
+            </button>
+            <button className="analysis-button" onClick={() => setShowStockResearch(true)}>
+              חקר מניות
             </button>
 
             {hasAnyData && (

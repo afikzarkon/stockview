@@ -12,3 +12,15 @@ import '@testing-library/jest-dom';
 // even runs. Node has always had these globally; just re-expose them.
 global.TextEncoder = require('util').TextEncoder;
 global.TextDecoder = require('util').TextDecoder;
+
+// jsdom doesn't implement ResizeObserver, which recharts' ResponsiveContainer
+// requires to measure its container - any test rendering a recharts chart
+// (StockResearchView's RadarChart, PortfolioAnalysisView's charts, ...)
+// would otherwise fail with "ResizeObserver is not defined" during mount.
+// A no-op stub is enough since jsdom has no real layout engine to observe
+// anyway - tests don't depend on actual resize behavior.
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
