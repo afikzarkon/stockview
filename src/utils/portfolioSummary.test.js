@@ -85,6 +85,54 @@ describe('calculatePortfolioSummary', () => {
     expect(() => calculatePortfolioSummary(israeliStocks, americanStocks, [], [], [])).not.toThrow();
   });
 
+  describe('bank savings funds (bankSavingsFunds param)', () => {
+    test('a bank savings fund not linked to the index is taxed 15% flat on the nominal gain, and included in capitalTotalILS', () => {
+      const bankSavingsFunds = [
+        { fundName: 'חיסכון א', interestRate: 0, isLinkedToIndex: false, deposits: [{ date: '2023-01-01', amount: 10000 }] }
+      ];
+      const summary = calculatePortfolioSummary([], [], [], [], [], {}, bankSavingsFunds);
+      // 0% interest -> current value stays 10000 -> no gain, no tax
+      expect(summary.bankSavingsCurrentValueILS).toBeCloseTo(10000, 5);
+      expect(summary.bankSavingsTaxILS).toBe(0);
+      expect(summary.capitalBankSavingsILS).toBeCloseTo(10000, 5);
+      expect(summary.capitalTotalILS).toBeCloseTo(10000, 5);
+    });
+
+    test('a bank savings fund linked to the index uses the 25% real-gain rate when CPI data is available', () => {
+      const bankSavingsFunds = [
+        { fundName: 'חיסכון ב', interestRate: 0, isLinkedToIndex: true, deposits: [{ date: '2020-01-01', amount: 10000 }] }
+      ];
+      const cpi = { currentIndex: 110, indexByMonth: { '2020-01': 100 } };
+      // 0% interest -> current value stays 10000. Index rose 10% -> adjusted
+      // cost basis 11000 > current value -> nominal loss, real gain 0, no tax.
+      const summary = calculatePortfolioSummary([], [], [], [], [], cpi, bankSavingsFunds);
+      expect(summary.bankSavingsRealGainILS).toBeLessThanOrEqual(0);
+      expect(summary.bankSavingsTaxILS).toBe(0);
+    });
+
+    test('capitalTotalILS includes bank savings funds alongside every other category', () => {
+      const pensionFunds = [{ initialInvestment: 1000, currentValue: 1100, previousValue: 1050 }];
+      const cashFunds = [{ amount: 500 }];
+      const bankBalances = [{ amount: 2000 }];
+      const bankSavingsFunds = [{ fundName: 'X', interestRate: 0, deposits: [{ date: '2024-01-01', amount: 3000 }] }];
+
+      const summary = calculatePortfolioSummary([], [], pensionFunds, cashFunds, bankBalances, {}, bankSavingsFunds);
+      const expectedTotal =
+        summary.capitalPensionILS +
+        summary.capitalCashFundsILS +
+        summary.capitalBankILS +
+        summary.capitalBankSavingsILS;
+      expect(summary.capitalTotalILS).toBeCloseTo(expectedTotal, 5);
+      expect(summary.capitalBankSavingsILS).toBeCloseTo(3000, 5);
+    });
+
+    test('omitting bankSavingsFunds entirely (backward compatible call) does not throw and treats it as empty', () => {
+      const summary = calculatePortfolioSummary([], [], [], [], []);
+      expect(summary.capitalBankSavingsILS).toBe(0);
+      expect(summary.bankSavingsTaxILS).toBe(0);
+    });
+  });
+
   describe('CPI-linked real capital gains tax (when the cpi param is provided)', () => {
     const cpi = { currentIndex: 130, indexByMonth: { '2020-01': 100, '2023-01': 115 } };
 
@@ -107,23 +155,10 @@ describe('calculatePortfolioSummary', () => {
       expect(summary.israeliOnlyTaxILS).toBeCloseTo(300 * 0.25, 5);
     });
 
-    test('unlinked pension fund: flat 15% on the nominal gain', () => {
-      const pensionFunds = [
-        {
-          currentValue: 90000,
-          isLinkedToIndex: false,
-          deposits: [{ date: '2020-01-10', amount: 70000 }]
-        }
-      ];
-      const summary = calculatePortfolioSummary([], [], pensionFunds, [], [], cpi);
-      expect(summary.pensionTaxILS).toBeCloseTo((90000 - 70000) * 0.15, 5);
-    });
-
-    test('linked pension fund: 25% on the real gain, each deposit indexed by its own date', () => {
+    test('pension fund: always 25% on the real gain, each deposit indexed by its own date (no flat-nominal mode anymore)', () => {
       const pensionFunds = [
         {
           currentValue: 95000,
-          isLinkedToIndex: true,
           deposits: [{ date: '2020-01-10', amount: 50000 }, { date: '2023-01-10', amount: 20000 }]
         }
       ];
@@ -152,11 +187,10 @@ describe('calculatePortfolioSummary', () => {
         .toBeCloseTo(summary.israeliOnlyProfitILS, 5);
     });
 
-    test('exposes the real vs. inflationary breakdown for a linked pension fund', () => {
+    test('exposes the real vs. inflationary breakdown for a pension fund', () => {
       const pensionFunds = [
         {
           currentValue: 95000,
-          isLinkedToIndex: true,
           deposits: [{ date: '2020-01-10', amount: 50000 }, { date: '2023-01-10', amount: 20000 }]
         }
       ];
@@ -193,7 +227,7 @@ describe('calculatePortfolioSummary', () => {
         { stockName: 'B', quantity: 1, purchasePrice: 100, exchangeRate: 5, currentPrice: 150, currentExchangeRate: 3.7 }
       ];
       const pensionFunds = [
-        { currentValue: 95000, isLinkedToIndex: true, deposits: [{ date: '2020-01-10', amount: 50000 }, { date: '2023-01-10', amount: 20000 }] }
+        { currentValue: 95000, deposits: [{ date: '2020-01-10', amount: 50000 }, { date: '2023-01-10', amount: 20000 }] }
       ];
       const summary = calculatePortfolioSummary(israeliStocks, americanStocks, pensionFunds, [], [], cpi);
       const expectedReal = summary.israeliOnlyRealGainILS + summary.americanOnlyRealGainILS + summary.pensionRealGainILS;

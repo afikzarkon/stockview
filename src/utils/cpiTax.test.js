@@ -3,6 +3,7 @@ import {
   monthKeyFromDate,
   calculateStockRealGainTax,
   calculatePensionRealGainTax,
+  calculateBankSavingsFundTax,
   calculateLinkedRealResult
 } from './cpiTax';
 
@@ -94,29 +95,17 @@ describe('calculatePensionRealGainTax', () => {
     '2024-06': 130 // "המדד הידוע" הנוכחי
   };
 
-  test('unlinked fund: flat 15% on the full nominal gain, no CPI adjustment', () => {
-    const deposits = [{ date: '2020-01-10', amount: 50000 }, { date: '2023-01-10', amount: 20000 }];
-    const result = calculatePensionRealGainTax({
-      deposits,
-      currentValue: 90000,
-      isLinkedToIndex: false,
-      currentIndex: 130,
-      indexByMonth
-    });
-    expect(result.mode).toBe('nominal');
-    expect(result.totalDeposited).toBe(70000);
-    expect(result.gain).toBe(20000); // 90000 - 70000
-    expect(result.tax).toBeCloseTo(20000 * 0.15, 5);
-  });
-
-  test('linked fund: each deposit is indexed separately by its own month, tax at 25% on the real gain only', () => {
+  // Pension funds are always taxed on the real (CPI-adjusted) gain -
+  // there is no "unlinked, flat 15% on the nominal gain" mode anymore
+  // (removed: tax always depends on the real gain, not on a per-fund
+  // "linked to the index" choice).
+  test('each deposit is indexed separately by its own month, tax at 25% on the real gain only', () => {
     const deposits = [{ date: '2020-01-10', amount: 50000 }, { date: '2023-01-10', amount: 20000 }];
     // הפקדה 1: 50,000 מוצמדת מ-100 ל-130 -> 65,000
     // הפקדה 2: 20,000 מוצמדת מ-115 ל-130 -> 22,608.7...
     const result = calculatePensionRealGainTax({
       deposits,
       currentValue: 95000,
-      isLinkedToIndex: true,
       currentIndex: 130,
       indexByMonth
     });
@@ -127,12 +116,11 @@ describe('calculatePensionRealGainTax', () => {
     expect(result.tax).toBeCloseTo(Math.max(0, 95000 - expectedAdjustedCost) * 0.25, 5);
   });
 
-  test('linked fund with no real gain (value only kept up with inflation) owes no tax', () => {
+  test('no real gain (value only kept up with inflation) owes no tax', () => {
     const deposits = [{ date: '2020-01-10', amount: 50000 }];
     const result = calculatePensionRealGainTax({
       deposits,
       currentValue: 65000, // exactly 50000 * (130/100)
-      isLinkedToIndex: true,
       currentIndex: 130,
       indexByMonth
     });
@@ -145,12 +133,25 @@ describe('calculatePensionRealGainTax', () => {
     const result = calculatePensionRealGainTax({
       deposits,
       currentValue: 12000,
-      isLinkedToIndex: true,
       currentIndex: 130,
       indexByMonth
     });
     expect(result.adjustedCostBasis).toBe(10000); // fallback ללא הצמדה
     expect(result.gain).toBe(2000);
+  });
+
+  test('accepts a custom taxRate override', () => {
+    const deposits = [{ date: '2020-01-10', amount: 50000 }];
+    const result = calculatePensionRealGainTax({
+      deposits,
+      currentValue: 70000,
+      currentIndex: 130,
+      indexByMonth,
+      taxRate: 0.1
+    });
+    const expectedGain = 70000 - 50000 * (130 / 100);
+    expect(result.gain).toBeCloseTo(expectedGain, 5);
+    expect(result.tax).toBeCloseTo(expectedGain * 0.1, 5);
   });
 });
 
@@ -203,5 +204,75 @@ describe('calculateLinkedRealResult - Moses case (ע"א 3555/15) worked examples
   test('tax is always 25% (or custom rate) of the final real gain, never of the nominal gain', () => {
     const result = calculateLinkedRealResult({ originalCost: 500, currentValue: 1050, adjustedCostBasis: 700, taxRate: 0.25 });
     expect(result.tax).toBeCloseTo(350 * 0.25, 5);
+  });
+});
+
+describe('calculateBankSavingsFundTax', () => {
+  const deposits = [{ date: '2023-01-01', amount: 10000 }];
+
+  test('not linked to the index: 15% flat tax on the full nominal gain', () => {
+    const result = calculateBankSavingsFundTax({
+      deposits,
+      currentValue: 12000,
+      isLinkedToIndex: false,
+      currentIndex: 130,
+      indexByMonth: { '2023-01': 100 }
+    });
+    expect(result.mode).toBe('nominal');
+    expect(result.gain).toBe(2000);
+    expect(result.tax).toBeCloseTo(2000 * 0.15, 5);
+  });
+
+  test('not linked and no gain: no tax (never negative)', () => {
+    const result = calculateBankSavingsFundTax({
+      deposits,
+      currentValue: 9000,
+      isLinkedToIndex: false
+    });
+    expect(result.gain).toBe(-1000);
+    expect(result.tax).toBe(0);
+  });
+
+  test('linked to the index: 25% on the real (inflation-adjusted) gain only', () => {
+    // מדד עלה מ-100 ל-130 (30%) - עלות מותאמת = 10000*1.3=13000
+    // שווי נוכחי 13000 -> רווח נומינלי 3000, כולו אינפלציוני -> רווח ריאלי 0
+    const result = calculateBankSavingsFundTax({
+      deposits,
+      currentValue: 13000,
+      isLinkedToIndex: true,
+      currentIndex: 130,
+      indexByMonth: { '2023-01': 100 }
+    });
+    expect(result.mode).toBe('real');
+    expect(result.gain).toBe(0);
+    expect(result.tax).toBe(0);
+  });
+
+  test('linked but no CPI data available yet: falls back to nominal mode (fail-safe)', () => {
+    const result = calculateBankSavingsFundTax({
+      deposits,
+      currentValue: 12000,
+      isLinkedToIndex: true,
+      currentIndex: null
+    });
+    expect(result.mode).toBe('nominal');
+    expect(result.tax).toBeCloseTo(2000 * 0.15, 5);
+  });
+
+  test('multiple deposits: each indexed separately by its own month when linked', () => {
+    const multiDeposits = [
+      { date: '2022-01-01', amount: 5000 },
+      { date: '2023-06-01', amount: 5000 }
+    ];
+    const result = calculateBankSavingsFundTax({
+      deposits: multiDeposits,
+      currentValue: 12000,
+      isLinkedToIndex: true,
+      currentIndex: 120,
+      indexByMonth: { '2022-01': 100, '2023-06': 110 }
+    });
+    // adjustedCostBasis = 5000*(120/100) + 5000*(120/110) = 6000 + 5454.545...
+    expect(result.totalDeposited).toBe(10000);
+    expect(result.adjustedCostBasis).toBeCloseTo(6000 + 5000 * (120 / 110), 5);
   });
 });

@@ -7,6 +7,7 @@
 // happened more than once in this project.
 import { normalizeIsraeliPrice } from './formatters';
 import { calculateAmericanStockMetrics, calculatePensionPeriodReturn } from './portfolioMath';
+import { computeBankSavingsFundValue } from './bankSavingsFund';
 
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
 
@@ -70,6 +71,22 @@ export const buildBankBalancesExportRows = (bankBalances) =>
     'תאריך עדכון': balance.updateDate || '',
     'יתרה (₪)': round2(balance.amount || 0)
   }));
+
+export const buildBankSavingsFundsExportRows = (bankSavingsFunds) =>
+  (bankSavingsFunds || []).map((fund) => {
+    const deposits = Array.isArray(fund.deposits) ? fund.deposits : [];
+    const totalDeposited = deposits.reduce((sum, d) => sum + (d.amount || 0), 0);
+    const currentValue = computeBankSavingsFundValue(fund);
+    return {
+      'שם': fund.fundName || '',
+      'מסלול השקעה': fund.investmentTrack || '',
+      'ריבית (%)': fund.interestRate || 0,
+      'צמוד למדד': fund.isLinkedToIndex ? 'כן' : 'לא',
+      'סך הפקדות (₪)': round2(totalDeposited),
+      'שווי נוכחי (₪)': round2(currentValue),
+      'רווח/הפסד (₪)': round2(currentValue - totalDeposited)
+    };
+  });
 
 // A compact list of the headline totals from calculatePortfolioSummary
 // (portfolioSummary.js) - field names match that module's return shape

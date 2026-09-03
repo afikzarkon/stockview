@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { calculatePensionRealGainTax } from '../utils/cpiTax';
+import { calculatePensionRealGainTax, calculateBankSavingsFundTax } from '../utils/cpiTax';
 import { calculatePensionPeriodReturn, hasAmbiguousPensionPeriod } from '../utils/portfolioMath';
+import { computeBankSavingsFundValue } from '../utils/bankSavingsFund';
 
 function FinancialAccountsTables({
   pensionFunds,
   cashFunds,
   bankBalances,
+  bankSavingsFunds = [],
   cpi,
   showAdditionalData,
   isEditMode,
@@ -55,6 +57,16 @@ function FinancialAccountsTables({
     handleInlineEdit(fund.id, 'deposits', updatedDeposits, 'pension');
   };
 
+  const [expandedBankSavingsFunds, setExpandedBankSavingsFunds] = useState({});
+  const toggleBankSavingsFundExpanded = (fundId) => {
+    setExpandedBankSavingsFunds((prev) => ({ ...prev, [fundId]: !prev[fundId] }));
+  };
+  const deleteBankSavingsDeposit = (fund, depositIndex) => {
+    const deposits = Array.isArray(fund.deposits) ? fund.deposits : [];
+    const updatedDeposits = deposits.filter((_, i) => i !== depositIndex);
+    handleInlineEdit(fund.id, 'deposits', updatedDeposits, 'bank_savings');
+  };
+
   return (
     <>
       {pensionFunds.length > 0 && (
@@ -70,7 +82,6 @@ function FinancialAccountsTables({
                   <th>תאריך שווי נוכחי</th>
                   <th>סך ערך ההשקעה בעדכון הקודם (₪)</th>
                   {showAdditionalData && <th>תאריך שווי קודם</th>}
-                  {showAdditionalData && <th>מוצמד למדד?</th>}
                   {showAdditionalData && <th>רווח ריאלי (חייב במס)</th>}
                   {showAdditionalData && <th>רווח אינפלציוני (פטור)</th>}
                   {showAdditionalData && <th>רווח לאחר מס (₪)</th>}
@@ -124,7 +135,6 @@ function FinancialAccountsTables({
                     const result = calculatePensionRealGainTax({
                       deposits,
                       currentValue,
-                      isLinkedToIndex: !!item.isLinkedToIndex,
                       currentIndex: cpi.currentIndex,
                       indexByMonth: cpi.indexByMonth || {}
                     });
@@ -222,16 +232,6 @@ function FinancialAccountsTables({
                             autoFocus
                           />
                         ) : (item.previousValueDate ? formatDate(item.previousValueDate) : '-')}
-                      </td>
-                      )}
-                      {showAdditionalData && (
-                      <td className={isEditMode ? 'editable-cell' : ''}>
-                        <input
-                          type="checkbox"
-                          checked={!!item.isLinkedToIndex}
-                          disabled={!isEditMode}
-                          onChange={(e) => handleInlineEdit(item.id, 'isLinkedToIndex', e.target.checked, 'pension')}
-                        />
                       </td>
                       )}
                       {showAdditionalData && (
@@ -440,6 +440,148 @@ function FinancialAccountsTables({
                     )}
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {bankSavingsFunds.length > 0 && (
+        <div className="stocks-section">
+          <h2 className="section-title">קופות חיסכון בבנק</h2>
+          <div className="table-container">
+            <table className="stocks-table">
+              <thead>
+                <tr>
+                  <th>שם</th>
+                  <th>מסלול השקעה</th>
+                  <th>ריבית שנתית (%)</th>
+                  <th>צמוד למדד?</th>
+                  <th>סך הפקדות (₪)</th>
+                  <th>שווי נוכחי (₪)</th>
+                  <th>רווח/הפסד (₪)</th>
+                  {showAdditionalData && <th>מס (₪)</th>}
+                  {showAdditionalData && <th>רווח אחרי מס (₪)</th>}
+                  {isEditMode && <th>פעולות</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {bankSavingsFunds.map((item) => {
+                  const deposits = Array.isArray(item.deposits) ? item.deposits : [];
+                  const totalDeposited = deposits.reduce((s, d) => s + (d.amount || 0), 0);
+                  const currentValue = computeBankSavingsFundValue(item);
+                  const profitLoss = currentValue - totalDeposited;
+
+                  let tax = null;
+                  let afterTaxProfit = null;
+                  const taxResult = calculateBankSavingsFundTax({
+                    deposits,
+                    currentValue,
+                    isLinkedToIndex: !!item.isLinkedToIndex,
+                    currentIndex: cpi && cpi.currentIndex,
+                    indexByMonth: (cpi && cpi.indexByMonth) || {}
+                  });
+                  tax = taxResult.tax;
+                  afterTaxProfit = profitLoss - tax;
+
+                  const isExpanded = !!expandedBankSavingsFunds[item.id];
+                  return (
+                    <React.Fragment key={item.id}>
+                    <tr className={isEditMode ? 'editable-row' : ''}>
+                      <td onClick={() => handleCellClick(item.id, 'fundName', 'bank_savings')} className={isEditMode ? 'editable-cell' : ''}>
+                        <button onClick={() => toggleBankSavingsFundExpanded(item.id)} className="expand-button" style={{ marginRight: '8px', background: 'none', border: 'none', cursor: 'pointer' }}>
+                          {isExpanded ? '▼' : '▶'}
+                        </button>
+                        {editingField === `${item.id}-fundName` ? (
+                          <input
+                            type="text"
+                            value={item.fundName}
+                            onChange={(e) => handleInlineEdit(item.id, 'fundName', e.target.value, 'bank_savings')}
+                            onBlur={finishInlineEdit}
+                            onKeyDown={(e) => handleKeyDown(e, item.id, 'fundName', 'bank_savings')}
+                            autoFocus
+                          />
+                        ) : item.fundName}
+                      </td>
+                      <td onClick={() => handleCellClick(item.id, 'investmentTrack', 'bank_savings')} className={isEditMode ? 'editable-cell' : ''}>
+                        {editingField === `${item.id}-investmentTrack` ? (
+                          <input
+                            type="text"
+                            value={item.investmentTrack || ''}
+                            onChange={(e) => handleInlineEdit(item.id, 'investmentTrack', e.target.value, 'bank_savings')}
+                            onBlur={finishInlineEdit}
+                            onKeyDown={(e) => handleKeyDown(e, item.id, 'investmentTrack', 'bank_savings')}
+                            autoFocus
+                          />
+                        ) : (item.investmentTrack || '-')}
+                      </td>
+                      <td onClick={() => handleCellClick(item.id, 'interestRate', 'bank_savings')} className={isEditMode ? 'editable-cell' : ''}>
+                        {editingField === `${item.id}-interestRate` ? (
+                          <input
+                            type="number"
+                            value={item.interestRate ?? ''}
+                            onChange={(e) => handleInlineEdit(item.id, 'interestRate', parseFloat(e.target.value), 'bank_savings')}
+                            onBlur={finishInlineEdit}
+                            onKeyDown={(e) => handleKeyDown(e, item.id, 'interestRate', 'bank_savings')}
+                            autoFocus
+                            step="0.01"
+                            min="0"
+                          />
+                        ) : `${item.interestRate ?? 0}%`}
+                      </td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={!!item.isLinkedToIndex}
+                          disabled={!isEditMode}
+                          onChange={(e) => handleInlineEdit(item.id, 'isLinkedToIndex', e.target.checked, 'bank_savings')}
+                        />
+                      </td>
+                      <td>{`${formatPriceWithSign(totalDeposited)} ₪`}</td>
+                      <td>{`${formatPriceWithSign(currentValue)} ₪`}</td>
+                      <td className={profitLoss > 0 ? 'profit-positive' : profitLoss < 0 ? 'profit-negative' : ''}>
+                        {`${formatPriceWithSign(profitLoss)} ₪`}
+                      </td>
+                      {showAdditionalData && (
+                        <td>{tax !== null ? `${formatPriceWithSign(tax)} ₪` : '-'}</td>
+                      )}
+                      {showAdditionalData && (
+                        <td className={afterTaxProfit !== null && afterTaxProfit > 0 ? 'profit-positive' : afterTaxProfit !== null && afterTaxProfit < 0 ? 'profit-negative' : ''}>
+                          {afterTaxProfit !== null ? `${formatPriceWithSign(afterTaxProfit)} ₪` : '-'}
+                        </td>
+                      )}
+                      {isEditMode && (
+                        <td>
+                          <button onClick={() => handleDelete(item.id, 'bank_savings')} className="delete-button">מחק קופה</button>
+                        </td>
+                      )}
+                    </tr>
+                    {isExpanded && deposits.length === 0 && (
+                      <tr className={`${isEditMode ? 'editable-row' : ''} detail-row`}>
+                        <td style={{ paddingLeft: '20px' }} colSpan={(showAdditionalData ? 9 : 7) + (isEditMode ? 1 : 0)}>אין הפקדות רשומות</td>
+                      </tr>
+                    )}
+                    {isExpanded && deposits.map((d, i) => (
+                      <tr key={i} className={`${isEditMode ? 'editable-row' : ''} detail-row`}>
+                        <td style={{ paddingLeft: '20px' }}>{d.date ? formatDate(d.date) : '-'}</td>
+                        <td>{`${formatPriceWithSign(d.amount)} ₪`}</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        {showAdditionalData && <td></td>}
+                        {showAdditionalData && <td></td>}
+                        {isEditMode && (
+                          <td>
+                            <button onClick={() => deleteBankSavingsDeposit(item, i)} className="delete-button">מחק הפקדה</button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

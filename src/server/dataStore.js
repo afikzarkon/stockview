@@ -246,7 +246,8 @@ async function pgStore(connectionString) {
     'user_american_stocks',
     'user_pension_funds',
     'user_bank_balances',
-    'user_cash_funds'
+    'user_cash_funds',
+    'user_bank_savings_funds'
   ];
   for (const table of portfolioTables) {
     await pool.query(`
@@ -421,6 +422,30 @@ async function pgStore(connectionString) {
       ) STORED
   `);
 
+  await pool.query(`
+    ALTER TABLE user_bank_savings_funds
+      ADD COLUMN IF NOT EXISTS client_item_id BIGINT GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'id') ~ '^-?\\d+$' THEN (item->>'id')::BIGINT
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS fund_name TEXT GENERATED ALWAYS AS (item->>'fundName') STORED,
+      ADD COLUMN IF NOT EXISTS investment_track TEXT GENERATED ALWAYS AS (item->>'investmentTrack') STORED,
+      ADD COLUMN IF NOT EXISTS interest_rate DOUBLE PRECISION GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'interestRate') ~ '^-?\\d+(\\.\\d+)?$' THEN (item->>'interestRate')::DOUBLE PRECISION
+          ELSE NULL
+        END
+      ) STORED,
+      ADD COLUMN IF NOT EXISTS is_linked_to_index BOOLEAN GENERATED ALWAYS AS (
+        CASE
+          WHEN (item->>'isLinkedToIndex') IN ('true', 'false') THEN (item->>'isLinkedToIndex')::BOOLEAN
+          ELSE NULL
+        END
+      ) STORED
+  `);
+
   function normalizeSnapshot(input) {
     const parsed =
       input && typeof input === 'object'
@@ -437,7 +462,8 @@ async function pgStore(connectionString) {
       americanStocks: Array.isArray(parsed.americanStocks) ? parsed.americanStocks : [],
       pensionFunds: Array.isArray(parsed.pensionFunds) ? parsed.pensionFunds : [],
       bankBalances: Array.isArray(parsed.bankBalances) ? parsed.bankBalances : [],
-      cashFunds: Array.isArray(parsed.cashFunds) ? parsed.cashFunds : []
+      cashFunds: Array.isArray(parsed.cashFunds) ? parsed.cashFunds : [],
+      bankSavingsFunds: Array.isArray(parsed.bankSavingsFunds) ? parsed.bankSavingsFunds : []
     };
   }
 
@@ -495,12 +521,14 @@ async function pgStore(connectionString) {
         const pensionFunds = await readItems(client, 'user_pension_funds', userId);
         const bankBalances = await readItems(client, 'user_bank_balances', userId);
         const cashFunds = await readItems(client, 'user_cash_funds', userId);
+        const bankSavingsFunds = await readItems(client, 'user_bank_savings_funds', userId);
         const normalized = {
           israeliStocks,
           americanStocks,
           pensionFunds,
           bankBalances,
-          cashFunds
+          cashFunds,
+          bankSavingsFunds
         };
         const hasNormalizedData = Object.values(normalized).some((arr) => arr.length > 0);
         if (hasNormalizedData) return JSON.stringify(normalized);
@@ -525,6 +553,7 @@ async function pgStore(connectionString) {
         await writeItems(client, 'user_pension_funds', userId, snapshot.pensionFunds);
         await writeItems(client, 'user_bank_balances', userId, snapshot.bankBalances);
         await writeItems(client, 'user_cash_funds', userId, snapshot.cashFunds);
+        await writeItems(client, 'user_bank_savings_funds', userId, snapshot.bankSavingsFunds);
         // Keep legacy snapshot row updated for easy inspection and backward compatibility.
         await client.query(
           `INSERT INTO user_portfolios (user_id, payload, updated_at)
@@ -551,7 +580,8 @@ async function pgStore(connectionString) {
                  (SELECT MAX(updated_at) FROM user_american_stocks s WHERE s.user_id = u.id),
                  (SELECT MAX(updated_at) FROM user_pension_funds s WHERE s.user_id = u.id),
                  (SELECT MAX(updated_at) FROM user_bank_balances s WHERE s.user_id = u.id),
-                 (SELECT MAX(updated_at) FROM user_cash_funds s WHERE s.user_id = u.id)
+                 (SELECT MAX(updated_at) FROM user_cash_funds s WHERE s.user_id = u.id),
+                 (SELECT MAX(updated_at) FROM user_bank_savings_funds s WHERE s.user_id = u.id)
                )::text AS portfolio_saved_at
         FROM users u
         LEFT JOIN user_portfolios p ON p.user_id = u.id

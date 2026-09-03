@@ -67,12 +67,11 @@ describe('computeTaxLossHarvestingOpportunities', () => {
     expect(result.lossPositions[0].harvestableLoss).toBeCloseTo(1800, 5);
   });
 
-  test('a pension fund not linked to the index uses the 15% flat rate', () => {
+  test('a pension fund always uses the 25% real-gain rate (no flat-nominal mode anymore)', () => {
     const pensionFunds = [
       {
         id: 1,
         fundName: 'קופת דוגמה',
-        isLinkedToIndex: false,
         currentValue: 8000,
         deposits: [{ date: '2022-01-01', amount: 10000 }]
       }
@@ -81,20 +80,31 @@ describe('computeTaxLossHarvestingOpportunities', () => {
     expect(result.lossPositions).toHaveLength(1);
     expect(result.lossPositions[0].category).toBe('pension');
     expect(result.lossPositions[0].harvestableLoss).toBeCloseTo(2000, 5);
-    expect(result.lossPositions[0].taxRate).toBe(0.15);
+    expect(result.lossPositions[0].taxRate).toBe(0.25);
   });
 
-  test('a pension fund linked to the index uses the 25% rate', () => {
-    const pensionFunds = [
-      {
-        id: 1,
-        fundName: 'קופה מוצמדת',
-        isLinkedToIndex: true,
-        currentValue: 8000,
-        deposits: [{ date: '2022-01-01', amount: 10000 }]
-      }
+  test('a bank savings fund not linked to the index, at a real gain, uses the 15% nominal rate', () => {
+    // Deposited decades ago at 10% annual interest - guaranteed to have
+    // grown well past the deposited amount regardless of today's date.
+    const bankSavingsFunds = [
+      { id: 1, fundName: 'חיסכון X', interestRate: 10, isLinkedToIndex: false, deposits: [{ date: '2000-01-01', amount: 10000 }] }
     ];
-    const result = computeTaxLossHarvestingOpportunities([], [], pensionFunds, null);
+    const result = computeTaxLossHarvestingOpportunities([], [], [], null, bankSavingsFunds);
+    expect(result.gainPositions).toHaveLength(1);
+    expect(result.gainPositions[0].category).toBe('bankSavings');
+    expect(result.gainPositions[0].taxRate).toBe(0.15);
+  });
+
+  test('a bank savings fund linked to the index, at a real loss, uses the 25% real-gain rate when CPI data is present', () => {
+    // Negative interest rate (a shrinking track) and no index movement, so
+    // the loss is purely interest-driven and isolated from any CPI effect.
+    const bankSavingsFunds = [
+      { id: 1, fundName: 'חיסכון Y', interestRate: -5, isLinkedToIndex: true, deposits: [{ date: '2000-01-01', amount: 10000 }] }
+    ];
+    const cpi = { currentIndex: 100, indexByMonth: { '2000-01': 100 } };
+    const result = computeTaxLossHarvestingOpportunities([], [], [], cpi, bankSavingsFunds);
+    expect(result.lossPositions).toHaveLength(1);
+    expect(result.lossPositions[0].category).toBe('bankSavings');
     expect(result.lossPositions[0].taxRate).toBe(0.25);
   });
 

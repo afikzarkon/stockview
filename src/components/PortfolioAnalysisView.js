@@ -136,6 +136,7 @@ function PortfolioAnalysisView({
   americanStocks = [],
   israeliStocks = [],
   pensionFunds = [],
+  bankSavingsFunds = [],
   cpi = null,
   rebalanceTargets = null,
   rebalanceTargetsLoading = false,
@@ -160,8 +161,8 @@ function PortfolioAnalysisView({
   const stats = useMemo(() => computePortfolioStats(snapshots), [snapshots]);
 
   const harvesting = useMemo(
-    () => computeTaxLossHarvestingOpportunities(israeliStocks, americanStocks, pensionFunds, cpi),
-    [israeliStocks, americanStocks, pensionFunds, cpi]
+    () => computeTaxLossHarvestingOpportunities(israeliStocks, americanStocks, pensionFunds, cpi, bankSavingsFunds),
+    [israeliStocks, americanStocks, pensionFunds, cpi, bankSavingsFunds]
   );
 
   const americanSymbols = useMemo(() => americanStocks.map((s) => s.stockName), [americanStocks]);
@@ -1080,6 +1081,11 @@ function PortfolioAnalysisView({
                           name: 'עו"ש',
                           value: analysis.exchangeDistribution.bank.value,
                           percentage: analysis.exchangeDistribution.bank.percentage
+                        },
+                        {
+                          name: 'קופת חיסכון בבנק',
+                          value: analysis.exchangeDistribution.bankSavings.value,
+                          percentage: analysis.exchangeDistribution.bankSavings.percentage
                         }
                       ]}
                       cx="50%"
@@ -1093,6 +1099,7 @@ function PortfolioAnalysisView({
                       <Cell fill="#16a34a" />
                       <Cell fill="#f59e0b" />
                       <Cell fill="#0ea5e9" />
+                      <Cell fill="#ec4899" />
                     </Pie>
                   </PieChart>
                 </ResponsiveContainer>
@@ -1136,6 +1143,14 @@ function PortfolioAnalysisView({
                       <div className="label-name">עו"ש</div>
                       <div className="label-value">{formatPriceWithSign(analysis.exchangeDistribution.bank.value)} ₪</div>
                       <div className="label-percentage">{analysis.exchangeDistribution.bank.percentage.toFixed(1)}%</div>
+                    </div>
+                  </div>
+                  <div className="pie-label-item">
+                    <div className="label-color" style={{ backgroundColor: '#ec4899' }}></div>
+                    <div className="label-content">
+                      <div className="label-name">קופת חיסכון בבנק</div>
+                      <div className="label-value">{formatPriceWithSign(analysis.exchangeDistribution.bankSavings.value)} ₪</div>
+                      <div className="label-percentage">{analysis.exchangeDistribution.bankSavings.percentage.toFixed(1)}%</div>
                     </div>
                   </div>
                 </div>

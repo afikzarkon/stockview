@@ -148,8 +148,8 @@ test('shows export buttons for a populated portfolio and wires them to downloadP
   // microtask than a plain sync call would, so the spies aren't called yet
   // synchronously after fireEvent.click.
   await waitFor(() => {
-    expect(pdfSpy).toHaveBeenCalledWith({ summary, israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances });
-    expect(excelSpy).toHaveBeenCalledWith({ summary, israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances });
+    expect(pdfSpy).toHaveBeenCalledWith({ summary, israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances, bankSavingsFunds: [] });
+    expect(excelSpy).toHaveBeenCalledWith({ summary, israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances, bankSavingsFunds: [] });
   });
 
   excelSpy.mockRestore();

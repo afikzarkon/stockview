@@ -5,13 +5,15 @@
 
 import { calculateAmericanStockMetrics } from './portfolioMath';
 import { normalizeIsraeliPrice, toNum } from './formatters';
+import { computeBankSavingsFundValue } from './bankSavingsFund';
 
 export const calculatePortfolioAnalysis = (
   israeliStocks,
   americanStocks,
   pensionFunds,
   cashFunds,
-  bankBalances
+  bankBalances,
+  bankSavingsFunds = []
 ) => {
   const now = new Date();
   const daysBetween = (rawDate) => {
@@ -38,12 +40,17 @@ export const calculatePortfolioAnalysis = (
   );
   const cashFundsTotalValueILS = cashFunds.reduce((sum, item) => sum + toNum(item.amount), 0);
   const bankTotalValueILS = bankBalances.reduce((sum, item) => sum + toNum(item.amount), 0);
+  const bankSavingsTotalValueILS = bankSavingsFunds.reduce(
+    (sum, fund) => sum + toNum(computeBankSavingsFundValue(fund)),
+    0
+  );
   const totalValueILS =
     israeliTotalValue +
     americanTotalValueILS +
     pensionTotalValueILS +
     cashFundsTotalValueILS +
-    bankTotalValueILS;
+    bankTotalValueILS +
+    bankSavingsTotalValueILS;
 
   // Distribution by stock
   const stockDistribution = {};
@@ -184,6 +191,13 @@ export const calculatePortfolioAnalysis = (
   bankBalances.forEach((item) => {
     addDateBucket({ purchaseDate: item.updateDate }, toNum(item.amount));
   });
+  bankSavingsFunds.forEach((fund) => {
+    const value = toNum(computeBankSavingsFundValue(fund));
+    const lastDepositDate = Array.isArray(fund.deposits) && fund.deposits.length
+      ? fund.deposits[fund.deposits.length - 1].date
+      : null;
+    addDateBucket({ purchaseDate: lastDepositDate }, value);
+  });
 
   const stockList = Object.values(stockDistribution);
 
@@ -226,7 +240,7 @@ export const calculatePortfolioAnalysis = (
   const israeliPositions = stockList.filter((s) => s.exchange === 'israeli').length;
   const americanPositions = stockList.filter((s) => s.exchange === 'american').length;
   const nonStockTotalValueILS =
-    pensionTotalValueILS + cashFundsTotalValueILS + bankTotalValueILS;
+    pensionTotalValueILS + cashFundsTotalValueILS + bankTotalValueILS + bankSavingsTotalValueILS;
 
   return {
     // Distribution by exchange
@@ -251,6 +265,10 @@ export const calculatePortfolioAnalysis = (
         value: bankTotalValueILS,
         percentage: totalValueILS > 0 ? (bankTotalValueILS / totalValueILS) * 100 : 0
       },
+      bankSavings: {
+        value: bankSavingsTotalValueILS,
+        percentage: totalValueILS > 0 ? (bankSavingsTotalValueILS / totalValueILS) * 100 : 0
+      },
       total: totalValueILS
     },
 
@@ -274,12 +292,13 @@ export const calculatePortfolioAnalysis = (
     },
     summaryMetrics: {
       positionsCount:
-        stockList.length + pensionFunds.length + cashFunds.length + bankBalances.length,
+        stockList.length + pensionFunds.length + cashFunds.length + bankBalances.length + bankSavingsFunds.length,
       israeliPositions,
       americanPositions,
       pensionPositions: pensionFunds.length,
       cashFundsPositions: cashFunds.length,
       bankPositions: bankBalances.length,
+      bankSavingsPositions: bankSavingsFunds.length,
       totalPurchaseILS,
       totalProfitILS,
       weightedDailyChangePercent,
@@ -290,6 +309,7 @@ export const calculatePortfolioAnalysis = (
       pensionTotalValueILS,
       cashFundsTotalValueILS,
       bankTotalValueILS,
+      bankSavingsTotalValueILS,
       nonStockTotalValueILS,
       overallTotalValueILS: totalValueILS
     }

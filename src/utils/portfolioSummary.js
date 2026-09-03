@@ -5,7 +5,8 @@
 
 import { TAX_RATE, calculateAmericanStockMetrics, calculatePensionPeriodReturn } from './portfolioMath';
 import { normalizeIsraeliPrice } from './formatters';
-import { calculateStockRealGainTax, calculatePensionRealGainTax, monthKeyFromDate } from './cpiTax';
+import { calculateStockRealGainTax, calculatePensionRealGainTax, calculateBankSavingsFundTax, monthKeyFromDate } from './cpiTax';
+import { computeBankSavingsFundValue } from './bankSavingsFund';
 
 // cpi = { currentIndex, indexByMonth } - אופציונלי. כל עוד המדד לא נטען
 // (או שהמשיכה נכשלה), נופלים חזרה לחישוב מס שטוח על הרווח הנומינלי
@@ -16,7 +17,8 @@ export const calculatePortfolioSummary = (
   pensionFunds,
   cashFunds,
   bankBalances,
-  cpi = {}
+  cpi = {},
+  bankSavingsFunds = []
 ) => {
   const { currentIndex = null, indexByMonth = {} } = cpi;
 
@@ -183,17 +185,14 @@ export const calculatePortfolioSummary = (
   );
   const pensionPreviousProfitPercent = pensionAdjustedPreviousValueILS > 0 ? ((pensionCurrentValueILS / pensionAdjustedPreviousValueILS) - 1) * 100 : (pensionInitialInvestmentILS > 0 ? ((pensionCurrentValueILS / pensionInitialInvestmentILS) - 1) * 100 : 0);
   const pensionTotalProfitILS = pensionCurrentValueILS - pensionInitialInvestmentILS;
-  // מס על קופות גמל: לכל קופה בנפרד, לפי דגל isLinkedToIndex -
-  // אם מוצמדת למדד: 25% על הרווח הריאלי בלבד (כל הפקדה מוצמדת בנפרד
-  // לפי תאריך ההפקדה שלה, ראו cpiTax.js). אם לא מוצמדת: 15% שטוח על
-  // מלוא הרווח הנומינלי. כשהמדד לא זמין עדיין (טעינה ראשונית/כשל
-  // רשת) נופלים חזרה למס הישן (25% שטוח על כלל קופות הגמל) כדי
-  // שהאפליקציה תמשיך לעבוד.
+  // מס על קופות גמל: תמיד 25% על הרווח הריאלי בלבד (כל הפקדה מוצמדת
+  // בנפרד לפי תאריך ההפקדה שלה, ראו cpiTax.js) - אין עוד ברירת מס שטוח
+  // על הרווח הנומינלי. כשהמדד לא זמין עדיין (טעינה ראשונית/כשל רשת)
+  // נופלים חזרה למס הישן (25% שטוח על כלל קופות הגמל) כדי שהאפליקציה
+  // תמשיך לעבוד.
   //
   // pensionRealGainILS / pensionInflationaryGainILS נשמרים בנפרד כדי
-  // שאפשר יהיה להציג אותם בממשק ולוודא את החישוב (רק לקופות מוצמדות -
-  // לקופות לא-מוצמדות "הרווח הריאלי" שווה לרווח הנומינלי המלא, כי אין
-  // הצמדה כלל).
+  // שאפשר יהיה להציג אותם בממשק ולוודא את החישוב.
   let pensionTaxILS;
   let pensionRealGainILS;
   let pensionInflationaryGainILS;
@@ -204,7 +203,6 @@ export const calculatePortfolioSummary = (
       return calculatePensionRealGainTax({
         deposits,
         currentValue: fundCurrentValue,
-        isLinkedToIndex: !!fund.isLinkedToIndex,
         currentIndex,
         indexByMonth
       });
@@ -226,12 +224,44 @@ export const calculatePortfolioSummary = (
     pensionInflationaryGainILS = 0;
   }
   const pensionUpdateProfitILS = pensionCurrentValueILS - pensionPreviousValueILS;
-  const totalTaxILS = israeliTaxILS + americanTaxILS + pensionTaxILS;
-  const totalProfitAfterTaxILS = (israeliSummary.totalProfitILS + americanSummary.totalProfitILS + pensionTotalProfitILS) - totalTaxILS;
-  // פירוק מאוחד לרווח ריאלי/אינפלציוני על פני כל שלושת הסוגים יחד
-  // (מניות ישראליות + מניות אמריקאיות + קופות גמל) - סכום פשוט של
-  // השדות שכל אחד מהם כבר מחשב לעצמו.
-  const totalRealGainILS = israeliSummary.totalRealGainILS + americanSummary.totalRealGainILS + pensionRealGainILS;
+
+  // קופות חיסכון בבנק: השווי הנוכחי תמיד מחושב (ריבית-דריבית אוטומטית
+  // מכל הפקדה, ראו bankSavingsFund.js) - אין שווי ידני לעדכן. המס תלוי
+  // בבחירת המסלול (צמוד/לא צמוד למדד) שכל קופה כזו נושאת בעצמה.
+  const bankSavingsInitialInvestmentILS = bankSavingsFunds.reduce((sum, fund) => {
+    const deposits = Array.isArray(fund.deposits) ? fund.deposits : [];
+    return sum + deposits.reduce((s, d) => s + (d.amount || 0), 0);
+  }, 0);
+  const bankSavingsCurrentValueILS = bankSavingsFunds.reduce(
+    (sum, fund) => sum + computeBankSavingsFundValue(fund),
+    0
+  );
+  const bankSavingsTotalProfitILS = bankSavingsCurrentValueILS - bankSavingsInitialInvestmentILS;
+  let bankSavingsTaxILS = 0;
+  let bankSavingsRealGainILS = 0;
+  bankSavingsFunds.forEach((fund) => {
+    const deposits = Array.isArray(fund.deposits) ? fund.deposits : [];
+    const currentValue = computeBankSavingsFundValue(fund);
+    const result = calculateBankSavingsFundTax({
+      deposits,
+      currentValue,
+      isLinkedToIndex: !!fund.isLinkedToIndex,
+      currentIndex,
+      indexByMonth
+    });
+    bankSavingsTaxILS += result.tax;
+    bankSavingsRealGainILS += result.gain;
+  });
+
+  const totalTaxILS = israeliTaxILS + americanTaxILS + pensionTaxILS + bankSavingsTaxILS;
+  const totalProfitAfterTaxILS =
+    (israeliSummary.totalProfitILS + americanSummary.totalProfitILS + pensionTotalProfitILS + bankSavingsTotalProfitILS) -
+    totalTaxILS;
+  // פירוק מאוחד לרווח ריאלי/אינפלציוני על פני כל הסוגים יחד (מניות
+  // ישראליות + מניות אמריקאיות + קופות גמל + קופות חיסכון בבנק) - סכום
+  // פשוט של השדות שכל אחד מהם כבר מחשב לעצמו.
+  const totalRealGainILS =
+    israeliSummary.totalRealGainILS + americanSummary.totalRealGainILS + pensionRealGainILS + bankSavingsRealGainILS;
   const totalInflationaryGainILS = israeliSummary.totalInflationaryGainILS + americanSummary.totalCurrencyExemptGainILS + pensionInflationaryGainILS;
   const bankBalancesTotalILS = bankBalances.reduce((sum, item) => sum + (item.amount || 0), 0);
   const capitalIsraeliILS = israeliSummary.totalCurrentValueILS;
@@ -241,13 +271,14 @@ export const calculatePortfolioSummary = (
     capitalAmericanILS +
     cashFundsTotalILS +
     pensionCurrentValueILS +
-    bankBalancesTotalILS;
+    bankBalancesTotalILS +
+    bankSavingsCurrentValueILS;
 
   return {
     // ILS summary
-    totalPurchaseILS: israeliSummary.totalPurchaseILS + americanSummary.totalPurchaseILS + pensionInitialInvestmentILS,
-    totalCurrentValueILS: israeliSummary.totalCurrentValueILS + americanSummary.totalCurrentValueILS + pensionCurrentValueILS,
-    totalProfitILS: israeliSummary.totalProfitILS + americanSummary.totalProfitILS + pensionTotalProfitILS,
+    totalPurchaseILS: israeliSummary.totalPurchaseILS + americanSummary.totalPurchaseILS + pensionInitialInvestmentILS + bankSavingsInitialInvestmentILS,
+    totalCurrentValueILS: israeliSummary.totalCurrentValueILS + americanSummary.totalCurrentValueILS + pensionCurrentValueILS + bankSavingsCurrentValueILS,
+    totalProfitILS: israeliSummary.totalProfitILS + americanSummary.totalProfitILS + pensionTotalProfitILS + bankSavingsTotalProfitILS,
 
     // Israeli-only summary
     israeliOnlyPurchaseILS: israeliSummary.totalPurchaseILS,
@@ -308,6 +339,12 @@ export const calculatePortfolioSummary = (
     pensionInflationaryGainILS,
     pensionUpdateProfitILS,
     capitalBankILS: bankBalancesTotalILS,
+    capitalBankSavingsILS: bankSavingsCurrentValueILS,
+    bankSavingsInitialInvestmentILS,
+    bankSavingsCurrentValueILS,
+    bankSavingsTotalProfitILS,
+    bankSavingsTaxILS,
+    bankSavingsRealGainILS,
     capitalTotalILS,
     totalTaxILS,
     totalRealGainILS,

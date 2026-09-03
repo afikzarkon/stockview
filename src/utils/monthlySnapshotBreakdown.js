@@ -12,8 +12,9 @@
 // arrays here, using the same "currentValue ?? amount"/"amount" value
 // formulas portfolioAnalysis.js uses for its own category totals.
 import { toNum } from './formatters';
+import { computeBankSavingsFundValue } from './bankSavingsFund';
 
-export function buildItemizedMonthlyBreakdown(analysis, pensionFunds, cashFunds, bankBalances) {
+export function buildItemizedMonthlyBreakdown(analysis, pensionFunds, cashFunds, bankBalances, bankSavingsFunds = []) {
   const israeli = [];
   const american = [];
   (analysis?.stockDistribution || []).forEach((stock) => {
@@ -40,5 +41,11 @@ export function buildItemizedMonthlyBreakdown(analysis, pensionFunds, cashFunds,
     value: toNum(item.amount)
   }));
 
-  return { israeli, american, pension, cashFunds: cashFundsItems, bank };
+  const bankSavings = (bankSavingsFunds || []).map((item) => ({
+    key: item.fundName || `bank-savings-${item.id}`,
+    label: item.fundName || 'קופת חיסכון בבנק',
+    value: toNum(computeBankSavingsFundValue(item))
+  }));
+
+  return { israeli, american, pension, cashFunds: cashFundsItems, bank, bankSavings };
 }

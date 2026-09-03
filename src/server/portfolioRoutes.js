@@ -5,7 +5,8 @@ const emptyPortfolio = () => ({
   americanStocks: [],
   pensionFunds: [],
   bankBalances: [],
-  cashFunds: []
+  cashFunds: [],
+  bankSavingsFunds: []
 });
 
 function requireAuth(req, res, next) {
@@ -32,7 +33,8 @@ function mountPortfolioRoutes(app, store) {
         americanStocks: Array.isArray(data.americanStocks) ? data.americanStocks : [],
         pensionFunds: Array.isArray(data.pensionFunds) ? data.pensionFunds : [],
         bankBalances: Array.isArray(data.bankBalances) ? data.bankBalances : [],
-        cashFunds: Array.isArray(data.cashFunds) ? data.cashFunds : []
+        cashFunds: Array.isArray(data.cashFunds) ? data.cashFunds : [],
+        bankSavingsFunds: Array.isArray(data.bankSavingsFunds) ? data.bankSavingsFunds : []
       });
     } catch {
       return res.status(500).json({ error: 'שגיאת שרת' });
@@ -47,7 +49,8 @@ function mountPortfolioRoutes(app, store) {
         americanStocks: Array.isArray(body.americanStocks) ? body.americanStocks : [],
         pensionFunds: Array.isArray(body.pensionFunds) ? body.pensionFunds : [],
         bankBalances: Array.isArray(body.bankBalances) ? body.bankBalances : [],
-        cashFunds: Array.isArray(body.cashFunds) ? body.cashFunds : []
+        cashFunds: Array.isArray(body.cashFunds) ? body.cashFunds : [],
+        bankSavingsFunds: Array.isArray(body.bankSavingsFunds) ? body.bankSavingsFunds : []
       };
       const payload = JSON.stringify(snapshot);
       await store.upsertPortfolio(req.user.id, payload);

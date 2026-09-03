@@ -36,6 +36,7 @@ function HomeView({
   pensionFunds,
   cashFunds,
   bankBalances,
+  bankSavingsFunds = [],
   cpi,
   handleAddInfo,
   isEditMode,
@@ -57,8 +58,9 @@ function HomeView({
     americanStocks.length > 0 ||
     pensionFunds.length > 0 ||
     cashFunds.length > 0 ||
-    bankBalances.length > 0;
-  const exportPortfolioData = { summary, israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances };
+    bankBalances.length > 0 ||
+    bankSavingsFunds.length > 0;
+  const exportPortfolioData = { summary, israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances, bankSavingsFunds };
 
   // exportReport.js pulls in exceljs + jsPDF + the embedded Hebrew font -
   // several hundred KB gzipped (confirmed: it blew up the main bundle by
@@ -258,6 +260,7 @@ function HomeView({
             pensionFunds={pensionFunds}
             cashFunds={cashFunds}
             bankBalances={bankBalances}
+            bankSavingsFunds={bankSavingsFunds}
             cpi={cpi}
             showAdditionalData={showAmericanColumns}
             isEditMode={isEditMode}

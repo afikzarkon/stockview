@@ -12,6 +12,7 @@ export function usePortfolioData(user, authHeader) {
   const [pensionFunds, setPensionFunds] = useState([]);
   const [bankBalances, setBankBalances] = useState([]);
   const [cashFunds, setCashFunds] = useState([]);
+  const [bankSavingsFunds, setBankSavingsFunds] = useState([]);
   const [portfolioReady, setPortfolioReady] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
@@ -59,6 +60,7 @@ export function usePortfolioData(user, authHeader) {
         setPensionFunds(Array.isArray(d.pensionFunds) ? d.pensionFunds : []);
         setBankBalances(Array.isArray(d.bankBalances) ? d.bankBalances : []);
         setCashFunds(Array.isArray(d.cashFunds) ? d.cashFunds : []);
+        setBankSavingsFunds(Array.isArray(d.bankSavingsFunds) ? d.bankSavingsFunds : []);
         setHasUnsavedChanges(false);
         setSaveError('');
         setLastSavedAt(new Date());
@@ -69,6 +71,7 @@ export function usePortfolioData(user, authHeader) {
           setPensionFunds([]);
           setBankBalances([]);
           setCashFunds([]);
+          setBankSavingsFunds([]);
           setHasUnsavedChanges(false);
           setSaveError('');
           setLastSavedAt(null);
@@ -89,7 +92,8 @@ export function usePortfolioData(user, authHeader) {
     americanStocks,
     pensionFunds,
     bankBalances,
-    cashFunds
+    cashFunds,
+    bankSavingsFunds
   });
 
   const savePortfolio = async () => {
@@ -127,6 +131,7 @@ export function usePortfolioData(user, authHeader) {
     setPensionFunds(snapshot.pensionFunds);
     setBankBalances(snapshot.bankBalances);
     setCashFunds(snapshot.cashFunds);
+    setBankSavingsFunds(Array.isArray(snapshot.bankSavingsFunds) ? snapshot.bankSavingsFunds : []);
     setHasUnsavedChanges(false);
     setSaveError('');
     setLastSavedAt(new Date());
@@ -140,6 +145,7 @@ export function usePortfolioData(user, authHeader) {
     setPensionFunds([]);
     setBankBalances([]);
     setCashFunds([]);
+    setBankSavingsFunds([]);
     setPortfolioReady(false);
     setHasUnsavedChanges(false);
     setSaveError('');
@@ -157,6 +163,8 @@ export function usePortfolioData(user, authHeader) {
     setBankBalances,
     cashFunds,
     setCashFunds,
+    bankSavingsFunds,
+    setBankSavingsFunds,
     portfolioReady,
     hasUnsavedChanges,
     setHasUnsavedChanges,

@@ -12,12 +12,13 @@ const distribution = (overrides) => ({
   pension: { value: 1000, percentage: 10 },
   cashFunds: { value: 500, percentage: 5 },
   bank: { value: 500, percentage: 5 },
+  bankSavings: { value: 0, percentage: 0 },
   total: 10000,
   ...overrides
 });
 
 describe('emptyTargets', () => {
-  test('has all 5 categories at 0', () => {
+  test('has all categories at 0', () => {
     const targets = emptyTargets();
     expect(Object.keys(targets).sort()).toEqual([...REBALANCE_CATEGORIES].sort());
     REBALANCE_CATEGORIES.forEach((key) => expect(targets[key]).toBe(0));
@@ -88,10 +89,10 @@ describe('computeRebalancingPlan', () => {
   });
 
   test('handles an empty/zero portfolio without throwing', () => {
-    const emptyDist = { israeli: { value: 0, percentage: 0 }, american: { value: 0, percentage: 0 }, pension: { value: 0, percentage: 0 }, cashFunds: { value: 0, percentage: 0 }, bank: { value: 0, percentage: 0 }, total: 0 };
+    const emptyDist = { israeli: { value: 0, percentage: 0 }, american: { value: 0, percentage: 0 }, pension: { value: 0, percentage: 0 }, cashFunds: { value: 0, percentage: 0 }, bank: { value: 0, percentage: 0 }, bankSavings: { value: 0, percentage: 0 }, total: 0 };
     const plan = computeRebalancingPlan(emptyDist, emptyTargets());
     expect(plan.totalValueILS).toBe(0);
-    expect(plan.rows).toHaveLength(5);
+    expect(plan.rows).toHaveLength(REBALANCE_CATEGORIES.length);
     plan.rows.forEach((row) => expect(row.targetValue).toBe(0));
   });
 
@@ -99,6 +100,6 @@ describe('computeRebalancingPlan', () => {
     expect(() => computeRebalancingPlan(undefined, emptyTargets())).not.toThrow();
     const plan = computeRebalancingPlan(undefined, emptyTargets());
     expect(plan.totalValueILS).toBe(0);
-    expect(plan.rows).toHaveLength(5);
+    expect(plan.rows).toHaveLength(REBALANCE_CATEGORIES.length);
   });
 });

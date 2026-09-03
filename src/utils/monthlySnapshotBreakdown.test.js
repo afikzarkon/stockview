@@ -50,9 +50,17 @@ describe('buildItemizedMonthlyBreakdown', () => {
     ]);
   });
 
+  test('builds one item per bank savings fund, keyed/labeled by fund name', () => {
+    const bankSavingsFunds = [
+      { id: 7, fundName: 'חיסכון X', interestRate: 0, deposits: [{ date: '2024-01-01', amount: 10000 }] }
+    ];
+    const result = buildItemizedMonthlyBreakdown(analysis, [], [], [], bankSavingsFunds);
+    expect(result.bankSavings).toEqual([{ key: 'חיסכון X', label: 'חיסכון X', value: 10000 }]);
+  });
+
   test('a category with nothing to show returns an empty array, never a fabricated item', () => {
     const result = buildItemizedMonthlyBreakdown({ stockDistribution: [] }, [], [], []);
-    expect(result).toEqual({ israeli: [], american: [], pension: [], cashFunds: [], bank: [] });
+    expect(result).toEqual({ israeli: [], american: [], pension: [], cashFunds: [], bank: [], bankSavings: [] });
   });
 
   test('handles a missing analysis/stockDistribution gracefully', () => {

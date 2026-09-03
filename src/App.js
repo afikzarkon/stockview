@@ -89,6 +89,8 @@ function App() {
     setBankBalances,
     cashFunds,
     setCashFunds,
+    bankSavingsFunds,
+    setBankSavingsFunds,
     portfolioReady,
     hasUnsavedChanges,
     setHasUnsavedChanges,
@@ -113,12 +115,14 @@ function App() {
     initialInvestment: '',
     currentValue: '',
     previousValue: '',
-    isLinkedToIndex: false,
     currentValueDate: '',
     previousValueDate: '',
     quantity: '',
     exchange: 'israeli',
-    exchangeRate: ''
+    exchangeRate: '',
+    investmentTrack: '',
+    interestRate: '',
+    isLinkedToIndex: false
   });
   // State for fillHistoricalExchangeRate (auto-filling the exchange-rate
   // field from the real USD/ILS rate on the purchase date) - the manual
@@ -151,7 +155,8 @@ function App() {
   // רווח הון ריאלי מוצמד למדד (ראו utils/cpiTax.js).
   const relevantCpiMonths = [
     ...israeliStocks.map((s) => monthKeyFromDate(s.purchaseDate)),
-    ...pensionFunds.flatMap((f) => (Array.isArray(f.deposits) ? f.deposits : []).map((d) => monthKeyFromDate(d.date)))
+    ...pensionFunds.flatMap((f) => (Array.isArray(f.deposits) ? f.deposits : []).map((d) => monthKeyFromDate(d.date))),
+    ...bankSavingsFunds.flatMap((f) => (Array.isArray(f.deposits) ? f.deposits : []).map((d) => monthKeyFromDate(d.date)))
   ].filter(Boolean);
 
   const cpi = useCpiIndex(relevantCpiMonths);
@@ -161,8 +166,8 @@ function App() {
   // screen is currently visible. Cheap pure-JS reduce over the portfolio
   // arrays, so recomputing on relevant changes is fine.
   const analysis = useMemo(
-    () => calculatePortfolioAnalysis(israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances),
-    [israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances]
+    () => calculatePortfolioAnalysis(israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances, bankSavingsFunds),
+    [israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances, bankSavingsFunds]
   );
 
   // Itemized (one entry per actual holding/account, not just a category
@@ -172,8 +177,8 @@ function App() {
   // (category totals are just the sum of a category's items), and nothing
   // currently reads the daily snapshot's breakdown for anything but this.
   const snapshotBreakdown = useMemo(
-    () => buildItemizedMonthlyBreakdown(analysis, pensionFunds, cashFunds, bankBalances),
-    [analysis, pensionFunds, cashFunds, bankBalances]
+    () => buildItemizedMonthlyBreakdown(analysis, pensionFunds, cashFunds, bankBalances, bankSavingsFunds),
+    [analysis, pensionFunds, cashFunds, bankBalances, bankSavingsFunds]
   );
 
   const {
@@ -439,7 +444,7 @@ function App() {
 
       if (existingFund) {
         // קופה קיימת עם אותו שם בדיוק: מוסיפים שורה חדשה לפנקס ההפקדות
-        // שלה בלבד. currentValue/previousValue/isLinkedToIndex של הקופה
+        // שלה בלבד. currentValue/previousValue של הקופה
         // הקיימת לא משתנים (אלה מתעדכנים בנפרד דרך הטבלה, לא כאן).
         const updatedPensionFunds = pensionFunds.map((fund) =>
           fund.fundName === trimmedName
@@ -456,7 +461,6 @@ function App() {
         const pensionItem = {
           id: Date.now(),
           fundName: trimmedName,
-          isLinkedToIndex: !!formData.isLinkedToIndex,
           currentValue: depositAmount,
           currentValueDate: depositDate,
           previousValue: 0,
@@ -477,6 +481,37 @@ function App() {
       const updatedBankBalances = [...bankBalances, bankItem];
       setBankBalances(updatedBankBalances);
       setHasUnsavedChanges(true);
+    } else if (formData.itemType === 'bank_savings') {
+      // בדיוק כמו קופת גמל: מתקבצים אוטומטית לפי שם זהה, בלי לבחור "חדש/קיים".
+      const depositAmount = parseFloat(formData.initialInvestment) || 0;
+      const depositDate = formData.purchaseDate;
+      const trimmedName = (formData.stockName || '').trim();
+      const existingFund = bankSavingsFunds.find((fund) => fund.fundName === trimmedName);
+
+      if (existingFund) {
+        // קופה קיימת עם אותו שם בדיוק: מוסיפים שורה חדשה לפנקס ההפקדות
+        // שלה בלבד. מסלול ההשקעה/ריבית/צמידות למדד של הקופה הקיימת לא
+        // משתנים כאן (אלה מתעדכנים בנפרד דרך הטבלה).
+        const updatedBankSavingsFunds = bankSavingsFunds.map((fund) =>
+          fund.fundName === trimmedName
+            ? { ...fund, deposits: [...(Array.isArray(fund.deposits) ? fund.deposits : []), { date: depositDate, amount: depositAmount }] }
+            : fund
+        );
+        setBankSavingsFunds(updatedBankSavingsFunds);
+        setHasUnsavedChanges(true);
+      } else {
+        const bankSavingsItem = {
+          id: Date.now(),
+          fundName: trimmedName,
+          investmentTrack: formData.investmentTrack,
+          interestRate: parseFloat(formData.interestRate) || 0,
+          isLinkedToIndex: !!formData.isLinkedToIndex,
+          deposits: [{ date: depositDate, amount: depositAmount }]
+        };
+        const updatedBankSavingsFunds = [...bankSavingsFunds, bankSavingsItem];
+        setBankSavingsFunds(updatedBankSavingsFunds);
+        setHasUnsavedChanges(true);
+      }
     }
 
     setShowForm(false);
@@ -492,12 +527,14 @@ function App() {
       initialInvestment: '',
       currentValue: '',
       previousValue: '',
-      isLinkedToIndex: false,
     currentValueDate: '',
     previousValueDate: '',
       quantity: '',
       exchange: 'israeli',
-      exchangeRate: ''
+      exchangeRate: '',
+      investmentTrack: '',
+      interestRate: '',
+      isLinkedToIndex: false
     });
   };
 
@@ -537,6 +574,10 @@ function App() {
     } else if (exchange === 'cash_fund') {
       const updatedCashFunds = cashFunds.filter(item => item.id !== id);
       setCashFunds(updatedCashFunds);
+      setHasUnsavedChanges(true);
+    } else if (exchange === 'bank_savings') {
+      const updatedBankSavingsFunds = bankSavingsFunds.filter(item => item.id !== id);
+      setBankSavingsFunds(updatedBankSavingsFunds);
       setHasUnsavedChanges(true);
     }
   };
@@ -601,13 +642,15 @@ function App() {
       initialInvestment: '',
       currentValue: '',
       previousValue: '',
-      isLinkedToIndex: false,
     currentValueDate: '',
     previousValueDate: '',
       quantity: '',
       purchaseDate: '',
       exchange: 'israeli',
-      exchangeRate: ''
+      exchangeRate: '',
+      investmentTrack: '',
+      interestRate: '',
+      isLinkedToIndex: false
     });
   };
 
@@ -622,13 +665,15 @@ function App() {
       initialInvestment: '',
       currentValue: '',
       previousValue: '',
-      isLinkedToIndex: false,
     currentValueDate: '',
     previousValueDate: '',
       quantity: '',
       purchaseDate: '',
       exchange: 'israeli',
-      exchangeRate: ''
+      exchangeRate: '',
+      investmentTrack: '',
+      interestRate: '',
+      isLinkedToIndex: false
     });
   };
 
@@ -671,10 +716,16 @@ function App() {
       setBankBalances(updatedBankBalances);
       setHasUnsavedChanges(true);
     } else if (exchange === 'cash_fund') {
-      const updatedCashFunds = cashFunds.map(item => 
+      const updatedCashFunds = cashFunds.map(item =>
         item.id === id ? { ...item, [field]: value } : item
       );
       setCashFunds(updatedCashFunds);
+      setHasUnsavedChanges(true);
+    } else if (exchange === 'bank_savings') {
+      const updatedBankSavingsFunds = bankSavingsFunds.map(item =>
+        item.id === id ? { ...item, [field]: value } : item
+      );
+      setBankSavingsFunds(updatedBankSavingsFunds);
       setHasUnsavedChanges(true);
     }
   };
@@ -792,6 +843,7 @@ function App() {
           americanStocks={americanStocks}
           israeliStocks={israeliStocks}
           pensionFunds={pensionFunds}
+          bankSavingsFunds={bankSavingsFunds}
           cpi={cpi}
           rebalanceTargets={rebalanceTargets}
           rebalanceTargetsLoading={rebalanceTargetsLoading}
@@ -839,7 +891,8 @@ function App() {
     pensionFunds,
     cashFunds,
     bankBalances,
-    { currentIndex: cpi.currentIndex, indexByMonth: cpi.indexByMonth }
+    { currentIndex: cpi.currentIndex, indexByMonth: cpi.indexByMonth },
+    bankSavingsFunds
   );
 
   return (
@@ -872,6 +925,7 @@ function App() {
         pensionFunds={pensionFunds}
         cashFunds={cashFunds}
         bankBalances={bankBalances}
+        bankSavingsFunds={bankSavingsFunds}
         cpi={cpi}
         handleAddInfo={handleAddInfo}
         isEditMode={isEditMode}

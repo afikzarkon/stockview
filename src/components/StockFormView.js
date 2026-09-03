@@ -31,6 +31,7 @@ function StockFormView({
                 <option value="pension">קופת גמל</option>
                 <option value="bank">עו"ש</option>
                 <option value="cash_fund">כספית שקלית</option>
+                <option value="bank_savings">קופת חיסכון בבנק</option>
               </select>
             </div>
             {formData.itemType === 'stock' && (
@@ -88,9 +89,27 @@ function StockFormView({
               </div>
             )}
 
-            {(formData.itemType === 'stock' || formData.itemType === 'pension' || formData.itemType === 'bank' || formData.itemType === 'cash_fund') && (
+            {formData.itemType === 'bank_savings' && (
               <div className="form-group">
-                <label htmlFor="purchaseDate">{formData.itemType === 'stock' ? 'תאריך קנייה *' : formData.itemType === 'pension' ? 'תאריך ההפקדה *' : 'תאריך עדכון *'}</label>
+                <label htmlFor="stockName">שם קופת חיסכון *</label>
+                <input
+                  type="text"
+                  id="stockName"
+                  name="stockName"
+                  value={formData.stockName}
+                  onChange={handleInputChange}
+                  required
+                  placeholder="לדוגמה: קופת חיסכון - בנק לאומי"
+                />
+                <small className="form-help">
+                  אם כבר יש קופה עם השם הזה בדיוק, ההפקדה תצטרף אליה אוטומטית - בדיוק כמו קופת גמל.
+                </small>
+              </div>
+            )}
+
+            {(formData.itemType === 'stock' || formData.itemType === 'pension' || formData.itemType === 'bank' || formData.itemType === 'cash_fund' || formData.itemType === 'bank_savings') && (
+              <div className="form-group">
+                <label htmlFor="purchaseDate">{formData.itemType === 'stock' ? 'תאריך קנייה *' : (formData.itemType === 'pension' || formData.itemType === 'bank_savings') ? 'תאריך ההפקדה *' : 'תאריך עדכון *'}</label>
                 <input
                   type="date"
                   id="purchaseDate"
@@ -136,25 +155,6 @@ function StockFormView({
                     השווי הנוכחי של הקופה יתחיל שווה לסכום ההפקדה (אם זו קופה חדשה) - אפשר לעדכן אותו בהמשך בטבלה כשיש שווי עדכני אמיתי.
                   </small>
                 </div>
-                <div className="form-group form-group-checkbox">
-                  <label htmlFor="isLinkedToIndex">
-                    <input
-                      type="checkbox"
-                      id="isLinkedToIndex"
-                      name="isLinkedToIndex"
-                      checked={!!formData.isLinkedToIndex}
-                      onChange={(e) =>
-                        handleInputChange({ target: { name: 'isLinkedToIndex', value: e.target.checked } })
-                      }
-                    />
-                    {' '}הקופה צמודה למדד המחירים לצרכן
-                  </label>
-                  <p className="form-hint">
-                    אם מסומן: מס רווח הון (25%) יחושב רק על הרווח הריאלי (אחרי ניכוי אינפלציה).
-                    אם לא מסומן: מס שטוח של 15% על מלוא הרווח הנומינלי, ללא הצמדה.
-                    (רלוונטי רק בפתיחת קופה חדשה - בהפקדה לקופה קיימת ההגדרה הקיימת שלה נשארת ללא שינוי.)
-                  </p>
-                </div>
               </>
             ) : formData.itemType === 'bank' ? (
               <div className="form-group">
@@ -186,6 +186,67 @@ function StockFormView({
                   placeholder="0.00"
                 />
               </div>
+            ) : formData.itemType === 'bank_savings' ? (
+              <>
+                <div className="form-group">
+                  <label htmlFor="initialInvestment">סכום ההפקדה *</label>
+                  <input
+                    type="number"
+                    id="initialInvestment"
+                    name="initialInvestment"
+                    value={formData.initialInvestment}
+                    onChange={handleInputChange}
+                    required
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="investmentTrack">מסלול השקעה *</label>
+                  <input
+                    type="text"
+                    id="investmentTrack"
+                    name="investmentTrack"
+                    value={formData.investmentTrack}
+                    onChange={handleInputChange}
+                    required
+                    placeholder="לדוגמה: מסלול שקלי, מסלול צמוד מדד..."
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="interestRate">ריבית שנתית (%) *</label>
+                  <input
+                    type="number"
+                    id="interestRate"
+                    name="interestRate"
+                    value={formData.interestRate}
+                    onChange={handleInputChange}
+                    required
+                    step="0.01"
+                    min="0"
+                    placeholder="4.00"
+                  />
+                  <small className="form-help">
+                    השווי הנוכחי יחושב אוטומטית לפי ריבית-דריבית שנתית מתאריך ההפקדה - אין צורך לעדכן אותו ידנית.
+                  </small>
+                </div>
+                <div className="form-group form-group-checkbox">
+                  <label htmlFor="isLinkedToIndex">
+                    <input
+                      type="checkbox"
+                      id="isLinkedToIndex"
+                      name="isLinkedToIndex"
+                      checked={!!formData.isLinkedToIndex}
+                      onChange={(e) => handleInputChange({ target: { name: 'isLinkedToIndex', value: e.target.checked } })}
+                    />
+                    מסלול צמוד למדד המחירים לצרכן
+                  </label>
+                  <p className="form-hint">
+                    צמוד למדד: מס של 25% על הרווח הריאלי בלבד. לא צמוד: מס שטוח של 15% על מלוא הרווח הנומינלי.
+                  </p>
+                </div>
+              </>
             ) : null}
 
             {formData.itemType === 'stock' && (

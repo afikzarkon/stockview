@@ -12,14 +12,15 @@
 // category. normalizeCategoryItems() treats both the same way so old and
 // new snapshots compare correctly without a data migration.
 
-export const MONTHLY_CATEGORY_KEYS = ['israeli', 'american', 'pension', 'cashFunds', 'bank'];
+export const MONTHLY_CATEGORY_KEYS = ['israeli', 'american', 'pension', 'cashFunds', 'bank', 'bankSavings'];
 
 export const MONTHLY_CATEGORY_LABELS_HE = {
   israeli: 'בורסה ישראלית',
   american: 'בורסה אמריקאית',
   pension: 'קופות גמל',
   cashFunds: 'קרנות כספיות',
-  bank: 'עו"ש'
+  bank: 'עו"ש',
+  bankSavings: 'קופת חיסכון בבנק'
 };
 
 const isFiniteNumber = (n) => typeof n === 'number' && Number.isFinite(n);

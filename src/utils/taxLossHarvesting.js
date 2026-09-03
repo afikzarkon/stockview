@@ -15,9 +15,10 @@
 // vary by situation - see cpiTax.js's own disclaimer. This surfaces
 // candidates and an estimate, not a recommendation to sell.
 
-import { calculateStockRealGainTax, calculatePensionRealGainTax, monthKeyFromDate } from './cpiTax';
+import { calculateStockRealGainTax, calculatePensionRealGainTax, calculateBankSavingsFundTax, monthKeyFromDate } from './cpiTax';
 import { calculateAmericanStockMetrics } from './portfolioMath';
 import { normalizeIsraeliPrice } from './formatters';
+import { computeBankSavingsFundValue } from './bankSavingsFund';
 
 const buildIsraeliPosition = (stock, cpi) => {
   // currentPrice is always already in shekels by the time it reaches here
@@ -70,17 +71,15 @@ const buildAmericanPosition = (stock) => {
 const buildPensionPosition = (fund, cpi) => {
   const deposits = Array.isArray(fund.deposits) ? fund.deposits : [];
   const fundCurrentValue = fund.currentValue ?? fund.amount ?? 0;
-  const isLinked = !!fund.isLinkedToIndex;
   const currentIndex = cpi ? cpi.currentIndex : null;
   const indexByMonth = cpi && cpi.indexByMonth ? cpi.indexByMonth : {};
 
   let gain;
-  let taxRate = isLinked ? 0.25 : 0.15;
+  const taxRate = 0.25; // קופות גמל תמיד ממוסות על הרווח הריאלי (25%)
   if (currentIndex) {
     gain = calculatePensionRealGainTax({
       deposits,
       currentValue: fundCurrentValue,
-      isLinkedToIndex: isLinked,
       currentIndex,
       indexByMonth
     }).gain;
@@ -99,16 +98,42 @@ const buildPensionPosition = (fund, cpi) => {
   };
 };
 
+const buildBankSavingsPosition = (fund, cpi) => {
+  const deposits = Array.isArray(fund.deposits) ? fund.deposits : [];
+  const currentValue = computeBankSavingsFundValue(fund);
+  const currentIndex = cpi ? cpi.currentIndex : null;
+  const indexByMonth = cpi && cpi.indexByMonth ? cpi.indexByMonth : {};
+
+  const result = calculateBankSavingsFundTax({
+    deposits,
+    currentValue,
+    isLinkedToIndex: !!fund.isLinkedToIndex,
+    currentIndex,
+    indexByMonth
+  });
+
+  return {
+    id: fund.id,
+    name: fund.fundName,
+    category: 'bankSavings',
+    categoryLabel: 'קופת חיסכון בבנק',
+    realGain: result.gain,
+    taxRate: fund.isLinkedToIndex && currentIndex ? 0.25 : 0.15
+  };
+};
+
 export const computeTaxLossHarvestingOpportunities = (
   israeliStocks = [],
   americanStocks = [],
   pensionFunds = [],
-  cpi = null
+  cpi = null,
+  bankSavingsFunds = []
 ) => {
   const positions = [
     ...israeliStocks.map((s) => buildIsraeliPosition(s, cpi)),
     ...americanStocks.map((s) => buildAmericanPosition(s)),
-    ...pensionFunds.map((f) => buildPensionPosition(f, cpi))
+    ...pensionFunds.map((f) => buildPensionPosition(f, cpi)),
+    ...bankSavingsFunds.map((f) => buildBankSavingsPosition(f, cpi))
   ];
 
   const lossPositions = positions

@@ -73,4 +73,34 @@ describe('calculatePortfolioAnalysis', () => {
     const israeliStocks = [{ stockName: 'A' }];
     expect(() => calculatePortfolioAnalysis(israeliStocks, [], [], [], [])).not.toThrow();
   });
+
+  describe('bank savings funds (bankSavingsFunds param)', () => {
+    test('a bank savings fund contributes to exchangeDistribution.bankSavings and the overall total', () => {
+      const bankSavingsFunds = [
+        { fundName: 'חיסכון', interestRate: 0, deposits: [{ date: '2024-01-01', amount: 4000 }] }
+      ];
+      const analysis = calculatePortfolioAnalysis([], [], [], [], [], bankSavingsFunds);
+      expect(analysis.exchangeDistribution.bankSavings.value).toBeCloseTo(4000, 5);
+      expect(analysis.exchangeDistribution.bankSavings.percentage).toBeCloseTo(100, 5);
+      expect(analysis.exchangeDistribution.total).toBeCloseTo(4000, 5);
+      expect(analysis.summaryMetrics.bankSavingsTotalValueILS).toBeCloseTo(4000, 5);
+      expect(analysis.summaryMetrics.bankSavingsPositions).toBe(1);
+    });
+
+    test('exchangeDistribution percentages (including bankSavings) sum to ~100% across all six categories', () => {
+      const israeliStocks = [{ stockName: 'A', quantity: 10, purchasePrice: 10, currentPrice: 1200, dailyChangePercent: 0, purchaseDate: '2023-01-01' }];
+      const pensionFunds = [{ initialInvestment: 1000, currentValue: 1100, previousValue: 1050, updateDate: '2023-01-01' }];
+      const bankSavingsFunds = [{ fundName: 'X', interestRate: 0, deposits: [{ date: '2023-01-01', amount: 900 }] }];
+
+      const analysis = calculatePortfolioAnalysis(israeliStocks, [], pensionFunds, [], [], bankSavingsFunds);
+      const { israeli, pension, bankSavings } = analysis.exchangeDistribution;
+      expect(israeli.percentage + pension.percentage + bankSavings.percentage).toBeCloseTo(100, 5);
+    });
+
+    test('omitting bankSavingsFunds entirely (backward compatible call) does not throw and treats it as empty', () => {
+      const analysis = calculatePortfolioAnalysis([], [], [], [], []);
+      expect(analysis.exchangeDistribution.bankSavings.value).toBe(0);
+      expect(analysis.summaryMetrics.bankSavingsPositions).toBe(0);
+    });
+  });
 });

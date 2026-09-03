@@ -15,7 +15,8 @@ import {
   buildAmericanStocksExportRows,
   buildPensionFundsExportRows,
   buildCashFundsExportRows,
-  buildBankBalancesExportRows
+  buildBankBalancesExportRows,
+  buildBankSavingsFundsExportRows
 } from './exportData';
 
 const todayFileStamp = () => new Date().toISOString().slice(0, 10);
@@ -44,6 +45,7 @@ export function buildPortfolioWorkbook(data) {
   addSheetFromRows(workbook, 'קופות גמל', buildPensionFundsExportRows(data.pensionFunds));
   addSheetFromRows(workbook, 'קרנות כספיות', buildCashFundsExportRows(data.cashFunds));
   addSheetFromRows(workbook, 'עוש', buildBankBalancesExportRows(data.bankBalances));
+  addSheetFromRows(workbook, 'קופות חיסכון בבנק', buildBankSavingsFundsExportRows(data.bankSavingsFunds));
 
   return workbook;
 }
@@ -171,7 +173,8 @@ export function buildPortfolioPdfDoc(data) {
   y = addPdfTable(doc, 'מניות אמריקאיות', buildAmericanStocksExportRows(data.americanStocks), y);
   y = addPdfTable(doc, 'קופות גמל', buildPensionFundsExportRows(data.pensionFunds), y);
   y = addPdfTable(doc, 'קרנות כספיות', buildCashFundsExportRows(data.cashFunds), y);
-  addPdfTable(doc, 'עו"ש', buildBankBalancesExportRows(data.bankBalances), y);
+  y = addPdfTable(doc, 'עו"ש', buildBankBalancesExportRows(data.bankBalances), y);
+  addPdfTable(doc, 'קופות חיסכון בבנק', buildBankSavingsFundsExportRows(data.bankSavingsFunds), y);
 
   return doc;
 }
