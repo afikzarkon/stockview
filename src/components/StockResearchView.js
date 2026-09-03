@@ -11,6 +11,8 @@ import {
   AreaChart,
   Area,
   ReferenceDot,
+  LineChart,
+  Line,
   PieChart,
   Pie,
   Cell,
@@ -39,7 +41,12 @@ import {
   actionLabelHe,
   formatEpochDateISO
 } from '../utils/analystData';
-import { computeDcfFairValue } from '../utils/dcfValuation';
+import {
+  computeDcfFairValue,
+  computeDcfFairValueHistory,
+  mergeFairValueIntoPriceHistory
+} from '../utils/dcfValuation';
+import { computeValuationSpectrumLayout } from '../utils/valuationSpectrum';
 import {
   buildRevenueBreakdown,
   buildRevenueTrend,
@@ -106,10 +113,14 @@ function formatUsdCompact(value) {
 // wealth" palette (:root's --sw-* variables) in App.css - champagne-gold
 // primary accent + deep teal secondary, semantic green/red reserved for
 // pass/fail so a chart's own color choices never get confused with a
-// checkmark's meaning. These are always the dark-theme values (charts
-// don't currently re-theme with the light/dark toggle - a follow-up if
-// wanted, not part of this palette refresh).
-const SW = {
+// checkmark's meaning. Two full sets (not just one) because charts render
+// their own text/gridlines as literal SVG attributes, which don't
+// automatically follow the page's data-theme toggle the way CSS-driven
+// text does - using only the dark set here left axis labels/legends
+// nearly invisible (light-on-white) whenever the page was switched to
+// light mode. The active set is chosen inside the component from the
+// `theme` prop (passed down from App.js's own useTheme()).
+const SW_DARK = {
   bg: '#0a0b0a',
   surface: '#131513',
   border: '#262a25',
@@ -124,8 +135,21 @@ const SW = {
   amber: '#f59e0b'
 };
 
-const DONUT_COLORS = [SW.accent, SW.cyan, SW.amber, SW.red, SW.green, SW.accent2];
-const TREEMAP_COLORS = [SW.accent, SW.cyan, SW.accent2, SW.amber];
+// Matches :root[data-theme='light'] in App.css exactly.
+const SW_LIGHT = {
+  bg: '#faf8f3',
+  surface: '#ffffff',
+  border: '#e3ddc9',
+  textSecondary: '#5c5f52',
+  textMuted: '#8b8d7d',
+  text: '#1c1d18',
+  accent: '#a9822f',
+  accent2: '#0f9488',
+  cyan: '#0284c7',
+  green: '#059669',
+  red: '#e11d48',
+  amber: '#b45309'
+};
 
 // recharts lays out every chart (axis ticks, category label anchors, the
 // treemap's rect coordinates) assuming an LTR box, and gets visibly
@@ -159,46 +183,51 @@ function LtrChart({ children, height }) {
 // narrow for its specific (long) name just shows the value, or neither -
 // never a guaranteed-to-overflow label. See the treemap-group legend in
 // the JSX below for a size-independent way to always see every item.
-function renderTreemapCell({ x, y, width, height, name, value, fill }) {
-  if (!(width > 0) || !(height > 0)) return null;
-  const valueText = formatUsdCompact(value);
-  const showName = width > name.length * 7.5 + 12 && height > 30;
-  const showValue = width > valueText.length * 6 + 12 && height > (showName ? 44 : 20);
-  const clipId = `sw-tm-${Math.round(x)}-${Math.round(y)}-${Math.round(width)}-${Math.round(height)}`;
-  const textProps = {
-    textAnchor: 'middle',
-    fill: '#ffffff',
-    stroke: 'rgba(0,0,0,0.55)',
-    strokeWidth: 3,
-    paintOrder: 'stroke',
-    style: { fontWeight: 700, pointerEvents: 'none' }
-  };
-  return (
-    <g>
-      <rect x={x} y={y} width={width} height={height} fill={fill} stroke={SW.surface} strokeWidth={2} />
-      <clipPath id={clipId}>
-        <rect x={x + 2} y={y + 2} width={Math.max(0, width - 4)} height={Math.max(0, height - 4)} />
-      </clipPath>
-      <g clipPath={`url(#${clipId})`}>
-        {showName && (
-          <text x={x + width / 2} y={y + height / 2 - 6} fontSize={11} {...textProps}>
-            {name}
-          </text>
-        )}
-        {showValue && (
-          <text
-            x={x + width / 2}
-            y={y + height / 2 + (showName ? 11 : 4)}
-            fontSize={10}
-            {...textProps}
-            style={{ ...textProps.style, fontWeight: 400 }}
-          >
-            {valueText}
-          </text>
-        )}
+// Takes the current theme's surface color (for the cell-separator stroke,
+// so it matches whatever card background the treemap sits on in either
+// theme) and returns the actual per-cell content renderer.
+function makeTreemapCellRenderer(strokeColor) {
+  return function renderTreemapCell({ x, y, width, height, name, value, fill }) {
+    if (!(width > 0) || !(height > 0)) return null;
+    const valueText = formatUsdCompact(value);
+    const showName = width > name.length * 7.5 + 12 && height > 30;
+    const showValue = width > valueText.length * 6 + 12 && height > (showName ? 44 : 20);
+    const clipId = `sw-tm-${Math.round(x)}-${Math.round(y)}-${Math.round(width)}-${Math.round(height)}`;
+    const textProps = {
+      textAnchor: 'middle',
+      fill: '#ffffff',
+      stroke: 'rgba(0,0,0,0.55)',
+      strokeWidth: 3,
+      paintOrder: 'stroke',
+      style: { fontWeight: 700, pointerEvents: 'none' }
+    };
+    return (
+      <g>
+        <rect x={x} y={y} width={width} height={height} fill={fill} stroke={strokeColor} strokeWidth={2} />
+        <clipPath id={clipId}>
+          <rect x={x + 2} y={y + 2} width={Math.max(0, width - 4)} height={Math.max(0, height - 4)} />
+        </clipPath>
+        <g clipPath={`url(#${clipId})`}>
+          {showName && (
+            <text x={x + width / 2} y={y + height / 2 - 6} fontSize={11} {...textProps}>
+              {name}
+            </text>
+          )}
+          {showValue && (
+            <text
+              x={x + width / 2}
+              y={y + height / 2 + (showName ? 11 : 4)}
+              fontSize={10}
+              {...textProps}
+              style={{ ...textProps.style, fontWeight: 400 }}
+            >
+              {valueText}
+            </text>
+          )}
+        </g>
       </g>
-    </g>
-  );
+    );
+  };
 }
 
 function collectRewardsAndRisks(categories, limit) {
@@ -213,7 +242,19 @@ function collectRewardsAndRisks(categories, limit) {
   return { rewards: rewards.slice(0, limit), risks: risks.slice(0, limit) };
 }
 
-function StockResearchView({ onBack }) {
+function StockResearchView({ onBack, theme }) {
+  const SW = theme === 'light' ? SW_LIGHT : SW_DARK;
+  const DONUT_COLORS = [SW.accent, SW.cyan, SW.amber, SW.red, SW.green, SW.accent2];
+  const TREEMAP_COLORS = [SW.accent, SW.cyan, SW.accent2, SW.amber];
+  // Shared recharts Tooltip appearance - without this, recharts' own
+  // default (a plain white box) was the only styling every tooltip on
+  // this page got, mismatched against a dark card in dark mode.
+  const tooltipStyle = {
+    contentStyle: { background: SW.surface, border: `1px solid ${SW.border}`, borderRadius: 8, color: SW.text },
+    itemStyle: { color: SW.text },
+    labelStyle: { color: SW.textSecondary }
+  };
+
   const [query, setQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState(null);
@@ -260,6 +301,28 @@ function StockResearchView({ onBack }) {
     () => (research ? computeDcfFairValue(research, research.fundamentalsHistory) : null),
     [research]
   );
+  const dcfSpectrumLayout = useMemo(
+    () => (dcfResult ? computeValuationSpectrumLayout(dcfResult.fairValuePerShare, dcfResult.currentPrice) : null),
+    [dcfResult]
+  );
+  const dcfFairValueHistory = useMemo(
+    () => (research ? computeDcfFairValueHistory(research, research.fundamentalsHistory) : []),
+    [research]
+  );
+  const [dcfChartPeriod, setDcfChartPeriod] = useState('1Y');
+  const dcfChartData = useMemo(() => {
+    const merged = mergeFairValueIntoPriceHistory(research?.priceHistory || [], dcfFairValueHistory);
+    const days = dcfChartPeriod === '7D' ? 7 : 365;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return merged.filter((p) => p.date >= cutoff);
+  }, [research, dcfFairValueHistory, dcfChartPeriod]);
+  const dcfChartPriceChangePercent = useMemo(() => {
+    const withPrice = dcfChartData.filter((p) => typeof p.close === 'number');
+    if (withPrice.length < 2) return null;
+    const first = withPrice[0].close;
+    const last = withPrice[withPrice.length - 1].close;
+    return first > 0 ? ((last - first) / first) * 100 : null;
+  }, [dcfChartData]);
   const revenueBreakdown = useMemo(
     () => (research ? buildRevenueBreakdown(research.fundamentalsHistory) : null),
     [research]
@@ -278,7 +341,8 @@ function StockResearchView({ onBack }) {
       ...group,
       children: group.children.map((c) => ({ ...c, fill: TREEMAP_COLORS[colorIndex++ % TREEMAP_COLORS.length] }))
     }));
-  }, [balanceSheetTreemap]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [balanceSheetTreemap, theme]);
   const latestRoce = useMemo(() => (research ? computeLatestRoce(research.fundamentalsHistory) : null), [research]);
   const historicalPe = useMemo(
     () =>
@@ -506,7 +570,7 @@ function StockResearchView({ onBack }) {
                         <PolarAngleAxis dataKey="category" tick={{ fontSize: 11, fill: SW.textSecondary }} />
                         <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
                         <Radar dataKey="percent" stroke={SW.accent} fill={SW.accent} fillOpacity={0.4} />
-                        <Tooltip formatter={(value) => `${Number(value).toFixed(0)}%`} />
+                        <Tooltip {...tooltipStyle} formatter={(value) => `${Number(value).toFixed(0)}%`} />
                       </RadarChart>
                     </LtrChart>
                     <div className="sw-snowflake-caption">
@@ -547,7 +611,7 @@ function StockResearchView({ onBack }) {
                             domain={['auto', 'auto']}
                             width={50}
                           />
-                          <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`} />
+                          <Tooltip {...tooltipStyle} formatter={(value) => `$${Number(value).toFixed(2)}`} />
                           <Area
                             type="monotone"
                             dataKey="close"
@@ -595,7 +659,7 @@ function StockResearchView({ onBack }) {
                                   <Cell key={s.key} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
                                 ))}
                               </Pie>
-                              <Tooltip formatter={(value) => formatUsdCompact(Number(value))} />
+                              <Tooltip {...tooltipStyle} formatter={(value) => formatUsdCompact(Number(value))} />
                               <Legend
                                 layout="vertical"
                                 align="right"
@@ -618,7 +682,7 @@ function StockResearchView({ onBack }) {
                                 tickFormatter={formatUsdCompact}
                                 width={60}
                               />
-                              <Tooltip formatter={(value) => formatUsdCompact(Number(value))} />
+                              <Tooltip {...tooltipStyle} formatter={(value) => formatUsdCompact(Number(value))} />
                               <Legend wrapperStyle={{ fontSize: 11, color: SW.textSecondary }} />
                               <Bar dataKey="revenue" name="הכנסות" fill={SW.accent} radius={[4, 4, 0, 0]} />
                               <Bar dataKey="netIncome" name="רווח נקי" fill={SW.cyan} radius={[4, 4, 0, 0]} />
@@ -695,7 +759,7 @@ function StockResearchView({ onBack }) {
                                   tick={{ fontSize: 11, fill: SW.text }}
                                   width={70}
                                 />
-                                <Tooltip formatter={(value) => Number(value).toFixed(1)} />
+                                <Tooltip {...tooltipStyle} formatter={(value) => Number(value).toFixed(1)} />
                                 <Bar dataKey="pe" name="P/E" radius={[0, 4, 4, 0]}>
                                   {peerPeChartData.map((d) => (
                                     <Cell key={d.symbol} fill={d.isSelected ? SW.amber : SW.accent} />
@@ -717,7 +781,7 @@ function StockResearchView({ onBack }) {
                                 <CartesianGrid stroke={SW.border} strokeDasharray="3 3" />
                                 <XAxis dataKey="year" tick={{ fontSize: 10, fill: SW.textSecondary }} />
                                 <YAxis tick={{ fontSize: 10, fill: SW.textSecondary }} width={40} />
-                                <Tooltip formatter={(value) => Number(value).toFixed(1)} />
+                                <Tooltip {...tooltipStyle} formatter={(value) => Number(value).toFixed(1)} />
                                 <Bar dataKey="pe" fill={SW.accent} radius={[4, 4, 0, 0]} />
                               </BarChart>
                             </LtrChart>
@@ -726,41 +790,111 @@ function StockResearchView({ onBack }) {
 
                         <div>
                           <h4 className="sw-subsection-title">שווי הוגן משוער (DCF)</h4>
-                          {!dcfResult ? (
+                          {!dcfResult || !dcfSpectrumLayout ? (
                             <p className="sw-empty-note">אין מספיק נתונים למודל DCF עבור מנייה זו.</p>
                           ) : (
                             <>
-                              <LtrChart height={140}>
-                                <BarChart
-                                  layout="vertical"
-                                  data={[
-                                    { name: 'מחיר נוכחי', value: dcfResult.currentPrice },
-                                    { name: 'שווי הוגן משוער', value: dcfResult.fairValuePerShare }
-                                  ]}
-                                  margin={{ top: 8, right: 24, bottom: 8, left: 4 }}
-                                >
-                                  <XAxis type="number" tick={{ fontSize: 10, fill: SW.textSecondary }} />
-                                  <YAxis
-                                    type="category"
-                                    dataKey="name"
-                                    tick={{ fontSize: 11, fill: SW.text }}
-                                    width={128}
-                                    interval={0}
+                              <div className="dcf-spectrum-widget" dir="ltr">
+                                <div className="dcf-spectrum-callout-row">
+                                  <div
+                                    className="dcf-spectrum-marker"
+                                    style={{ left: `${dcfSpectrumLayout.currentPricePosition}%` }}
+                                  >
+                                    <span
+                                      className="dcf-spectrum-badge"
+                                      style={{ background: dcfSpectrumLayout.isOvervalued ? SW.red : SW.green }}
+                                    >
+                                      {Math.abs(dcfSpectrumLayout.overvaluedPercent).toFixed(1)}%{' '}
+                                      {dcfSpectrumLayout.isOvervalued ? 'Overvalued' : 'Undervalued'}
+                                    </span>
+                                    <span className="dcf-spectrum-label">
+                                      Current Price
+                                      <br />
+                                      US${dcfResult.currentPrice.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="dcf-spectrum-connector-row">
+                                  <span
+                                    className="dcf-spectrum-connector"
+                                    style={{ left: `${dcfSpectrumLayout.currentPricePosition}%` }}
                                   />
-                                  <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`} />
-                                  <Bar dataKey="value" barSize={28} radius={[0, 6, 6, 0]}>
-                                    <Cell fill={SW.textMuted} />
-                                    <Cell fill={SW.accent} />
-                                  </Bar>
-                                </BarChart>
-                              </LtrChart>
-                              <p className="sw-section-question">
-                                שווי הוגן משוער: ${dcfResult.fairValuePerShare.toFixed(2)}
-                                {dcfResult.marginOfSafetyPercent != null &&
-                                  ` (${dcfResult.marginOfSafetyPercent >= 0 ? '+' : ''}${dcfResult.marginOfSafetyPercent.toFixed(
-                                    1
-                                  )}% מהמחיר הנוכחי)`}
-                              </p>
+                                </div>
+
+                                <div className="dcf-spectrum-bar">
+                                  <div
+                                    className="dcf-spectrum-zone"
+                                    style={{ width: `${dcfSpectrumLayout.underZoneBoundaryPosition}%`, background: SW.green }}
+                                  />
+                                  <div
+                                    className="dcf-spectrum-zone"
+                                    style={{
+                                      width: `${
+                                        dcfSpectrumLayout.overZoneBoundaryPosition - dcfSpectrumLayout.underZoneBoundaryPosition
+                                      }%`,
+                                      background: SW.amber
+                                    }}
+                                  />
+                                  <div
+                                    className="dcf-spectrum-zone"
+                                    style={{ width: `${100 - dcfSpectrumLayout.overZoneBoundaryPosition}%`, background: SW.red }}
+                                  />
+                                </div>
+
+                                <div className="dcf-spectrum-connector-row">
+                                  <span
+                                    className="dcf-spectrum-connector"
+                                    style={{ left: `${dcfSpectrumLayout.fairValuePosition}%` }}
+                                  />
+                                </div>
+
+                                <div className="dcf-spectrum-zone-labels">
+                                  {/* When a stock is very mis-valued, the range widens (see
+                                      computeValuationSpectrumLayout) and the +-20% boundaries end
+                                      up close together near the center - underZoneLabelPosition/
+                                      overZoneLabelPosition keep a minimum gap so these labels (and
+                                      "About Right", staggered lower) don't overlap each other even
+                                      in that case, while the colored zones underneath stay exact. */}
+                                  <span
+                                    className="dcf-spectrum-zone-label"
+                                    style={{ left: `${dcfSpectrumLayout.underZoneLabelPosition}%`, top: 0 }}
+                                  >
+                                    20% Undervalued
+                                  </span>
+                                  <span className="dcf-spectrum-zone-label" style={{ left: '50%', top: 16 }}>
+                                    About Right
+                                  </span>
+                                  <span
+                                    className="dcf-spectrum-zone-label"
+                                    style={{ left: `${dcfSpectrumLayout.overZoneLabelPosition}%`, top: 0 }}
+                                  >
+                                    20% Overvalued
+                                  </span>
+                                </div>
+
+                                <div className="dcf-spectrum-callout-row">
+                                  <div
+                                    className="dcf-spectrum-marker"
+                                    style={{ left: `${dcfSpectrumLayout.fairValuePosition}%` }}
+                                  >
+                                    <span className="dcf-spectrum-label">
+                                      Fair Value
+                                      <br />
+                                      US${dcfResult.fairValuePerShare.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {dcfResult.isLowConfidence && (
+                                <p className="dcf-low-confidence-note">
+                                  ⚠ תזרים המזומנים המדווח של החברה היה שלילי או אפסי באחת מהשנים האחרונות (עסק
+                                  מחזורי/תנודתי) — התבססות על שנה בודדת כבסיס לתחזית ל-5 שנים פחות אמינה במקרה כזה,
+                                  והפער מול הערכות שווי אחרות (למשל SimplyWall.st, שמבוססות על תחזיות אנליסטים
+                                  רב-שנתיות שלא זמינות לנו) עלול להיות משמעותי.
+                                </p>
+                              )}
                               <p className="sw-disclaimer">
                                 מודל DCF פשוט משל StockView (לא של SimplyWall.st) — צמיחת תזרים מזומנים חופשי ל-5 שנים
                                 לפי הערכת אנליסטים (מוגבלת ל-20%- עד 30%+), ערך טרמינלי בצמיחה של{' '}
@@ -770,6 +904,74 @@ function StockResearchView({ onBack }) {
                                 {(dcfResult.assumptions.equityRiskPremium * 100).toFixed(1)}%). הנחות מאקרו קבועות,
                                 לא נתון בזמן אמת — הערכה גסה, לא ייעוץ השקעות.
                               </p>
+
+                              {dcfChartData.length > 0 && (
+                                <div className="dcf-history-chart">
+                                  <div className="dcf-history-chart-header">
+                                    <h5 className="dcf-history-chart-title">מחיר נוכחי מול שווי תזרים מזומנים עתידי</h5>
+                                    <div className="dcf-history-chart-controls">
+                                      {dcfChartPriceChangePercent != null && (
+                                        <span
+                                          className={
+                                            dcfChartPriceChangePercent >= 0 ? 'profit-positive' : 'profit-negative'
+                                          }
+                                        >
+                                          {dcfChartPriceChangePercent >= 0 ? '+' : ''}
+                                          {dcfChartPriceChangePercent.toFixed(1)}%
+                                        </span>
+                                      )}
+                                      <div className="dcf-history-period-toggle">
+                                        {['7D', '1Y'].map((period) => (
+                                          <button
+                                            key={period}
+                                            type="button"
+                                            className={`dcf-history-period-btn ${dcfChartPeriod === period ? 'active' : ''}`}
+                                            onClick={() => setDcfChartPeriod(period)}
+                                          >
+                                            {period}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <LtrChart height={200}>
+                                    <LineChart data={dcfChartData} margin={{ top: 8, right: 16, bottom: 0, left: 4 }}>
+                                      <CartesianGrid stroke={SW.border} strokeDasharray="3 3" />
+                                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: SW.textSecondary }} minTickGap={40} />
+                                      <YAxis
+                                        tick={{ fontSize: 10, fill: SW.textSecondary }}
+                                        domain={['auto', 'auto']}
+                                        width={50}
+                                      />
+                                      <Tooltip {...tooltipStyle} formatter={(value) => `$${Number(value).toFixed(2)}`} />
+                                      <Legend wrapperStyle={{ fontSize: 11, color: SW.textSecondary }} />
+                                      <Line
+                                        type="monotone"
+                                        dataKey="close"
+                                        name="מחיר נוכחי"
+                                        stroke={SW.accent}
+                                        strokeWidth={2}
+                                        dot={false}
+                                        connectNulls
+                                      />
+                                      <Line
+                                        type="stepAfter"
+                                        dataKey="fairValue"
+                                        name="שווי תזרים מזומנים עתידי"
+                                        stroke={SW.green}
+                                        strokeWidth={2}
+                                        dot={false}
+                                        connectNulls
+                                      />
+                                    </LineChart>
+                                  </LtrChart>
+                                  <p className="sw-disclaimer">
+                                    "שווי תזרים מזומנים עתידי" כאן הוא מה ששווי ה-DCF היה יוצא אילו חושב מדי שנה לפי
+                                    תזרים המזומנים שדווח באותה שנה (עם אותן הנחות מאקרו/בטא/כמות מניות של היום) — לא
+                                    סדרה היסטורית אמיתית של הערכות שוק, ומתעדכן שנה בשנה ולא יום-יומית.
+                                  </p>
+                                </div>
+                              )}
                             </>
                           )}
                         </div>
@@ -793,7 +995,7 @@ function StockResearchView({ onBack }) {
                                       data={group.children}
                                       dataKey="size"
                                       stroke={SW.surface}
-                                      content={renderTreemapCell}
+                                      content={makeTreemapCellRenderer(SW.surface)}
                                       isAnimationActive={false}
                                     />
                                   </LtrChart>

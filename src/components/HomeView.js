@@ -25,6 +25,10 @@ function HomeView({
   saveLoading,
   lastSavedAt,
   saveError,
+  handleSaveSnapshot,
+  snapshotSaving,
+  snapshotSaveError,
+  lastSnapshotSavedAt,
   legacyImportBanner,
   summary,
   israeliStocks,
@@ -149,10 +153,7 @@ function HomeView({
 
           {/* סיכום התיק */}
           {(israeliStocks.length > 0 || americanStocks.length > 0) && (
-            <PortfolioSummary
-              summary={summary}
-              formatPriceWithSign={formatPriceWithSign}
-            />
+            <PortfolioSummary summary={summary} formatPriceWithSign={formatPriceWithSign} />
           )}
 
           <div className="main-buttons-container">
@@ -171,7 +172,31 @@ function HomeView({
               >
                 {showAmericanColumns ? 'הסתר נתונים נוספים' : 'לחץ כאן כדי לראות נתונים נוספים'}
               </button>
+
+              <button
+                type="button"
+                className="btn btn-info"
+                onClick={handleSaveSnapshot}
+                disabled={snapshotSaving}
+              >
+                {snapshotSaving ? 'שומר…' : 'שמור מידע יומי עדכני'}
+              </button>
             </div>
+
+            {(lastSnapshotSavedAt || snapshotSaveError) && (
+              <div className="snapshot-status-row">
+                {lastSnapshotSavedAt ? (
+                  <span className="user-email" style={{ fontSize: 12, opacity: 0.8 }}>
+                    מידע יומי נשמר: {lastSnapshotSavedAt.toLocaleTimeString('he-IL')}
+                  </span>
+                ) : null}
+                {snapshotSaveError ? (
+                  <span className="user-email" style={{ fontSize: 12, color: '#b00020' }}>
+                    {snapshotSaveError}
+                  </span>
+                ) : null}
+              </div>
+            )}
 
             {/* הודעה על מצב עריכה */}
             {isEditMode && (

@@ -1,16 +1,18 @@
 import './App.css';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { formatPriceWithSign, normalizeIsraeliStocksFromStorage } from './utils/formatters';
 import { calculatePortfolioSummary } from './utils/portfolioSummary';
 import { applyPensionValueEditPayload } from './utils/portfolioMath';
 import { calculatePortfolioAnalysis } from './utils/portfolioAnalysis';
-import { fetchCurrentPrice, fetchIsraeliStockPrice } from './api/stockPrices';
+import { fetchCurrentPrice, fetchIsraeliStockPrice, fetchHistoricalExchangeRate } from './api/stockPrices';
 import { apiUrl } from './apiBase';
 import { useAuth } from './hooks/useAuth';
 import { usePortfolioData } from './hooks/usePortfolioData';
 import { usePriceRefresh } from './hooks/usePriceRefresh';
 import { useCpiIndex } from './hooks/useCpiIndex';
 import { usePortfolioSnapshots } from './hooks/usePortfolioSnapshots';
+import { useMonthlySnapshots } from './hooks/useMonthlySnapshots';
+import { buildItemizedMonthlyBreakdown } from './utils/monthlySnapshotBreakdown';
 import { useRebalanceTargets } from './hooks/useRebalanceTargets';
 import { useTheme } from './hooks/useTheme';
 import { monthKeyFromDate } from './utils/cpiTax';
@@ -118,6 +120,12 @@ function App() {
     exchange: 'israeli',
     exchangeRate: ''
   });
+  // State for fillHistoricalExchangeRate (auto-filling the exchange-rate
+  // field from the real USD/ILS rate on the purchase date) - the manual
+  // input only ever shows once exchangeRateNotFound is true, i.e. the
+  // automatic lookup genuinely came back empty for that date.
+  const [exchangeRateFetching, setExchangeRateFetching] = useState(false);
+  const [exchangeRateNotFound, setExchangeRateNotFound] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingStock, setEditingStock] = useState(null);
   const [showAmericanColumns, setShowAmericanColumns] = useState(true);
@@ -157,26 +165,65 @@ function App() {
     [israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances]
   );
 
+  // Itemized (one entry per actual holding/account, not just a category
+  // total) so the monthly-snapshot comparison/history can show per-stock
+  // movement (see utils/monthlySnapshotBreakdown.js). Reused for the daily
+  // snapshot too - it's a strict superset of the old flat-number shape
+  // (category totals are just the sum of a category's items), and nothing
+  // currently reads the daily snapshot's breakdown for anything but this.
   const snapshotBreakdown = useMemo(
-    () => ({
-      israeli: analysis.exchangeDistribution.israeli.value,
-      american: analysis.exchangeDistribution.american.value,
-      pension: analysis.exchangeDistribution.pension.value,
-      cashFunds: analysis.exchangeDistribution.cashFunds.value,
-      bank: analysis.exchangeDistribution.bank.value
-    }),
-    [analysis]
+    () => buildItemizedMonthlyBreakdown(analysis, pensionFunds, cashFunds, bankBalances),
+    [analysis, pensionFunds, cashFunds, bankBalances]
   );
 
-  // Only start saving snapshots once the portfolio has actually loaded from
-  // the server (portfolioReady) - otherwise the brief "empty arrays" state
-  // during initial load would save a bogus 0-value snapshot for today.
-  const { snapshots, snapshotsLoading } = usePortfolioSnapshots(
-    user,
-    authHeader,
-    portfolioReady ? analysis.summaryMetrics.overallTotalValueILS : null,
-    snapshotBreakdown
-  );
+  const {
+    snapshots,
+    snapshotsLoading,
+    saveSnapshotNow,
+    saving: snapshotSaving,
+    saveError: snapshotSaveError,
+    lastSavedAt: lastSnapshotSavedAt
+  } = usePortfolioSnapshots(user, authHeader);
+
+  // Snapshot saving is manual (a button, not automatic) - see
+  // usePortfolioSnapshots.js for why. Guarded by portfolioReady so a click
+  // during the brief "empty arrays" initial-load state can't save a bogus
+  // 0-value snapshot (saveSnapshotNow itself also guards against <= 0).
+  const handleSaveSnapshot = () => {
+    if (!portfolioReady) return;
+    saveSnapshotNow(analysis.summaryMetrics.overallTotalValueILS, snapshotBreakdown);
+  };
+
+  const {
+    monthlySnapshots,
+    monthlySnapshotsLoading,
+    saveMonthlySnapshot,
+    savingMonthly,
+    saveMonthlyError,
+    updateMonthlySnapshot,
+    updatingMonth,
+    updateMonthlyError,
+    deleteMonthlySnapshot,
+    deletingMonth,
+    deleteMonthlyError,
+    addManualMonthlySnapshot,
+    addingManual,
+    addManualError
+  } = useMonthlySnapshots(user, authHeader);
+
+  // Confirms before every save, since the comparison table is only
+  // meaningful if the checkpoint is taken on a consistent day each month -
+  // saving on the 3rd one month and the 27th the next would make a
+  // "month-over-month" change look bigger/smaller than it really is.
+  const handleSaveMonthlySnapshot = () => {
+    if (!portfolioReady) return;
+    const ok = window.confirm(
+      'שימו לב: על מנת שהנתונים יהיו רלוונטיים ומדויקים עבור המעקב, מומלץ לבצע את השמירה תמיד בתאריך קבוע בחודש (לדוגמה, ב-10 לחודש).'
+    );
+    if (!ok) return;
+    saveMonthlySnapshot(analysis.summaryMetrics.overallTotalValueILS, snapshotBreakdown);
+  };
+
 
   const {
     targets: rebalanceTargets,
@@ -263,12 +310,65 @@ function App() {
     !legacyImportCompleted &&
     portfolioHasAnyRows(legacySnapshot);
 
+  // Auto-fills the exchange-rate field from the real USD/ILS rate on the
+  // stock's purchase date, instead of requiring the user to look it up and
+  // type it in - the manual input only appears at all once this genuinely
+  // can't find a rate (exchangeRateNotFound), not as a default option.
+  const fillHistoricalExchangeRate = async (dateStr) => {
+    setExchangeRateFetching(true);
+    setExchangeRateNotFound(false);
+    try {
+      const rate = await fetchHistoricalExchangeRate(dateStr);
+      if (rate !== null) {
+        // Yahoo returns full floating-point precision (e.g.
+        // 3.8533899784088135) - rounded to 4 decimals to match this
+        // field's own step, so a later manual edit (or the browser's
+        // native number-input validation on submit) doesn't choke on a
+        // "3.8533899784088135 isn't a multiple of step 0.0001" mismatch.
+        setFormData(prev => ({ ...prev, exchangeRate: rate.toFixed(4) }));
+      } else {
+        setExchangeRateNotFound(true);
+      }
+    } finally {
+      setExchangeRateFetching(false);
+    }
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
       [name]: value
     }));
+  };
+
+  // Triggers fillHistoricalExchangeRate whenever the combination that
+  // makes it meaningful becomes true (stock + American exchange + a
+  // purchase date) - a useEffect rather than hand-wiring the fetch into
+  // handleInputChange's purchaseDate/exchange branches specifically, so it
+  // fires no matter which order the user fills the two fields in (date
+  // first, then exchange - or the other way around), instead of only
+  // covering the two orderings that were explicitly coded for. lastFetchKeyRef
+  // avoids re-fetching for the exact same date if the user just toggles
+  // exchange back and forth without actually changing the date.
+  const lastAutoFetchKeyRef = useRef(null);
+  useEffect(() => {
+    if (formData.itemType !== 'stock' || formData.exchange !== 'american' || !formData.purchaseDate) {
+      lastAutoFetchKeyRef.current = null;
+      return;
+    }
+    if (lastAutoFetchKeyRef.current === formData.purchaseDate) return;
+    lastAutoFetchKeyRef.current = formData.purchaseDate;
+    fillHistoricalExchangeRate(formData.purchaseDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.itemType, formData.exchange, formData.purchaseDate]);
+
+  // Explicit manual trigger (a button next to the field) alongside the
+  // automatic effect above - always available as a reliable fallback if
+  // the automatic fetch didn't land for any reason (a network hiccup, or
+  // the user changing the date faster than the request could resolve).
+  const handlePullExchangeRate = () => {
+    if (formData.purchaseDate) fillHistoricalExchangeRate(formData.purchaseDate);
   };
 
   const handleSubmit = async (e) => {
@@ -664,6 +764,9 @@ function App() {
           handleBackToHome={handleBackToHome}
           handleSaveEdit={handleSaveEdit}
           handleCancelEdit={handleCancelEdit}
+          exchangeRateFetching={exchangeRateFetching}
+          exchangeRateNotFound={exchangeRateNotFound}
+          onPullExchangeRate={handlePullExchangeRate}
         />
       </>
     );
@@ -695,6 +798,20 @@ function App() {
           rebalanceSaving={rebalanceSaving}
           rebalanceSaveError={rebalanceSaveError}
           onSaveRebalanceTargets={saveRebalanceTargets}
+          monthlySnapshots={monthlySnapshots}
+          monthlySnapshotsLoading={monthlySnapshotsLoading}
+          onSaveMonthlySnapshot={handleSaveMonthlySnapshot}
+          savingMonthly={savingMonthly}
+          saveMonthlyError={saveMonthlyError}
+          onUpdateMonthlySnapshot={updateMonthlySnapshot}
+          updatingMonth={updatingMonth}
+          updateMonthlyError={updateMonthlyError}
+          onDeleteMonthlySnapshot={deleteMonthlySnapshot}
+          deletingMonth={deletingMonth}
+          deleteMonthlyError={deleteMonthlyError}
+          onAddManualMonthlySnapshot={addManualMonthlySnapshot}
+          addingManual={addingManual}
+          addManualError={addManualError}
         />
       </>
     );
@@ -711,7 +828,7 @@ function App() {
           theme={theme}
           onToggleTheme={toggleTheme}
         />
-        <StockResearchView onBack={() => handleNavigate('home')} />
+        <StockResearchView onBack={() => handleNavigate('home')} theme={theme} />
       </>
     );
   }
@@ -744,6 +861,10 @@ function App() {
         saveLoading={saveLoading}
         lastSavedAt={lastSavedAt}
         saveError={saveError}
+        handleSaveSnapshot={handleSaveSnapshot}
+        snapshotSaving={snapshotSaving}
+        snapshotSaveError={snapshotSaveError}
+        lastSnapshotSavedAt={lastSnapshotSavedAt}
         legacyImportBanner={legacyImportBanner}
         summary={summary}
         israeliStocks={israeliStocks}

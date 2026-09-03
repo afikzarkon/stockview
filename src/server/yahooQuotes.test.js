@@ -20,7 +20,8 @@ const {
   fetchYahooNews,
   fetchYahooSymbolSearch,
   fetchYahooSimilarCompanies,
-  getYahooPayload
+  getYahooPayload,
+  fetchYahooHistoricalRateForDate
 } = require('./yahooQuotes');
 
 describe('unwrapYahooNumber', () => {
@@ -483,7 +484,7 @@ describe('fetchYahooStockResearch', () => {
       quoteSummary: {
         result: [
           {
-            summaryDetail: { trailingPE: 26.627628, forwardPE: 25.144766 },
+            summaryDetail: { trailingPE: 26.627628, forwardPE: 25.144766, marketCap: 378400000000 },
             defaultKeyStatistics: {
               pegRatio: 4.32,
               priceToBook: 10.474943,
@@ -708,11 +709,15 @@ describe('fetchYahooStockResearch', () => {
     ]);
   });
 
-  test('extracts beta and sharesOutstanding for the DCF model', async () => {
+  test('extracts beta, sharesOutstanding and marketCap for the DCF model', async () => {
     mockAllEndpoints();
     const result = await fetchYahooStockResearchFresh('KO');
     expect(result.beta).toBe(0.55);
     expect(result.sharesOutstanding).toBe(4300000000);
+    // marketCap / currentPrice is used by dcfValuation.js in preference to
+    // sharesOutstanding above (which can lag a split or reflect a
+    // different share class) - see its own tests for why.
+    expect(result.marketCap).toBe(378400000000);
   });
 
   test('extracts insiderTransactions sorted most-recent-first', async () => {
@@ -831,6 +836,7 @@ describe('fetchYahooStockResearch', () => {
     expect(result.similarCompanies).toEqual([]);
     expect(result.beta).toBeNull();
     expect(result.sharesOutstanding).toBeNull();
+    expect(result.marketCap).toBeNull();
     expect(result.insiderTransactions).toEqual([]);
     expect(result.peerQuotes).toEqual([]); // no similar companies -> nothing to look up
   });
@@ -903,5 +909,75 @@ describe('getYahooPayload change-percent calculation', () => {
     const result = await getYahooPayload('TEST_SYMBOL_5');
     expect(result.currentPrice).toBe(50);
     expect(result.changePercent).toBe(0);
+  });
+});
+
+// The historical USD/ILS-on-a-specific-date lookup that auto-fills the
+// exchange-rate field on the "add stock" form (see quotesRoutes.js's
+// GET /api/exchange-rate/:date).
+describe('fetchYahooHistoricalRateForDate', () => {
+  beforeEach(() => {
+    mockAxios.get.mockReset();
+  });
+
+  const dailyBarsResponse = (dates, closes) => ({
+    data: {
+      chart: {
+        result: [
+          {
+            timestamp: dates.map((d) => Math.floor(new Date(`${d}T12:00:00Z`).getTime() / 1000)),
+            indicators: { quote: [{ close: closes }] }
+          }
+        ]
+      }
+    }
+  });
+
+  test('picks the latest trading day on or before the requested date (a Saturday purchase date lands on the prior Friday)', async () => {
+    // 2023-06-17 is a Saturday - no FX bar that day
+    mockAxios.get.mockResolvedValueOnce(
+      dailyBarsResponse(['2023-06-14', '2023-06-15', '2023-06-16'], [3.65, 3.66, 3.68])
+    );
+    const result = await fetchYahooHistoricalRateForDate('USDILS=X', '2023-06-17');
+    expect(result).toEqual({ date: '2023-06-16', rate: 3.68 });
+  });
+
+  test('returns exactly the requested day when it is itself a trading day', async () => {
+    mockAxios.get.mockResolvedValueOnce(dailyBarsResponse(['2023-06-14', '2023-06-15'], [3.65, 3.66]));
+    const result = await fetchYahooHistoricalRateForDate('USDILS=X', '2023-06-15');
+    expect(result).toEqual({ date: '2023-06-15', rate: 3.66 });
+  });
+
+  test('ignores a trading day that falls after the requested date, even though it is inside the fetched window', async () => {
+    mockAxios.get.mockResolvedValueOnce(dailyBarsResponse(['2023-06-14', '2023-06-16'], [3.65, 3.7]));
+    const result = await fetchYahooHistoricalRateForDate('USDILS=X', '2023-06-15');
+    expect(result).toEqual({ date: '2023-06-14', rate: 3.65 });
+  });
+
+  test('returns null (not a guessed/fabricated rate) when nothing on or before the date falls within the window', async () => {
+    mockAxios.get.mockResolvedValueOnce(dailyBarsResponse(['2023-06-20', '2023-06-21'], [3.7, 3.71]));
+    const result = await fetchYahooHistoricalRateForDate('USDILS=X', '2023-06-15');
+    expect(result).toBeNull();
+  });
+
+  test('filters out null closes (a period with no reported bar) rather than treating them as a rate of null/0', async () => {
+    mockAxios.get.mockResolvedValueOnce(dailyBarsResponse(['2023-06-14', '2023-06-15'], [3.65, null]));
+    const result = await fetchYahooHistoricalRateForDate('USDILS=X', '2023-06-15');
+    expect(result).toEqual({ date: '2023-06-14', rate: 3.65 });
+  });
+
+  test('returns null for an invalid date string, without making a request', async () => {
+    const result = await fetchYahooHistoricalRateForDate('USDILS=X', 'not-a-date');
+    expect(result).toBeNull();
+    expect(mockAxios.get).not.toHaveBeenCalled();
+  });
+
+  test('requests a narrow window (~1 week before to 1 day after the target date), not the huge fromDate-to-today range fetchYahooHistoricalCloses uses', async () => {
+    mockAxios.get.mockResolvedValueOnce(dailyBarsResponse(['2023-06-14'], [3.65]));
+    await fetchYahooHistoricalRateForDate('USDILS=X', '2023-06-15');
+    const params = mockAxios.get.mock.calls[0][1].params;
+    const target = Math.floor(new Date('2023-06-15T00:00:00Z').getTime() / 1000);
+    expect(params.period1).toBeCloseTo(target - 7 * 24 * 60 * 60, -1);
+    expect(params.period2).toBeCloseTo(target + 24 * 60 * 60, -1);
   });
 });

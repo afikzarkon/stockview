@@ -10,7 +10,7 @@ const {
   scrapeTaseFallbackWithAxios
 } = require('./taseScraper');
 const { isTaseApiConfigured, fetchTaseQuoteFromApi } = require('./taseApi');
-const { getYahooPayload } = require('./yahooQuotes');
+const { getYahooPayload, fetchYahooHistoricalRateForDate } = require('./yahooQuotes');
 
 const taseInFlight = new Map();
 
@@ -190,6 +190,22 @@ function mountQuotesRoutes(app) {
       return res.json({ rate: payload.currentPrice });
     } catch (err) {
       return res.json({ rate: null });
+    }
+  });
+
+  // The USD/ILS rate on a specific past date (the day a US stock was
+  // bought) - lets the "add stock" form auto-fill the exchange-rate field
+  // instead of requiring the user to look it up and type it in.
+  app.get('/api/exchange-rate/:date', async (req, res) => {
+    const date = req.params.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'פורמט תאריך לא תקין' });
+    }
+    try {
+      const result = await fetchYahooHistoricalRateForDate('USDILS=X', date);
+      return res.json({ rate: result ? result.rate : null, date: result ? result.date : null });
+    } catch (err) {
+      return res.json({ rate: null, date: null });
     }
   });
 }

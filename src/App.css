@@ -71,6 +71,50 @@
   --sw-amber: #b45309;
 }
 
+/* Modern thin scrollbar, applied site-wide (every scrollable element -
+   table-container's horizontal scroll, dropdowns, the stock-research
+   sidebar, etc.), replacing the browser/OS default scrollbar (a wide gray
+   track with visible arrow buttons at each end - the "not modern" look
+   reported). Firefox uses scrollbar-width/scrollbar-color (inherited from
+   :root); Chrome/Edge/Safari use the ::-webkit-scrollbar family, which
+   needs the wildcard selector since it isn't inherited the way a normal
+   CSS property is. */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sw-border-hover) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--sw-border-hover);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--sw-accent);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   background: radial-gradient(1200px 600px at 15% -10%, rgba(169, 130, 47, 0.07), transparent 60%), var(--sw-bg);
@@ -96,7 +140,7 @@ body {
 }
 
 .top-nav-inner {
-  max-width: 1400px;
+  max-width: 1800px;
   margin: 0 auto;
   padding: 12px 24px;
   display: flex;
@@ -224,21 +268,25 @@ body {
   padding-top: 40px;
 }
 
-/* Welcome container */
+/* Welcome container - max-width raised from 1400px (with .welcome-content
+   below then narrowing it further to 1200px, a redundant double cap) so
+   wide tables (.american-stocks-table wants min-width: 1500px) have real
+   room on a normal wide monitor instead of being squeezed into a
+   center column and needing horizontal scroll immediately. */
 .welcome-container {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-radius: 20px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
   padding: 40px 20px;
-  max-width: 1400px;
+  max-width: 1800px;
   width: 100%;
   text-align: center;
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .welcome-content {
-  max-width: 1200px;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -340,9 +388,15 @@ body {
   color: var(--sw-accent-2);
 }
 
-/* Detail row styles */
+/* Detail row styles - background used to be a hardcoded inline style
+   (#f8f9fa) on the <tr> itself in IsraeliStocksTable.js/
+   AmericanStocksTable.js/FinancialAccountsTables.js, which - being an
+   inline style - overrode every dark-theme CSS rule and left expanded
+   stock/pension rows showing light-gray-on-dark, unreadable in dark mode.
+   Moved here as a themed class instead. */
 .detail-row {
   opacity: 0.9;
+  background-color: var(--sw-surface-2);
 }
 
 .detail-row:hover {
@@ -589,6 +643,14 @@ body {
   gap: 15px;
   justify-content: center;
   flex-wrap: wrap;
+}
+
+.snapshot-status-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 8px;
+  width: 100%;
 }
 
 .btn {
@@ -949,6 +1011,33 @@ body {
   color: #2c3e50;
 }
 
+.exchange-rate-display {
+  margin: 0;
+  padding: 12px 15px;
+  background: rgba(169, 130, 47, 0.08);
+  border: 2px solid rgba(169, 130, 47, 0.25);
+  border-radius: 10px;
+  color: #2c3e50;
+  font-size: 0.95rem;
+}
+
+.exchange-rate-warning {
+  margin: 0 0 8px;
+  color: #b45309;
+  font-size: 0.9rem;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--sw-accent);
+  font-weight: 600;
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
@@ -1139,6 +1228,55 @@ body {
 
 .stocks-table tbody tr:last-child td {
   border-bottom: none;
+}
+
+/* Sticky first column (RTL - the first column sits at the visual right
+   edge) so the identifying column (stock/fund name) stays in view while
+   scrolling through a wide table's other 10-20 columns. The sticky cell
+   needs its own *opaque* background matching whatever the row beneath it
+   would show, or content scrolling under it would show through - each
+   rule below mirrors an existing row-state's background exactly. Not
+   chasing every possible *combined* state (e.g. hovering an expanded
+   detail row in edit mode) - a known, accepted limitation. */
+.stocks-table th:first-child,
+.stocks-table td:first-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background-color: white;
+}
+
+.stocks-table thead th:first-child {
+  z-index: 3;
+  background-color: var(--sw-surface-3);
+}
+
+[data-theme='dark'] .stocks-table td:first-child {
+  background-color: var(--sw-surface);
+}
+
+.stocks-table tbody tr:hover td:first-child {
+  background-color: #f8f9fa;
+}
+
+[data-theme='dark'] .stocks-table tbody tr:hover td:first-child {
+  background-color: var(--sw-surface-2);
+}
+
+.detail-row td:first-child {
+  background-color: var(--sw-surface-2);
+}
+
+.summary-row-expanded td:first-child {
+  background-color: #fff3cd;
+}
+
+[data-theme='dark'] .summary-row-expanded td:first-child {
+  /* Layers the same translucent amber tint the row itself uses on top of
+     the table's own solid surface color, so the composite stays opaque
+     instead of letting scrolled columns show through a transparent cell. */
+  background-image: linear-gradient(rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.12));
+  background-color: var(--sw-surface);
 }
 
 .no-data-message {
@@ -1367,21 +1505,24 @@ body {
   transform: translateY(0);
 }
 
-/* Analysis Page Styles */
+/* Analysis Page Styles - same widening as .welcome-container above, and
+   for the same reason (this wrapper is also what StockResearchView's
+   .sw-page sits inside, via the shared analysis-container/analysis-content
+   classes). */
 .analysis-container {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-radius: 20px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
   padding: 40px;
-  max-width: 1400px;
+  max-width: 1800px;
   width: 100%;
   margin: 20px;
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .analysis-content {
-  max-width: 1200px;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -1534,6 +1675,162 @@ body {
   padding: 6px 8px;
   font-size: 1rem;
   text-align: center;
+}
+
+.monthly-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.monthly-status-text {
+  font-size: 0.85rem;
+  color: #5a6474;
+}
+
+.monthly-toolbar-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.monthly-toolbar-btn {
+  border: 1px solid rgba(169, 130, 47, 0.3);
+  background: white;
+  color: var(--sw-accent);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.monthly-toolbar-btn:hover {
+  background: rgba(169, 130, 47, 0.08);
+}
+
+.monthly-toolbar-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.monthly-toolbar-btn.danger {
+  border-color: rgba(220, 38, 38, 0.35);
+  color: #dc2626;
+}
+
+.monthly-toolbar-btn.danger:hover {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.monthly-manual-form {
+  background: white;
+  border: 1px dashed rgba(169, 130, 47, 0.35);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.monthly-manual-category {
+  margin-top: 12px;
+}
+
+.monthly-manual-category-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 2px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.monthly-manual-item-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.monthly-manual-item-row input[type='text'] {
+  flex: 2;
+}
+
+.monthly-manual-item-row input[type='number'] {
+  flex: 1;
+}
+
+.monthly-select {
+  width: 100%;
+  border: 1px solid rgba(169, 130, 47, 0.25);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.95rem;
+  background: white;
+  color: #2c3e50;
+}
+
+.monthly-category-row {
+  font-weight: 600;
+}
+
+.monthly-total-row {
+  font-weight: 700;
+  background: rgba(169, 130, 47, 0.06);
+}
+
+.monthly-item-row td {
+  font-weight: 400;
+  color: #5a6474;
+  font-size: 0.9rem;
+}
+
+.monthly-item-label {
+  padding-right: 20px !important;
+}
+
+.monthly-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.monthly-history-card {
+  background: white;
+  border-radius: 10px;
+  padding: 14px;
+  border: 1px solid rgba(169, 130, 47, 0.15);
+}
+
+.monthly-history-category {
+  margin-top: 8px;
+}
+
+.monthly-history-category-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.monthly-history-item-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px 6px 20px;
+  font-size: 0.9rem;
+  color: #5a6474;
+}
+
+.monthly-item-placeholder {
+  font-style: italic;
+  justify-content: flex-start;
 }
 
 .rebalance-sum-row {
@@ -1761,6 +2058,13 @@ body {
 .date-label {
   font-weight: 600;
   color: #2c3e50;
+}
+
+.date-item-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .date-value {
@@ -2189,6 +2493,7 @@ body {
 [data-theme='dark'] .report-card,
 [data-theme='dark'] .history-empty-note,
 [data-theme='dark'] .no-data-message,
+[data-theme='dark'] .monthly-history-card,
 [data-theme='dark'] .analysis-section {
   background: var(--sw-surface);
   border-color: var(--sw-border);
@@ -2201,6 +2506,7 @@ body {
 [data-theme='dark'] .news-item,
 [data-theme='dark'] .edit-row,
 [data-theme='dark'] .cpi-status-banner,
+[data-theme='dark'] .monthly-history-category-header,
 [data-theme='dark'] .auth-tabs {
   background: var(--sw-surface-2);
   border-color: var(--sw-border);
@@ -2245,8 +2551,43 @@ body {
 [data-theme='dark'] .summary-section-title,
 [data-theme='dark'] .form-group input,
 [data-theme='dark'] .form-group select,
+[data-theme='dark'] .monthly-history-category-header,
 [data-theme='dark'] .auth-label {
   color: var(--sw-text);
+}
+
+[data-theme='dark'] .monthly-select {
+  background: var(--sw-surface-2);
+  border-color: var(--sw-border);
+  color: var(--sw-text);
+}
+
+[data-theme='dark'] .monthly-toolbar-btn {
+  background: var(--sw-surface-2);
+  color: var(--sw-accent);
+  border-color: var(--sw-border);
+}
+
+[data-theme='dark'] .monthly-toolbar-btn:hover {
+  background: var(--sw-accent-soft);
+}
+
+[data-theme='dark'] .monthly-toolbar-btn.danger {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+[data-theme='dark'] .monthly-manual-form {
+  background: var(--sw-surface);
+  border-color: var(--sw-border);
+}
+
+[data-theme='dark'] .monthly-manual-category-header {
+  color: var(--sw-text);
+}
+
+[data-theme='dark'] .monthly-status-text {
+  color: var(--sw-text-secondary);
 }
 
 /* Secondary/muted text, everywhere it's currently one of the light
@@ -2264,6 +2605,8 @@ body {
 [data-theme='dark'] .feature-card p,
 [data-theme='dark'] .welcome-subtitle,
 [data-theme='dark'] .cpi-status-banner,
+[data-theme='dark'] .monthly-item-row td,
+[data-theme='dark'] .monthly-history-item-row,
 [data-theme='dark'] .history-empty-note {
   color: var(--sw-text-secondary);
 }
@@ -2440,26 +2783,6 @@ body {
   transform: translateY(-1px);
 }
 
-/* Thin, unobtrusive scrollbar for the sidebar/suggestions dropdown -
-   Firefox + WebKit variants. */
-.sw-page ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.sw-page ::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.sw-page ::-webkit-scrollbar-thumb {
-  background: var(--sw-border);
-  border-radius: 8px;
-}
-
-.sw-page ::-webkit-scrollbar-thumb:hover {
-  background: var(--sw-border-hover);
-}
-
 .sw-search-box {
   position: relative;
   max-width: 480px;
@@ -2548,8 +2871,13 @@ body {
 }
 
 .sw-sidebar {
+  /* 16px was the original offset, from before .top-nav existed (a sticky,
+     60px-ish header, z-index 30) - the sidebar was sticking at 16px from
+     the viewport top, which is *behind* the top nav's own sticky bar, so
+     the top of the sidebar disappeared under it while scrolling. Offset by
+     the nav's height + a small gap instead. */
   position: sticky;
-  top: 16px;
+  top: 76px;
   flex: 0 0 208px;
   display: flex;
   flex-direction: column;
@@ -2559,6 +2887,8 @@ body {
   border-radius: 14px;
   padding: 10px;
   box-shadow: 0 20px 40px -24px rgba(0, 0, 0, 0.7);
+  max-height: calc(100vh - 92px);
+  overflow-y: auto;
 }
 
 .sw-sidebar-item {
@@ -2577,6 +2907,19 @@ body {
   background: var(--sw-accent-soft);
   color: var(--sw-text);
   padding-right: 16px;
+}
+
+.sw-sidebar-group-label {
+  color: var(--sw-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 12px 12px 4px;
+}
+
+.sw-sidebar-group-label:first-child {
+  padding-top: 4px;
 }
 
 .sw-main {
@@ -2718,6 +3061,148 @@ body {
   font-size: 0.78rem;
   line-height: 1.5;
   margin: -8px 0 0;
+}
+
+/* Share Price vs Fair Value (DCF) spectrum bar - SimplyWall.st-style
+   layout. `left: X%` positions below are all relative to the LTR wrapper
+   this lives in (see the dir="ltr" on .dcf-spectrum-widget in
+   StockResearchView.js), so 0% is the true left edge regardless of the
+   page's own RTL direction. */
+.dcf-spectrum-widget {
+  margin: 12px 0 4px;
+}
+
+.dcf-spectrum-callout-row {
+  position: relative;
+  height: 44px;
+}
+
+.dcf-spectrum-connector-row {
+  position: relative;
+  height: 14px;
+}
+
+.dcf-spectrum-connector {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--sw-border);
+  transform: translateX(-50%);
+}
+
+.dcf-spectrum-marker {
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.dcf-spectrum-badge {
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  margin-bottom: 4px;
+}
+
+.dcf-spectrum-label {
+  font-size: 0.75rem;
+  color: var(--sw-text-secondary);
+  line-height: 1.3;
+}
+
+.dcf-spectrum-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.dcf-spectrum-zone {
+  height: 100%;
+}
+
+.dcf-spectrum-zone-labels {
+  position: relative;
+  height: 44px;
+}
+
+.dcf-spectrum-zone-label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%) rotate(-18deg);
+  transform-origin: top center;
+  font-size: 0.68rem;
+  color: var(--sw-text-muted);
+  white-space: nowrap;
+}
+
+.dcf-low-confidence-note {
+  background: rgba(180, 83, 9, 0.12);
+  border: 1px solid rgba(180, 83, 9, 0.35);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--sw-text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
+/* Future Cash Flow Value History chart */
+.dcf-history-chart {
+  margin-top: 20px;
+}
+
+.dcf-history-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.dcf-history-chart-title {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--sw-text);
+  font-weight: 600;
+}
+
+.dcf-history-chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.dcf-history-period-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.dcf-history-period-btn {
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface-2);
+  color: var(--sw-text-secondary);
+  border-radius: 6px;
+  padding: 2px 9px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dcf-history-period-btn.active {
+  background: var(--sw-accent);
+  color: #ffffff;
+  border-color: transparent;
 }
 
 .sw-section-header {

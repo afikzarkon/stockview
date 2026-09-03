@@ -16,7 +16,8 @@ jest.mock('./taseScraper', () => ({
   scrapeTaseFallbackWithAxios: jest.fn()
 }));
 jest.mock('./yahooQuotes', () => ({
-  getYahooPayload: jest.fn()
+  getYahooPayload: jest.fn(),
+  fetchYahooHistoricalRateForDate: jest.fn()
 }));
 
 const http = require('http');
@@ -78,6 +79,7 @@ describe('quotesRoutes', () => {
     taseScraper.scrapeTaseWithPuppeteer.mockRejectedValue(new Error('puppeteer unavailable in test'));
     taseScraper.scrapeTaseFallbackWithAxios.mockRejectedValue(new Error('network unavailable in test'));
     yahooQuotes.getYahooPayload.mockRejectedValue(new Error('network unavailable in test'));
+    yahooQuotes.fetchYahooHistoricalRateForDate.mockRejectedValue(new Error('network unavailable in test'));
   });
 
   test('GET /api/israeli-stock/:id rejects a non-numeric id with 400', async () => {
@@ -167,5 +169,32 @@ describe('quotesRoutes', () => {
     const res = await get(`${baseUrl}/api/exchange-rate`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ rate: 3.71 });
+  });
+
+  test('GET /api/exchange-rate/:date rejects a non-YYYY-MM-DD date with 400', async () => {
+    const res = await get(`${baseUrl}/api/exchange-rate/not-a-date`);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBeTruthy();
+  });
+
+  test('GET /api/exchange-rate/:date degrades gracefully to a null rate/date when Yahoo fails', async () => {
+    const res = await get(`${baseUrl}/api/exchange-rate/2023-06-15`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ rate: null, date: null });
+  });
+
+  test('GET /api/exchange-rate/:date returns the real historical rate (and the actual trading day used) when Yahoo succeeds', async () => {
+    yahooQuotes.fetchYahooHistoricalRateForDate.mockResolvedValue({ date: '2023-06-14', rate: 3.65 });
+    const res = await get(`${baseUrl}/api/exchange-rate/2023-06-15`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ rate: 3.65, date: '2023-06-14' });
+    expect(yahooQuotes.fetchYahooHistoricalRateForDate).toHaveBeenCalledWith('USDILS=X', '2023-06-15');
+  });
+
+  test('GET /api/exchange-rate/:date returns a null rate/date when no trading day is found on or before the requested date', async () => {
+    yahooQuotes.fetchYahooHistoricalRateForDate.mockResolvedValue(null);
+    const res = await get(`${baseUrl}/api/exchange-rate/2023-06-15`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ rate: null, date: null });
   });
 });

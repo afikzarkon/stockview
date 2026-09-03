@@ -7,7 +7,10 @@ function StockFormView({
   handleInputChange,
   handleBackToHome,
   handleSaveEdit,
-  handleCancelEdit
+  handleCancelEdit,
+  exchangeRateFetching = false,
+  exchangeRateNotFound = false,
+  onPullExchangeRate
 }) {
   return (
     <div className="App">
@@ -220,17 +223,35 @@ function StockFormView({
             {formData.itemType === 'stock' && formData.exchange === 'american' && (
               <div className="form-group">
                 <label htmlFor="exchangeRate">שער חליפין ביום הקנייה *</label>
-                <input
-                  type="number"
-                  id="exchangeRate"
-                  name="exchangeRate"
-                  value={formData.exchangeRate}
-                  onChange={handleInputChange}
-                  required={formData.exchange === 'american'}
-                  step="0.0001"
-                  min="0"
-                  placeholder="3.5000"
-                />
+                {!formData.purchaseDate ? (
+                  <small className="form-help">יש לבחור תחילה תאריך קנייה — שער החליפין יימשך אוטומטית.</small>
+                ) : exchangeRateNotFound ? (
+                  <>
+                    <p className="exchange-rate-warning">
+                      לא נמצא שער חליפין אוטומטי ליום זה — נא להזין ידנית.{' '}
+                      <button type="button" className="link-button" onClick={onPullExchangeRate}>
+                        נסה שוב
+                      </button>
+                    </p>
+                    <input
+                      type="number"
+                      id="exchangeRate"
+                      name="exchangeRate"
+                      value={formData.exchangeRate}
+                      onChange={handleInputChange}
+                      required
+                      step="0.0001"
+                      min="0"
+                      placeholder="3.5000"
+                    />
+                  </>
+                ) : exchangeRateFetching || !formData.exchangeRate ? (
+                  <small className="form-help">שולף את שער הדולר-שקל של יום הקנייה…</small>
+                ) : (
+                  <p className="exchange-rate-display">
+                    שער חליפין: <strong>{formData.exchangeRate} ₪</strong> (נשלף אוטומטית ליום הקנייה)
+                  </p>
+                )}
               </div>
             )}
 

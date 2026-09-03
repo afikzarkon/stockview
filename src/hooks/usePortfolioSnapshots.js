@@ -1,25 +1,25 @@
-// Portfolio value history: saves one snapshot/day (upserted server-side, so
-// calling this multiple times in a day is harmless) and fetches the full
-// saved history, so the analysis view can show a real equity curve,
-// drawdown, and risk stats instead of only point-in-time numbers.
+// Portfolio value history: lists the saved history (for the equity curve,
+// max drawdown, real volatility/Sharpe, benchmark comparison on the
+// analysis view), and exposes a manual save action.
+//
+// Saving USED to be automatic (fired as soon as a non-zero total value was
+// computed, once per calendar day) - changed to manual-only, triggered by
+// a dedicated button (see HomeView.js), because the automatic version
+// could fire before live prices had finished loading, capturing a
+// snapshot from a stale/incomplete render rather than the real current
+// value. saveSnapshotNow takes totalValueILS/breakdown as call-time
+// arguments (not reactive hook params) specifically so it captures
+// whatever's current at the moment of the click, not a stale closure.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { apiUrl } from '../apiBase';
 
-// Only attempt one save per calendar day per browser tab, to avoid firing a
-// POST on every render/analysis view visit. The server upserts by date
-// anyway (so this is a courtesy, not a correctness requirement) — it just
-// avoids pointless network calls if the user flips back and forth into the
-// analysis screen.
-function savedTodayFlagKey(userId) {
-  const today = new Date().toISOString().slice(0, 10);
-  return `stockview_snapshot_saved_${userId}_${today}`;
-}
-
-export function usePortfolioSnapshots(user, authHeader, totalValueILS, breakdown) {
+export function usePortfolioSnapshots(user, authHeader) {
   const [snapshots, setSnapshots] = useState([]);
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
-  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [lastSavedAt, setLastSavedAt] = useState(null);
 
   // authHeader() is a fresh function reference on every render of useAuth()
   // (same as in usePortfolioData) - it must NOT be a dependency here, or
@@ -52,18 +52,12 @@ export function usePortfolioSnapshots(user, authHeader, totalValueILS, breakdown
     fetchSnapshots();
   }, [fetchSnapshots]);
 
-  // Save today's total value once we have a meaningful (>0) number and
-  // haven't already saved today in this browser.
-  useEffect(() => {
-    if (!user || !user.id) return;
-    if (!Number.isFinite(totalValueILS) || totalValueILS <= 0) return;
-    if (savingRef.current) return;
-
-    const flagKey = savedTodayFlagKey(user.id);
-    if (localStorage.getItem(flagKey) === '1') return;
-
-    savingRef.current = true;
-    (async () => {
+  const saveSnapshotNow = useCallback(
+    async (totalValueILS, breakdown) => {
+      if (!user || !user.id) return;
+      if (!Number.isFinite(totalValueILS) || totalValueILS <= 0) return;
+      setSaving(true);
+      setSaveError('');
       try {
         const r = await fetch(apiUrl('/api/portfolio-snapshot'), {
           method: 'POST',
@@ -71,19 +65,18 @@ export function usePortfolioSnapshots(user, authHeader, totalValueILS, breakdown
           headers: { 'Content-Type': 'application/json', ...authHeader() },
           body: JSON.stringify({ totalValueILS, breakdown: breakdown || undefined })
         });
-        if (r.ok) {
-          localStorage.setItem(flagKey, '1');
-          fetchSnapshots();
-        }
+        if (!r.ok) throw new Error('save failed');
+        setLastSavedAt(new Date());
+        await fetchSnapshots();
       } catch {
-        // Best-effort: a missed snapshot for today just means one gap in
-        // the history, not a broken app. It'll try again next visit/day.
+        setSaveError('שמירת תמונת המצב נכשלה, נסה שוב');
       } finally {
-        savingRef.current = false;
+        setSaving(false);
       }
-    })();
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, totalValueILS]);
+    [user, fetchSnapshots]
+  );
 
-  return { snapshots, snapshotsLoading, refetchSnapshots: fetchSnapshots };
+  return { snapshots, snapshotsLoading, saveSnapshotNow, saving, saveError, lastSavedAt, refetchSnapshots: fetchSnapshots };
 }

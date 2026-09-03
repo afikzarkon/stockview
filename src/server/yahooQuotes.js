@@ -92,18 +92,11 @@ async function getYahooPayload(symbol) {
   }
 }
 
-// Daily closing prices for a symbol between fromDateStr (YYYY-MM-DD, or ~13
-// months back if omitted) and today. Used for benchmark comparison
-// (^GSPC / ^TA125.TA) — a different endpoint shape than getYahooPayload
-// above (full timestamp+close arrays instead of just the latest meta), so
-// it's a separate function rather than reusing fetchYahooChartMeta.
-async function fetchYahooHistoricalCloses(symbol, fromDateStr) {
+// Shared fetch+parse for the v8/finance/chart daily-bars endpoint, given
+// explicit unix-second bounds. fetchYahooHistoricalCloses and
+// fetchYahooHistoricalRateForDate below just pick different bounds.
+async function fetchYahooDailyCloses(symbol, period1, period2) {
   const encoded = encodeURIComponent(symbol);
-  const period1 = fromDateStr
-    ? Math.floor(new Date(`${fromDateStr}T00:00:00Z`).getTime() / 1000)
-    : Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60;
-  const period2 = Math.floor(Date.now() / 1000);
-
   const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}`;
   const response = await axios.get(yahooUrl, {
     params: { period1, period2, interval: '1d' },
@@ -133,6 +126,42 @@ async function fetchYahooHistoricalCloses(symbol, fromDateStr) {
     points.push({ date, close: Number(close) });
   }
   return points;
+}
+
+// Daily closing prices for a symbol between fromDateStr (YYYY-MM-DD, or ~13
+// months back if omitted) and today. Used for benchmark comparison
+// (^GSPC / ^TA125.TA) — a different endpoint shape than getYahooPayload
+// above (full timestamp+close arrays instead of just the latest meta), so
+// it's a separate function rather than reusing fetchYahooChartMeta.
+async function fetchYahooHistoricalCloses(symbol, fromDateStr) {
+  const period1 = fromDateStr
+    ? Math.floor(new Date(`${fromDateStr}T00:00:00Z`).getTime() / 1000)
+    : Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60;
+  const period2 = Math.floor(Date.now() / 1000);
+  return fetchYahooDailyCloses(symbol, period1, period2);
+}
+
+// The historical rate for a symbol on one specific date (e.g. "USDILS=X"
+// on the day a US stock was bought) - used to auto-fill the exchange-rate
+// field on the "add stock" form instead of requiring the user to look it
+// up and type it in. Fetches just a narrow window around the requested
+// date (not fromDateStr-to-today like fetchYahooHistoricalCloses above,
+// which would pull years of unneeded daily bars for an old purchase
+// date), then picks the latest trading day at or before it - FX has no
+// bar on weekends/holidays, so "the rate that day" means "the last known
+// rate as of that day". Returns null (never a guessed/fabricated rate)
+// when nothing on or before the date falls within the window.
+async function fetchYahooHistoricalRateForDate(symbol, dateStr) {
+  const target = new Date(`${dateStr}T00:00:00Z`);
+  if (Number.isNaN(target.getTime())) return null;
+  const period1 = Math.floor(target.getTime() / 1000) - 7 * 24 * 60 * 60;
+  const period2 = Math.floor(target.getTime() / 1000) + 24 * 60 * 60;
+
+  const points = await fetchYahooDailyCloses(symbol, period1, period2);
+  const onOrBefore = points.filter((p) => p.date <= dateStr);
+  if (onOrBefore.length === 0) return null;
+  const closest = onOrBefore[onOrBefore.length - 1]; // points is sorted ascending by date
+  return { date: closest.date, rate: closest.close };
 }
 
 // Recent news headlines for a US stock, via Yahoo's public search endpoint
@@ -665,6 +694,12 @@ async function fetchYahooStockResearch(symbol) {
     nextYearEarningsGrowth: unwrapYahooNumber(nextYearTrend?.growth),
     targetMeanPrice: unwrapYahooNumber(financialData.targetMeanPrice),
     currentPrice: unwrapYahooNumber(financialData.currentPrice),
+    // Always consistent with currentPrice's own currency/scale (it's
+    // literally price × shares from the same live quote) - see
+    // dcfValuation.js's use of it to derive a shares-outstanding figure
+    // that can't drift out of sync with currentPrice the way the
+    // separately-reported defaultKeyStatistics.sharesOutstanding can.
+    marketCap: unwrapYahooNumber(summaryDetail.marketCap),
     // Financial health
     currentRatio: unwrapYahooNumber(financialData.currentRatio),
     debtToEquity: unwrapYahooNumber(financialData.debtToEquity),
@@ -726,6 +761,7 @@ async function fetchYahooStockResearch(symbol) {
 module.exports = {
   getYahooPayload,
   fetchYahooHistoricalCloses,
+  fetchYahooHistoricalRateForDate,
   fetchYahooNews,
   fetchYahooSymbolSearch,
   fetchYahooAssetProfile,

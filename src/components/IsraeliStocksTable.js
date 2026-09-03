@@ -248,7 +248,7 @@ function IsraeliStocksTable({
                         <td>{formatPrice(summary.totalCurrentValue)}</td>
                         <td className={profitClass(summary.totalProfit)}>{formatPriceWithSign(summary.totalProfit)}</td>
                         {showAdditionalData && (
-                          <td colSpan={2} style={{ color: '#7f8c8d', fontSize: '0.85em' }}>ראה פירוט לכל שורה (מחיצים שונים)</td>
+                          <td colSpan={2} style={{ color: 'var(--sw-text-secondary)', fontSize: '0.85em' }}>ראה פירוט לכל שורה (מחיצים שונים)</td>
                         )}
                         {showAdditionalData && (() => {
                           // סכימה per-lot של המס/הרווח הריאלי (לא על הרווח המצרפי),
@@ -297,7 +297,7 @@ function IsraeliStocksTable({
                       </tr>
 
                       {isExpanded && stocks.map((stock) => (
-                        <tr key={stock.id} className={`${isEditMode ? 'editable-row' : ''} detail-row`} style={{ backgroundColor: '#f8f9fa' }}>
+                        <tr key={stock.id} className={`${isEditMode ? 'editable-row' : ''} detail-row`}>
                           <IsraeliEditableFields
                             stock={stock}
                             {...editableFieldProps}

@@ -9,6 +9,7 @@ const { mountPortfolioRoutes } = require('./server/portfolioRoutes');
 const { mountQuotesRoutes } = require('./server/quotesRoutes');
 const { mountCpiRoutes } = require('./server/cpiRoutes');
 const { mountSnapshotRoutes } = require('./server/snapshotRoutes');
+const { mountMonthlySnapshotRoutes } = require('./server/monthlySnapshotRoutes');
 const { mountBenchmarkRoutes } = require('./server/benchmarkRoutes');
 const { mountSectorRoutes } = require('./server/sectorRoutes');
 const { mountAnalystRoutes } = require('./server/analystRoutes');
@@ -41,6 +42,7 @@ initDataStore()
     mountAuthRoutes(app, store);
     mountPortfolioRoutes(app, store);
     mountSnapshotRoutes(app, store);
+    mountMonthlySnapshotRoutes(app, store);
     mountRebalanceRoutes(app, store);
     console.log(`DB: ${store.kind === 'postgres' ? 'PostgreSQL (DATABASE_URL)' : 'SQLite local file'}`);
     app.listen(PORT, () => {

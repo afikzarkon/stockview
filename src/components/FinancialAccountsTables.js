@@ -276,12 +276,12 @@ function FinancialAccountsTables({
                       )}
                     </tr>
                     {isExpanded && deposits.length === 0 && (
-                      <tr className={`${isEditMode ? 'editable-row' : ''} detail-row`} style={{ backgroundColor: '#f8f9fa' }}>
+                      <tr className={`${isEditMode ? 'editable-row' : ''} detail-row`}>
                         <td style={{ paddingLeft: '20px' }} colSpan={(showAdditionalData ? 14 : 9) + (isEditMode ? 1 : 0)}>אין הפקדות רשומות</td>
                       </tr>
                     )}
                     {isExpanded && deposits.map((d, i) => (
-                      <tr key={i} className={`${isEditMode ? 'editable-row' : ''} detail-row`} style={{ backgroundColor: '#f8f9fa' }}>
+                      <tr key={i} className={`${isEditMode ? 'editable-row' : ''} detail-row`}>
                         <td style={{ paddingLeft: '20px' }}>{d.date ? formatDate(d.date) : '-'}</td>
                         <td>{`${formatPriceWithSign(d.amount)} ₪`}</td>
                         <td></td>

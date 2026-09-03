@@ -311,7 +311,7 @@ function AmericanStocksTable({
                       </tr>
 
                       {isExpanded && stocks.map((stock) => (
-                        <tr key={stock.id} className={`${isEditMode ? 'editable-row' : ''} detail-row`} style={{ backgroundColor: '#f8f9fa' }}>
+                        <tr key={stock.id} className={`${isEditMode ? 'editable-row' : ''} detail-row`}>
                           <AmericanEditableFields
                             stock={stock}
                             {...editableFieldProps}

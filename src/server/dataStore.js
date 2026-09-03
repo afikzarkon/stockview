@@ -38,6 +38,15 @@ function openSqlite() {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(user_id, snapshot_date)
     );
+    CREATE TABLE IF NOT EXISTS portfolio_monthly_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      snapshot_month TEXT NOT NULL,
+      total_value_ils REAL NOT NULL,
+      breakdown TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, snapshot_month)
+    );
     CREATE TABLE IF NOT EXISTS rebalance_targets (
       user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       targets TEXT NOT NULL,
@@ -114,6 +123,51 @@ function sqliteStore(db) {
           breakdown: row.breakdown ? JSON.parse(row.breakdown) : null
         }));
     },
+    async upsertMonthlySnapshot(userId, snapshotMonth, totalValueILS, breakdownJson) {
+      db.prepare(
+        `INSERT INTO portfolio_monthly_snapshots (user_id, snapshot_month, total_value_ils, breakdown)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id, snapshot_month) DO UPDATE SET
+           total_value_ils = excluded.total_value_ils,
+           breakdown = excluded.breakdown`
+      ).run(userId, snapshotMonth, totalValueILS, breakdownJson || null);
+    },
+    async listMonthlySnapshots(userId) {
+      return db
+        .prepare(
+          `SELECT snapshot_month, total_value_ils, breakdown
+           FROM portfolio_monthly_snapshots
+           WHERE user_id = ?
+           ORDER BY snapshot_month ASC`
+        )
+        .all(userId)
+        .map((row) => ({
+          month: row.snapshot_month,
+          totalValueILS: row.total_value_ils,
+          breakdown: row.breakdown ? JSON.parse(row.breakdown) : null
+        }));
+    },
+    // Update-only (never creates a row) - used to let a user correct a
+    // month they already saved (see PUT /api/portfolio-monthly-snapshot/:month
+    // in monthlySnapshotRoutes.js). Deliberately can't create a new month,
+    // so it can't be used to backfill arbitrary history in production the
+    // way the dev-only mock-seed button can in development.
+    async updateMonthlySnapshot(userId, snapshotMonth, totalValueILS, breakdownJson) {
+      const result = db
+        .prepare(
+          `UPDATE portfolio_monthly_snapshots
+           SET total_value_ils = ?, breakdown = ?
+           WHERE user_id = ? AND snapshot_month = ?`
+        )
+        .run(totalValueILS, breakdownJson || null, userId, snapshotMonth);
+      return result.changes > 0;
+    },
+    async deleteMonthlySnapshot(userId, snapshotMonth) {
+      const result = db
+        .prepare('DELETE FROM portfolio_monthly_snapshots WHERE user_id = ? AND snapshot_month = ?')
+        .run(userId, snapshotMonth);
+      return result.changes > 0;
+    },
     async getRebalanceTargets(userId) {
       const row = db.prepare('SELECT targets FROM rebalance_targets WHERE user_id = ?').get(userId);
       return row && row.targets ? JSON.parse(row.targets) : null;
@@ -165,6 +219,20 @@ async function pgStore(connectionString) {
   `);
   await pool.query(
     'CREATE INDEX IF NOT EXISTS portfolio_snapshots_user_date_idx ON portfolio_snapshots (user_id, snapshot_date)'
+  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS portfolio_monthly_snapshots (
+      id BIGSERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      snapshot_month TEXT NOT NULL,
+      total_value_ils DOUBLE PRECISION NOT NULL,
+      breakdown JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, snapshot_month)
+    );
+  `);
+  await pool.query(
+    'CREATE INDEX IF NOT EXISTS portfolio_monthly_snapshots_user_month_idx ON portfolio_monthly_snapshots (user_id, snapshot_month)'
   );
   await pool.query(`
     CREATE TABLE IF NOT EXISTS rebalance_targets (
@@ -514,6 +582,47 @@ async function pgStore(connectionString) {
         totalValueILS: row.total_value_ils,
         breakdown: row.breakdown || null
       }));
+    },
+    async upsertMonthlySnapshot(userId, snapshotMonth, totalValueILS, breakdownJson) {
+      await pool.query(
+        `INSERT INTO portfolio_monthly_snapshots (user_id, snapshot_month, total_value_ils, breakdown)
+         VALUES ($1, $2, $3, $4::jsonb)
+         ON CONFLICT (user_id, snapshot_month) DO UPDATE SET
+           total_value_ils = EXCLUDED.total_value_ils,
+           breakdown = EXCLUDED.breakdown`,
+        [userId, snapshotMonth, totalValueILS, breakdownJson || null]
+      );
+    },
+    async listMonthlySnapshots(userId) {
+      const { rows } = await pool.query(
+        `SELECT snapshot_month, total_value_ils, breakdown
+         FROM portfolio_monthly_snapshots
+         WHERE user_id = $1
+         ORDER BY snapshot_month ASC`,
+        [userId]
+      );
+      return rows.map((row) => ({
+        month: row.snapshot_month,
+        totalValueILS: row.total_value_ils,
+        breakdown: row.breakdown || null
+      }));
+    },
+    // Update-only (never creates a row) - see the SQLite version's comment.
+    async updateMonthlySnapshot(userId, snapshotMonth, totalValueILS, breakdownJson) {
+      const { rowCount } = await pool.query(
+        `UPDATE portfolio_monthly_snapshots
+         SET total_value_ils = $1, breakdown = $2::jsonb
+         WHERE user_id = $3 AND snapshot_month = $4`,
+        [totalValueILS, breakdownJson || null, userId, snapshotMonth]
+      );
+      return rowCount > 0;
+    },
+    async deleteMonthlySnapshot(userId, snapshotMonth) {
+      const { rowCount } = await pool.query(
+        'DELETE FROM portfolio_monthly_snapshots WHERE user_id = $1 AND snapshot_month = $2',
+        [userId, snapshotMonth]
+      );
+      return rowCount > 0;
     },
     async getRebalanceTargets(userId) {
       const { rows } = await pool.query('SELECT targets FROM rebalance_targets WHERE user_id = $1', [userId]);

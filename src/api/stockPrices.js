@@ -47,3 +47,19 @@ export const fetchExchangeRate = async () => {
     return null;
   }
 };
+
+// USD/ILS rate on a specific past date (the day a US stock was bought) -
+// used to auto-fill the stock form's exchange-rate field instead of
+// requiring the user to look it up and type it in manually.
+export const fetchHistoricalExchangeRate = async (dateStr) => {
+  try {
+    const response = await fetch(apiUrl(`/api/exchange-rate/${encodeURIComponent(dateStr)}`), {
+      credentials: 'include'
+    });
+    if (!response.ok) throw new Error('failed to fetch historical exchange rate');
+    const data = await response.json();
+    return data && data.rate !== null && data.rate !== undefined ? data.rate : null;
+  } catch (error) {
+    return null;
+  }
+};
