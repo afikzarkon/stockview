@@ -220,13 +220,22 @@ function App() {
   // meaningful if the checkpoint is taken on a consistent day each month -
   // saving on the 3rd one month and the 27th the next would make a
   // "month-over-month" change look bigger/smaller than it really is.
-  const handleSaveMonthlySnapshot = () => {
+  //
+  // cashFlows (optional): { [category]: netAmount } declared by the user in
+  // PortfolioAnalysisView.js's save form - net external deposits/purchases
+  // (positive) or withdrawals/sales (negative) during this period, for
+  // whatever the automatic contribution-adjustment can't see on its own
+  // (see utils/monthlySnapshotComparison.js). Merged into snapshotBreakdown
+  // under a reserved `cashFlows` key, right alongside the itemized
+  // per-category data - no separate storage needed.
+  const handleSaveMonthlySnapshot = (cashFlows) => {
     if (!portfolioReady) return;
     const ok = window.confirm(
       'שימו לב: על מנת שהנתונים יהיו רלוונטיים ומדויקים עבור המעקב, מומלץ לבצע את השמירה תמיד בתאריך קבוע בחודש (לדוגמה, ב-10 לחודש).'
     );
     if (!ok) return;
-    saveMonthlySnapshot(analysis.summaryMetrics.overallTotalValueILS, snapshotBreakdown);
+    const breakdownWithCashFlows = { ...snapshotBreakdown, cashFlows: cashFlows || {} };
+    saveMonthlySnapshot(analysis.summaryMetrics.overallTotalValueILS, breakdownWithCashFlows);
   };
 
 

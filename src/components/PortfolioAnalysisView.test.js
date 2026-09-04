@@ -220,11 +220,11 @@ describe('PortfolioAnalysisView', () => {
       expect(screen.queryByText('היסטוריית שמירות')).toBeNull();
     });
 
-    test('clicking the save button calls onSaveMonthlySnapshot, and reflects the saving/error state', () => {
+    test('clicking the save button calls onSaveMonthlySnapshot with an empty cash-flows object when nothing was entered, and reflects the saving/error state', () => {
       const onSaveMonthlySnapshot = jest.fn();
       const { rerender } = render(<PortfolioAnalysisView {...makeProps({ onSaveMonthlySnapshot })} />);
       fireEvent.click(screen.getByText('שמור שמירה חודשית'));
-      expect(onSaveMonthlySnapshot).toHaveBeenCalled();
+      expect(onSaveMonthlySnapshot).toHaveBeenCalledWith({});
 
       rerender(<PortfolioAnalysisView {...makeProps({ onSaveMonthlySnapshot, savingMonthly: true })} />);
       expect(screen.getByText('שומר…')).toBeInTheDocument();
@@ -235,6 +235,14 @@ describe('PortfolioAnalysisView', () => {
         />
       );
       expect(screen.getByText('שמירת השמירה החודשית נכשלה, נסה שוב')).toBeInTheDocument();
+    });
+
+    test('a declared cash flow next to the save button is included (parsed to a number, blank/zero categories dropped) when saving', () => {
+      const onSaveMonthlySnapshot = jest.fn();
+      render(<PortfolioAnalysisView {...makeProps({ onSaveMonthlySnapshot })} />);
+      fireEvent.change(document.getElementById('save-cashflow-bank'), { target: { value: '6000' } });
+      fireEvent.click(screen.getByText('שמור שמירה חודשית'));
+      expect(onSaveMonthlySnapshot).toHaveBeenCalledWith({ bank: 6000 });
     });
 
     test('shows whether the current month is already saved', () => {
@@ -262,8 +270,10 @@ describe('PortfolioAnalysisView', () => {
 
         fireEvent.click(screen.getByText('➕ הוספה ידנית'));
         expect(screen.getByLabelText('חודש')).toBeInTheDocument();
-        expect(within(manualForm()).getByText('בורסה ישראלית')).toBeInTheDocument();
-        expect(within(manualForm()).getByText('עו"ש')).toBeInTheDocument();
+        // { selector: 'span' } disambiguates from the new per-category
+        // cash-flow <label> below, which reuses the same category name text
+        expect(within(manualForm()).getByText('בורסה ישראלית', { selector: 'span' })).toBeInTheDocument();
+        expect(within(manualForm()).getByText('עו"ש', { selector: 'span' })).toBeInTheDocument();
 
         fireEvent.click(screen.getByText('➕ הוספה ידנית'));
         expect(screen.queryByLabelText('חודש')).toBeNull();
@@ -276,17 +286,23 @@ describe('PortfolioAnalysisView', () => {
 
         fireEvent.change(screen.getByLabelText('חודש'), { target: { value: '2026-03' } });
 
-        const israeliSection = within(manualForm()).getByText('בורסה ישראלית').closest('.monthly-manual-category');
+        const israeliSection = within(manualForm())
+          .getByText('בורסה ישראלית', { selector: 'span' })
+          .closest('.monthly-manual-category');
         fireEvent.click(within(israeliSection).getByText('+ הוסף פריט'));
         fireEvent.change(within(israeliSection).getByPlaceholderText('שם (למשל TEVA)'), {
           target: { value: 'TEVA' }
         });
         fireEvent.change(within(israeliSection).getByPlaceholderText('שווי (₪)'), { target: { value: '15000' } });
 
-        const bankSection = within(manualForm()).getByText('עו"ש').closest('.monthly-manual-category');
+        const bankSection = within(manualForm())
+          .getByText('עו"ש', { selector: 'span' })
+          .closest('.monthly-manual-category');
         fireEvent.click(within(bankSection).getByText('+ הוסף פריט'));
         fireEvent.change(within(bankSection).getByPlaceholderText('שם (למשל TEVA)'), { target: { value: 'עו"ש' } });
         fireEvent.change(within(bankSection).getByPlaceholderText('שווי (₪)'), { target: { value: '3000' } });
+
+        fireEvent.change(document.getElementById('manual-add-cashflow-cashFunds'), { target: { value: '-500' } });
 
         fireEvent.click(screen.getByText('שמור'));
         expect(onAddManualMonthlySnapshot).toHaveBeenCalledTimes(1);
@@ -295,6 +311,7 @@ describe('PortfolioAnalysisView', () => {
         expect(totalValueILS).toBe(18000);
         expect(breakdown.israeli).toEqual([{ key: 'TEVA', label: 'TEVA', value: 15000 }]);
         expect(breakdown.american).toEqual([]);
+        expect(breakdown.cashFlows).toEqual({ cashFunds: -500 });
 
         // the await inside handleSubmitManualAdd resolves asynchronously and
         // then closes the form - wait for that state update to flush
@@ -308,7 +325,9 @@ describe('PortfolioAnalysisView', () => {
         fireEvent.click(screen.getByText('➕ הוספה ידנית'));
         fireEvent.change(screen.getByLabelText('חודש'), { target: { value: '2026-03' } });
 
-        const israeliSection = within(manualForm()).getByText('בורסה ישראלית').closest('.monthly-manual-category');
+        const israeliSection = within(manualForm())
+          .getByText('בורסה ישראלית', { selector: 'span' })
+          .closest('.monthly-manual-category');
         fireEvent.click(within(israeliSection).getByText('+ הוסף פריט'));
         fireEvent.change(within(israeliSection).getByPlaceholderText('שם (למשל TEVA)'), {
           target: { value: 'TEVA' }
@@ -381,6 +400,31 @@ describe('PortfolioAnalysisView', () => {
       expect(scope.queryByText(/PLTR/)).toBeNull();
     });
 
+    test('a mid-period stock purchase is netted out of the naive % change, with the net contribution shown', () => {
+      // A live TEVA lot purchased mid-period (2026-08-15, inside the
+      // compare month) - the saved breakdown values themselves
+      // (20,000 -> 22,000) are unchanged, but the comparison should net
+      // this 1,000 ILS purchase out of the naive +10% instead of counting
+      // it as growth. (A purchase dated within the *base* month instead
+      // would already be reflected in the base snapshot's own value and
+      // must NOT be netted out again - see monthlySnapshotComparison.js's
+      // periodStart comment.)
+      const israeliStocksWithMidPeriodPurchase = [
+        ...israeliStocks,
+        { stockName: 'TEVA', quantity: 10, purchasePrice: 100, currentPrice: 3500, purchaseDate: '2026-08-15' }
+      ];
+      render(
+        <PortfolioAnalysisView
+          {...makeProps({ monthlySnapshots: [july, august], israeliStocks: israeliStocksWithMidPeriodPurchase })}
+        />
+      );
+      const scope = monthlyScope();
+      const israeliRow = scope.getByText('בורסה ישראלית', { selector: 'td' }).closest('tr');
+      expect(israeliRow.textContent).not.toContain('+10.0%');
+      expect(israeliRow.textContent).toContain('1000.00 ₪');
+      expect(israeliRow.textContent).toMatch(/הופקדו\/נרכשו בתקופה/);
+    });
+
     test('"פתח פירוט מלא" reveals per-item rows in the comparison table (e.g. individual stocks), and toggles its own label', () => {
       render(<PortfolioAnalysisView {...makeProps({ monthlySnapshots: [july, august] })} />);
       const scope = monthlyScope();
@@ -446,6 +490,8 @@ describe('PortfolioAnalysisView', () => {
       fireEvent.change(input, { target: { value: '29000' } });
       fireEvent.blur(input);
 
+      fireEvent.change(document.getElementById('edit-cashflow-bank'), { target: { value: '7000' } });
+
       fireEvent.click(within(card).getByText('שמור עריכה'));
       expect(onUpdateMonthlySnapshot).toHaveBeenCalledTimes(1);
       const [month, totalValueILS, breakdown] = onUpdateMonthlySnapshot.mock.calls[0];
@@ -453,6 +499,7 @@ describe('PortfolioAnalysisView', () => {
       expect(breakdown.american.find((i) => i.key === 'PLTR').value).toBe(29000);
       // total recomputed as the sum of all (possibly edited) items
       expect(totalValueILS).toBe(22000 + 29000 + 44000 + 5000 + 12000);
+      expect(breakdown.cashFlows).toEqual({ bank: 7000 });
 
       // the await inside handleSaveEditedMonth resolves asynchronously and
       // then exits edit mode - wait for that state update to flush (inside
@@ -473,6 +520,29 @@ describe('PortfolioAnalysisView', () => {
 
       expect(onUpdateMonthlySnapshot).not.toHaveBeenCalled();
       expect(within(card).getByText('ערוך')).toBeInTheDocument();
+    });
+
+    test('editing a month that already has declared cash flows pre-fills the inputs, and resubmitting without changing them round-trips the same values', async () => {
+      const augustWithCashFlows = { ...august, breakdown: { ...august.breakdown, cashFlows: { bank: 6000 } } };
+      const onUpdateMonthlySnapshot = jest.fn().mockResolvedValue(true);
+      render(
+        <PortfolioAnalysisView
+          {...makeProps({ monthlySnapshots: [july, augustWithCashFlows], onUpdateMonthlySnapshot })}
+        />
+      );
+      const card = historyCards()[0];
+      fireEvent.click(within(card).getByText('ערוך'));
+
+      expect(document.getElementById('edit-cashflow-bank').value).toBe('6000');
+
+      fireEvent.click(within(card).getByText('שמור עריכה'));
+      const [, , breakdown] = onUpdateMonthlySnapshot.mock.calls[0];
+      expect(breakdown.cashFlows).toEqual({ bank: 6000 });
+
+      // let the async handleSaveEditedMonth's post-await state updates
+      // (exiting edit mode) flush before the test ends, same as the other
+      // edit-and-save test above
+      await waitFor(() => expect(within(card).queryByText('שמור עריכה')).toBeNull());
     });
 
     test('shows updateMonthlyError and the "שומר…" state for the month currently being updated', () => {

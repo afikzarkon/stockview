@@ -2,6 +2,7 @@ import {
   compareMonthlySnapshots,
   normalizeCategoryItems,
   isLegacyRollup,
+  buildManualCashFlows,
   MONTHLY_CATEGORY_KEYS,
   MONTHLY_CATEGORY_LABELS_HE
 } from './monthlySnapshotComparison';
@@ -169,8 +170,8 @@ describe('compareMonthlySnapshots', () => {
     // up, each with the other side null - not silently merged/dropped
     expect(israeli.items).toEqual(
       expect.arrayContaining([
-        { key: 'TEVA', label: 'TEVA', baseValue: null, compareValue: 22000, changePercent: null },
-        { key: 'israeli', label: 'בורסה ישראלית', baseValue: 20000, compareValue: null, changePercent: null }
+        expect.objectContaining({ key: 'TEVA', label: 'TEVA', baseValue: null, compareValue: 22000, changePercent: null }),
+        expect.objectContaining({ key: 'israeli', label: 'בורסה ישראלית', baseValue: 20000, compareValue: null, changePercent: null })
       ])
     );
   });
@@ -187,6 +188,248 @@ describe('compareMonthlySnapshots', () => {
     expect(compareMonthlySnapshots(null, february)).toEqual([]);
     expect(compareMonthlySnapshots(january, null)).toEqual([]);
     expect(compareMonthlySnapshots(null, null)).toEqual([]);
+  });
+
+  describe('contribution adjustment (liveHoldings param)', () => {
+    // The exact bug report: a mid-period deposit/purchase must not be
+    // counted as investment growth. TEVA (israeli) goes from 20,000 to
+    // 32,000 - looks like a huge +60% naive gain, but 10,000 of that is a
+    // brand new share purchase mid-month with zero real price movement on
+    // top of it (20,000 stayed 20,000, +10,000 fresh purchase = 30,000...
+    // here compareValue is 32,000, i.e. a real +2,000/10% gain on the
+    // ORIGINAL 20,000 stake, which is what the adjusted % should reflect).
+    const febWithMidMonthPurchase = {
+      ...february,
+      breakdown: { ...february.breakdown, israeli: [{ key: 'TEVA', label: 'TEVA', value: 32000 }] }
+    };
+    const liveHoldings = {
+      israeliStocks: [
+        { stockName: 'TEVA', purchaseDate: '2023-06-01', purchasePrice: 100, quantity: 200 }, // pre-existing lot (before january) - not a flow in this period
+        { stockName: 'TEVA', purchaseDate: '2024-02-15', purchasePrice: 50, quantity: 200 } // 10,000 mid-february purchase
+      ],
+      americanStocks: [],
+      pensionFunds: [],
+      bankSavingsFunds: []
+    };
+
+    test('nets a mid-period stock purchase out of the naive % so it is not counted as growth', () => {
+      const rows = compareMonthlySnapshots(january, febWithMidMonthPurchase, liveHoldings);
+      const israeli = rows.find((r) => r.key === 'israeli');
+      expect(israeli.rawChangePercent).toBeCloseTo(60, 5); // (32000/20000-1)*100, the misleading naive figure
+      expect(israeli.netCashFlow).toBe(10000);
+      expect(israeli.contributionAdjusted).toBe(true);
+      // adjusted % should be much closer to the real ~10% growth on the
+      // original stake than to the naive 60%
+      expect(israeli.changePercent).toBeLessThan(20);
+      expect(israeli.changePercent).toBeGreaterThan(0);
+    });
+
+    test('per-item rows are adjusted too, matched by the same key as the itemized breakdown', () => {
+      const rows = compareMonthlySnapshots(january, febWithMidMonthPurchase, liveHoldings);
+      const israeli = rows.find((r) => r.key === 'israeli');
+      const teva = israeli.items.find((i) => i.key === 'TEVA');
+      expect(teva.netCashFlow).toBe(10000);
+      expect(teva.contributionAdjusted).toBe(true);
+      expect(teva.changePercent).toBeLessThan(20);
+    });
+
+    test('categories without a deposit/purchase ledger (bank, cashFunds) are left with the naive % unchanged', () => {
+      const rows = compareMonthlySnapshots(january, february, liveHoldings);
+      const bank = rows.find((r) => r.key === 'bank');
+      expect(bank.contributionAdjusted).toBe(false);
+      expect(bank.changePercent).toBeCloseTo(((12000 - 5000) / 5000) * 100, 5); // unchanged naive %
+      expect(bank.netCashFlow).toBe(0);
+    });
+
+    test('a pension deposit mid-period is netted out via the fund\'s own deposits ledger', () => {
+      const febWithPensionDeposit = {
+        ...february,
+        breakdown: { ...february.breakdown, pension: [{ key: 'קופה א', label: 'קופה א', value: 54000 }] } // +10,000 vs. naive 44,000
+      };
+      const holdingsWithPensionDeposit = {
+        ...liveHoldings,
+        pensionFunds: [
+          { fundName: 'קופה א', deposits: [{ date: '2023-06-01', amount: 40000 }, { date: '2024-02-10', amount: 10000 }] }
+        ]
+      };
+      const rows = compareMonthlySnapshots(january, febWithPensionDeposit, holdingsWithPensionDeposit);
+      const pension = rows.find((r) => r.key === 'pension');
+      expect(pension.netCashFlow).toBe(10000);
+      expect(pension.contributionAdjusted).toBe(true);
+    });
+
+    test('without liveHoldings, behaves exactly as before (no adjustment fields set to true)', () => {
+      const rows = compareMonthlySnapshots(january, febWithMidMonthPurchase);
+      const israeli = rows.find((r) => r.key === 'israeli');
+      expect(israeli.contributionAdjusted).toBe(false);
+      expect(israeli.changePercent).toBeCloseTo(60, 5);
+    });
+
+    test('the total row is marked partiallyAdjusted (cash/bank flows are never netted out of it)', () => {
+      const rows = compareMonthlySnapshots(january, february, liveHoldings);
+      const total = rows.find((r) => r.key === 'total');
+      expect(total.partiallyAdjusted).toBe(true);
+    });
+
+    // Regression test: a purchase dated *within* the base month itself
+    // (not just long before it) must NOT be treated as an in-period flow,
+    // even though the base month's own snapshot-save-day is unknown. This
+    // was a real bug caught during manual verification: with too-generous
+    // a periodStart (base month's own day 1), a lot bought on, say,
+    // January 5th - already fully reflected in the January snapshot's
+    // value - was wrongly netted out a *second* time, swinging a flat 0%
+    // real change into a wildly wrong negative percentage.
+    test('a purchase dated within the base month itself (not just before it) is also not double-counted', () => {
+      const lotWithinBaseMonth = {
+        ...liveHoldings,
+        israeliStocks: [{ stockName: 'TEVA', purchaseDate: '2024-01-05', purchasePrice: 100, quantity: 200 }]
+      };
+      const rows = compareMonthlySnapshots(january, february, lotWithinBaseMonth);
+      const israeli = rows.find((r) => r.key === 'israeli');
+      expect(israeli.netCashFlow).toBe(0);
+      expect(israeli.changePercent).toBeCloseTo(10, 5); // 22000/20000-1, unaffected
+    });
+
+    test('a purchase from before the compared period (already reflected in the base value) is not double-counted as a flow', () => {
+      const onlyOldLot = {
+        ...liveHoldings,
+        israeliStocks: [{ stockName: 'TEVA', purchaseDate: '2023-06-01', purchasePrice: 100, quantity: 200 }]
+      };
+      const rows = compareMonthlySnapshots(january, february, onlyOldLot);
+      const israeli = rows.find((r) => r.key === 'israeli');
+      // the lot is dated 2023-06-01, well before january - it must not
+      // appear as an in-period cash flow
+      expect(israeli.netCashFlow).toBe(0);
+      expect(israeli.changePercent).toBeCloseTo(10, 5); // 22000/20000-1
+    });
+  });
+
+  describe('manually-declared cash flows (allSnapshots param) - the only source for עו"ש/קרנות כספיות', () => {
+    test('a user-declared bank deposit on the compare snapshot nets out of the naive % for a category with no ledger at all', () => {
+      // bank went 5,000 -> 12,000 (naive +140%), but the user declared a
+      // 6,000 ILS deposit (not growth) when saving february.
+      const februaryWithDeclaredDeposit = {
+        ...february,
+        breakdown: { ...february.breakdown, cashFlows: { bank: 6000 } }
+      };
+      const rows = compareMonthlySnapshots(january, februaryWithDeclaredDeposit, null, [january, februaryWithDeclaredDeposit]);
+      const bank = rows.find((r) => r.key === 'bank');
+      expect(bank.contributionAdjusted).toBe(true);
+      expect(bank.netCashFlow).toBe(6000);
+      expect(bank.changePercent).toBeLessThan(140);
+    });
+
+    test('a negative declared amount (a withdrawal/sale) is netted out symmetrically, for a category that does have a ledger too', () => {
+      // TEVA (israeli) went 20,000 -> 22,000 (naive +10%) - the naive
+      // number is actually already "real" growth here, but the user also
+      // declares a 5,000 sale, meaning the *true* underlying growth is
+      // larger than the naive number suggests once the missing 5,000 is
+      // accounted for.
+      const februaryWithSale = {
+        ...february,
+        breakdown: { ...february.breakdown, cashFlows: { israeli: -5000 } }
+      };
+      const rows = compareMonthlySnapshots(january, februaryWithSale, null, [january, februaryWithSale]);
+      const israeli = rows.find((r) => r.key === 'israeli');
+      expect(israeli.netCashFlow).toBe(-5000);
+      expect(israeli.changePercent).toBeGreaterThan(10);
+    });
+
+    test('without allSnapshots, declared cashFlows on the snapshots themselves are silently ignored (backward compatible)', () => {
+      const februaryWithDeclaredDeposit = {
+        ...february,
+        breakdown: { ...february.breakdown, cashFlows: { bank: 6000 } }
+      };
+      const rows = compareMonthlySnapshots(january, februaryWithDeclaredDeposit);
+      const bank = rows.find((r) => r.key === 'bank');
+      expect(bank.contributionAdjusted).toBe(false);
+      expect(bank.changePercent).toBeCloseTo(140, 5);
+    });
+
+    test('a flow declared on an intermediate month (not either endpoint) is still picked up for a multi-month comparison', () => {
+      const march = {
+        month: '2024-03',
+        totalValueILS: 90000,
+        breakdown: { bank: [{ key: 'bank-1', label: 'עו"ש', value: 7000 }], cashFlows: { bank: -5000 } } // a 5,000 withdrawal declared on March
+      };
+      const rows = compareMonthlySnapshots(january, march, null, [january, february, march]);
+      const bank = rows.find((r) => r.key === 'bank');
+      expect(bank.netCashFlow).toBe(-5000);
+      expect(bank.contributionAdjusted).toBe(true);
+    });
+
+    test('a flow declared on a month outside the compared range (before base or after compare) is not picked up', () => {
+      const december2023 = {
+        month: '2023-12',
+        totalValueILS: 80000,
+        breakdown: { bank: [{ key: 'bank-1', label: 'עו"ש', value: 4000 }], cashFlows: { bank: 9999 } }
+      };
+      const rows = compareMonthlySnapshots(january, february, null, [december2023, january, february]);
+      const bank = rows.find((r) => r.key === 'bank');
+      expect(bank.netCashFlow).toBe(0);
+      expect(bank.contributionAdjusted).toBe(false);
+    });
+
+    test('auto-detected and manually-declared flows for the same ledger category are additive, not overridden', () => {
+      const liveHoldings = { israeliStocks: [{ stockName: 'TEVA', purchaseDate: '2024-02-10', purchasePrice: 50, quantity: 200 }], americanStocks: [], pensionFunds: [], bankSavingsFunds: [] };
+      const februaryWithSale = { ...february, breakdown: { ...february.breakdown, cashFlows: { israeli: -2000 } } };
+      const rows = compareMonthlySnapshots(january, februaryWithSale, liveHoldings, [january, februaryWithSale]);
+      const israeli = rows.find((r) => r.key === 'israeli');
+      // +10,000 auto-detected purchase, -2,000 manually-declared sale -> net 8,000
+      expect(israeli.netCashFlow).toBe(8000);
+    });
+
+    test('the total row stops being "partiallyAdjusted" once every non-ledger category has declared data for this comparison', () => {
+      const februaryFullyDeclared = {
+        ...february,
+        breakdown: { ...february.breakdown, cashFlows: { bank: 6000, cashFunds: 0 } }
+      };
+      // cashFunds declared as exactly 0 doesn't count as "has data" (indistinguishable from "not provided") - so this should still be partial
+      const rowsStillPartial = compareMonthlySnapshots(january, februaryFullyDeclared, null, [january, februaryFullyDeclared]);
+      expect(rowsStillPartial.find((r) => r.key === 'total').partiallyAdjusted).toBe(true);
+
+      const februaryTrulyFullyDeclared = {
+        ...february,
+        breakdown: { ...february.breakdown, cashFlows: { bank: 6000, cashFunds: 500 } }
+      };
+      const rows = compareMonthlySnapshots(january, februaryTrulyFullyDeclared, null, [january, februaryTrulyFullyDeclared]);
+      expect(rows.find((r) => r.key === 'total').partiallyAdjusted).toBe(false);
+    });
+  });
+
+  describe('buildManualCashFlows', () => {
+    test('collects a declared amount per category from a snapshot strictly after baseMonth and up to/including compareMonth', () => {
+      const snap = { month: '2024-02', breakdown: { cashFlows: { bank: 6000, israeli: -1000 } } };
+      const flows = buildManualCashFlows([snap], '2024-01', '2024-02');
+      expect(flows.bank).toEqual([{ date: '2024-02-29', amount: 6000 }]);
+      expect(flows.israeli).toEqual([{ date: '2024-02-29', amount: -1000 }]);
+      expect(flows.pension).toEqual([]);
+    });
+
+    test('excludes a snapshot dated on or before baseMonth, or after compareMonth', () => {
+      const onBase = { month: '2024-01', breakdown: { cashFlows: { bank: 100 } } };
+      const afterCompare = { month: '2024-03', breakdown: { cashFlows: { bank: 200 } } };
+      const flows = buildManualCashFlows([onBase, afterCompare], '2024-01', '2024-02');
+      expect(flows.bank).toEqual([]);
+    });
+
+    test('ignores a zero or missing declared amount, and a snapshot with no cashFlows/breakdown at all', () => {
+      const zero = { month: '2024-02', breakdown: { cashFlows: { bank: 0 } } };
+      const noCashFlows = { month: '2024-02', breakdown: {} };
+      const noBreakdown = { month: '2024-02' };
+      const flows = buildManualCashFlows([zero, noCashFlows, noBreakdown], '2024-01', '2024-02');
+      expect(flows.bank).toEqual([]);
+    });
+
+    test('every category key is always present (empty array), even with no snapshots at all', () => {
+      const flows = buildManualCashFlows([], '2024-01', '2024-02');
+      MONTHLY_CATEGORY_KEYS.forEach((key) => expect(flows[key]).toEqual([]));
+    });
+
+    test('does not throw on missing/malformed input', () => {
+      expect(() => buildManualCashFlows(undefined, '2024-01', '2024-02')).not.toThrow();
+      expect(() => buildManualCashFlows([null, undefined, {}], '2024-01', '2024-02')).not.toThrow();
+    });
   });
 
   test('handles a snapshot with no breakdown at all (older data, or a failed breakdown save)', () => {

@@ -117,6 +117,26 @@ function formatMonthLabel(monthKey) {
   return new Date(year, month - 1, 1).toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
 }
 
+// Net external cash flow declared per category (positive = net deposit/
+// purchase, negative = net withdrawal/sale) - the user's own correction
+// for whatever the automatic contribution-adjustment (Modified Dietz, see
+// utils/monthlySnapshotComparison.js) can't see on its own: any change to
+// עו"ש/קרנות כספיות (no ledger at all to auto-detect from), or a
+// sale/withdrawal in ANY category (auto-detection only ever sees money
+// going IN, via purchase dates / deposit ledgers). Stored as
+// breakdown.cashFlows alongside the itemized per-category data on the
+// monthly snapshot itself, read by buildManualCashFlows there. Kept as
+// strings while being edited (like every other numeric input in this
+// form), parsed into numbers (dropping blank/zero entries) just before
+// being sent - used by the save, edit, and manual-backfill forms alike.
+const emptyCashFlows = () => MONTHLY_CATEGORY_KEYS.reduce((acc, key) => ({ ...acc, [key]: '' }), {});
+const parseCashFlows = (draft) =>
+  MONTHLY_CATEGORY_KEYS.reduce((acc, key) => {
+    const v = parseFloat(draft[key]);
+    if (Number.isFinite(v) && v !== 0) acc[key] = v;
+    return acc;
+  }, {});
+
 // Red for positive correlation (moves together - less real diversification
 // than it looks), green for negative (moves oppositely - real
 // diversification). Intensity scales with |value|; null (not enough
@@ -315,9 +335,19 @@ function PortfolioAnalysisView({
   const effectiveCompareMonth = selectedCompareMonth || defaultCompareMonth;
   const baseMonthlySnapshot = monthlySnapshots.find((s) => s.month === effectiveBaseMonth) || null;
   const compareMonthlySnapshot = monthlySnapshots.find((s) => s.month === effectiveCompareMonth) || null;
+  // liveHoldings feeds the contribution adjustment (Modified Dietz) inside
+  // compareMonthlySnapshots - it nets out deposits/purchases that fell
+  // within the compared period (drawn from the *current* portfolio state,
+  // since snapshots themselves never recorded a history of flows) so a
+  // mid-period deposit isn't misread as investment growth. See that
+  // function's own comment for the categories/limitations.
+  const monthlyLiveHoldings = useMemo(
+    () => ({ israeliStocks, americanStocks, pensionFunds, bankSavingsFunds }),
+    [israeliStocks, americanStocks, pensionFunds, bankSavingsFunds]
+  );
   const monthlyComparisonRows = useMemo(
-    () => compareMonthlySnapshots(baseMonthlySnapshot, compareMonthlySnapshot),
-    [baseMonthlySnapshot, compareMonthlySnapshot]
+    () => compareMonthlySnapshots(baseMonthlySnapshot, compareMonthlySnapshot, monthlyLiveHoldings, monthlySnapshots),
+    [baseMonthlySnapshot, compareMonthlySnapshot, monthlyLiveHoldings, monthlySnapshots]
   );
   const currentMonthKey = new Date().toISOString().slice(0, 7);
   const currentMonthAlreadySaved = monthlySnapshots.some((s) => s.month === currentMonthKey);
@@ -339,6 +369,7 @@ function PortfolioAnalysisView({
   const [editingMonth, setEditingMonth] = useState(null);
   const [editDraftBreakdown, setEditDraftBreakdown] = useState(null);
   const [editingCell, setEditingCell] = useState(null);
+  const [editDraftCashFlows, setEditDraftCashFlows] = useState(emptyCashFlows);
 
   const startEditingMonth = (snapshot) => {
     setEditingMonth(snapshot.month);
@@ -348,12 +379,20 @@ function PortfolioAnalysisView({
         return acc;
       }, {})
     );
+    setEditDraftCashFlows(
+      MONTHLY_CATEGORY_KEYS.reduce((acc, key) => {
+        const v = snapshot.breakdown?.cashFlows?.[key];
+        acc[key] = Number.isFinite(v) ? String(v) : '';
+        return acc;
+      }, {})
+    );
     setEditingCell(null);
   };
 
   const cancelEditingMonth = () => {
     setEditingMonth(null);
     setEditDraftBreakdown(null);
+    setEditDraftCashFlows(emptyCashFlows());
     setEditingCell(null);
   };
 
@@ -365,6 +404,10 @@ function PortfolioAnalysisView({
     }));
   };
 
+  const handleEditCashFlowChange = (categoryKey, rawValue) => {
+    setEditDraftCashFlows((prev) => ({ ...prev, [categoryKey]: rawValue }));
+  };
+
   const draftTotal = editDraftBreakdown
     ? MONTHLY_CATEGORY_KEYS.reduce(
         (sum, key) => sum + editDraftBreakdown[key].reduce((s, it) => s + (it.value || 0), 0),
@@ -374,7 +417,8 @@ function PortfolioAnalysisView({
 
   const handleSaveEditedMonth = async () => {
     if (!editingMonth || !editDraftBreakdown || !onUpdateMonthlySnapshot) return;
-    const ok = await onUpdateMonthlySnapshot(editingMonth, draftTotal, editDraftBreakdown);
+    const breakdownWithCashFlows = { ...editDraftBreakdown, cashFlows: parseCashFlows(editDraftCashFlows) };
+    const ok = await onUpdateMonthlySnapshot(editingMonth, draftTotal, breakdownWithCashFlows);
     if (ok) cancelEditingMonth();
   };
 
@@ -411,12 +455,18 @@ function PortfolioAnalysisView({
   const [manualAddMonth, setManualAddMonth] = useState('');
   const emptyManualItems = () => MONTHLY_CATEGORY_KEYS.reduce((acc, key) => ({ ...acc, [key]: [] }), {});
   const [manualAddItems, setManualAddItems] = useState(emptyManualItems);
+  const [manualAddCashFlows, setManualAddCashFlows] = useState(emptyCashFlows);
   const manualAddIdRef = useRef(0);
 
   const openManualAddForm = () => {
     setShowManualAddForm(true);
     setManualAddMonth('');
     setManualAddItems(emptyManualItems());
+    setManualAddCashFlows(emptyCashFlows());
+  };
+
+  const handleManualAddCashFlowChange = (categoryKey, rawValue) => {
+    setManualAddCashFlows((prev) => ({ ...prev, [categoryKey]: rawValue }));
   };
 
   const addManualItemRow = (catKey) => {
@@ -453,13 +503,55 @@ function PortfolioAnalysisView({
         .map((it) => ({ key: it.label.trim(), label: it.label.trim(), value: parseFloat(it.value) }))
         .filter((it) => it.key && Number.isFinite(it.value));
     });
+    breakdown.cashFlows = parseCashFlows(manualAddCashFlows);
     const ok = await onAddManualMonthlySnapshot(manualAddMonth, manualAddTotal, breakdown);
     if (ok) setShowManualAddForm(false);
+  };
+
+  // Cash flows declared right before saving/updating *today's* month (the
+  // "שמור שמירה חודשית"/"עדכן שמירה חודשית" button above the comparison
+  // table - not to be confused with editingMonth's "ערוך" flow, which
+  // corrects an already-saved past month).
+  const [saveCashFlows, setSaveCashFlows] = useState(emptyCashFlows);
+  const handleSaveCashFlowChange = (categoryKey, rawValue) => {
+    setSaveCashFlows((prev) => ({ ...prev, [categoryKey]: rawValue }));
+  };
+  const handleSaveMonthlySnapshotClick = () => {
+    onSaveMonthlySnapshot(parseCashFlows(saveCashFlows));
+    setSaveCashFlows(emptyCashFlows());
   };
 
   const formatMoneyCell = (v) => (v != null ? `${formatPriceWithSign(v)} ₪` : '—');
   const formatPercentCell = (v) => (v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}%` : '—');
   const percentCellClass = (v) => (v == null ? '' : v >= 0 ? 'profit-positive' : 'profit-negative');
+
+  // Shared compact grid of one small labeled number input per category -
+  // reused by the save/edit/manual-add forms alike (see emptyCashFlows'
+  // own comment for what these represent).
+  const renderCashFlowInputs = (values, onChange, idPrefix) => (
+    <div className="monthly-cashflow-inputs">
+      <p className="monthly-cashflow-hint">
+        תזרים חיצוני נטו בתקופה (₪, אופציונלי) - הפקדה/רכישה = מספר חיובי, משיכה/מכירה = מספר שלילי. עבור מניות/קופות
+        גמל/קופות חיסכון, הפקדות/רכישות כבר מזוהות אוטומטית לפי התאריך שהוזן בעת ההוספה - השדה כאן נועד בעיקר
+        למכירות/משיכות, שאין להן מעקב אוטומטי.
+      </p>
+      <div className="monthly-cashflow-grid">
+        {MONTHLY_CATEGORY_KEYS.map((key) => (
+          <div key={key} className="monthly-cashflow-item">
+            <label htmlFor={`${idPrefix}-cashflow-${key}`}>{MONTHLY_CATEGORY_LABELS_HE[key]}</label>
+            <input
+              id={`${idPrefix}-cashflow-${key}`}
+              type="number"
+              step="0.01"
+              placeholder="0"
+              value={values[key]}
+              onChange={(e) => onChange(key, e.target.value)}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="App">
@@ -641,7 +733,7 @@ function PortfolioAnalysisView({
                 <button
                   type="button"
                   className="monthly-toolbar-btn"
-                  onClick={onSaveMonthlySnapshot}
+                  onClick={handleSaveMonthlySnapshotClick}
                   disabled={savingMonthly}
                 >
                   {savingMonthly ? 'שומר…' : currentMonthAlreadySaved ? 'עדכן שמירה חודשית' : 'שמור שמירה חודשית'}
@@ -662,6 +754,7 @@ function PortfolioAnalysisView({
                 )}
               </div>
             </div>
+            {renderCashFlowInputs(saveCashFlows, handleSaveCashFlowChange, 'save')}
             {saveMonthlyError && <p className="history-empty-note">{saveMonthlyError}</p>}
             {addManualError && <p className="history-empty-note">{addManualError}</p>}
 
@@ -724,6 +817,8 @@ function PortfolioAnalysisView({
                     ))}
                   </div>
                 ))}
+
+                {renderCashFlowInputs(manualAddCashFlows, handleManualAddCashFlowChange, 'manual-add')}
 
                 <div className="date-item" style={{ marginTop: 12 }}>
                   <span className="date-label">סה"כ: {formatMoneyCell(manualAddTotal)}</span>
@@ -796,7 +891,9 @@ function PortfolioAnalysisView({
                             <th>קטגוריה{detailedView ? ' / נכס' : ''}</th>
                             <th>{formatMonthLabel(effectiveBaseMonth)}</th>
                             <th>{formatMonthLabel(effectiveCompareMonth)}</th>
-                            <th>שינוי</th>
+                            <th title="כשיש היסטוריית הפקדות/רכישות לקטגוריה, השינוי מנוטרל מהשפעת כסף חדש שנכנס באמצע התקופה - הוא לא נספר כתשואה">
+                              שינוי (מנוטרל הפקדות)
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -806,8 +903,21 @@ function PortfolioAnalysisView({
                                 <td>{row.label}</td>
                                 <td>{formatMoneyCell(row.baseValue)}</td>
                                 <td>{formatMoneyCell(row.compareValue)}</td>
-                                <td className={percentCellClass(row.changePercent)}>
+                                <td
+                                  className={percentCellClass(row.changePercent)}
+                                  title={
+                                    row.contributionAdjusted
+                                      ? `לפני נטרול הפקדות/רכישות: ${formatPercentCell(row.rawChangePercent)}${row.partiallyAdjusted ? ' (מבוסס רק על קטגוריות עם היסטוריית הפקדות מתועדת)' : ''}`
+                                      : undefined
+                                  }
+                                >
                                   {formatPercentCell(row.changePercent)}
+                                  {row.netCashFlow ? (
+                                    <div className="monthly-cashflow-note">
+                                      {row.netCashFlow > 0 ? '+' : ''}
+                                      {formatMoneyCell(row.netCashFlow)} {row.netCashFlow > 0 ? 'הופקדו/נרכשו בתקופה' : 'נמשכו בתקופה'}
+                                    </div>
+                                  ) : null}
                                 </td>
                               </tr>
                               {detailedView && row.key !== 'total' && isLegacyRollup(row.items, row.key) && (
@@ -824,8 +934,21 @@ function PortfolioAnalysisView({
                                     <td className="monthly-item-label">↳ {item.label}</td>
                                     <td>{formatMoneyCell(item.baseValue)}</td>
                                     <td>{formatMoneyCell(item.compareValue)}</td>
-                                    <td className={percentCellClass(item.changePercent)}>
+                                    <td
+                                      className={percentCellClass(item.changePercent)}
+                                      title={
+                                        item.contributionAdjusted
+                                          ? `לפני נטרול הפקדות/רכישות: ${formatPercentCell(item.rawChangePercent)}`
+                                          : undefined
+                                      }
+                                    >
                                       {formatPercentCell(item.changePercent)}
+                                      {item.netCashFlow ? (
+                                        <div className="monthly-cashflow-note">
+                                          {item.netCashFlow > 0 ? '+' : ''}
+                                          {formatMoneyCell(item.netCashFlow)}
+                                        </div>
+                                      ) : null}
                                     </td>
                                   </tr>
                                 ))}
@@ -964,6 +1087,7 @@ function PortfolioAnalysisView({
                               </div>
                             );
                           })}
+                          {isEditingThis && renderCashFlowInputs(editDraftCashFlows, handleEditCashFlowChange, 'edit')}
                         </div>
                       </div>
                     );
