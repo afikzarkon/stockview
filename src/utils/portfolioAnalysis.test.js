@@ -33,6 +33,55 @@ describe('calculatePortfolioAnalysis', () => {
     expect(totalPercent).toBeCloseTo(100, 5);
   });
 
+  describe('Israeli-listed ETFs tracking a foreign index (isForeignAsset/keyword reclassification)', () => {
+    test('an Israeli ETF whose name matches a foreign-tracking keyword counts toward exchangeDistribution.american, not .israeli', () => {
+      const israeliStocks = [
+        { stockName: 'קסם S&P 500', quantity: 10, purchasePrice: 100, currentPrice: 10000, dailyChangePercent: 0, purchaseDate: '2023-01-01' }
+      ];
+      const analysis = calculatePortfolioAnalysis(israeliStocks, [], [], [], []);
+      expect(analysis.exchangeDistribution.israeli.value).toBe(0);
+      expect(analysis.exchangeDistribution.american.value).toBeCloseTo(100000, 5); // 10 * 10000 (currentPrice is already in ILS, see normalizeIsraeliPrice)
+      // The grand total is unaffected - the value just moved buckets, not created/destroyed.
+      expect(analysis.exchangeDistribution.total).toBeCloseTo(100000, 5);
+    });
+
+    test('the reclassified ETF still appears in stockDistribution tagged exchange:"american"', () => {
+      const israeliStocks = [
+        { stockName: 'קסם S&P 500', quantity: 10, purchasePrice: 100, currentPrice: 10000, dailyChangePercent: 0, purchaseDate: '2023-01-01' }
+      ];
+      const analysis = calculatePortfolioAnalysis(israeliStocks, [], [], [], []);
+      const entry = analysis.stockDistribution.find((s) => s.name === 'קסם S&P 500');
+      expect(entry.exchange).toBe('american');
+    });
+
+    test('a manual isForeignAsset:true override reclassifies an otherwise-ordinary-looking Israeli stock', () => {
+      const israeliStocks = [
+        { stockName: 'טבע', quantity: 10, purchasePrice: 100, currentPrice: 10000, dailyChangePercent: 0, purchaseDate: '2023-01-01', isForeignAsset: true }
+      ];
+      const analysis = calculatePortfolioAnalysis(israeliStocks, [], [], [], []);
+      expect(analysis.exchangeDistribution.israeli.value).toBe(0);
+      expect(analysis.exchangeDistribution.american.value).toBeCloseTo(100000, 5);
+    });
+
+    test('a manual isForeignAsset:false override keeps a keyword-matching name classified as Israeli', () => {
+      const israeliStocks = [
+        { stockName: 'קסם S&P 500', quantity: 10, purchasePrice: 100, currentPrice: 10000, dailyChangePercent: 0, purchaseDate: '2023-01-01', isForeignAsset: false }
+      ];
+      const analysis = calculatePortfolioAnalysis(israeliStocks, [], [], [], []);
+      expect(analysis.exchangeDistribution.israeli.value).toBeCloseTo(100000, 5);
+      expect(analysis.exchangeDistribution.american.value).toBe(0);
+    });
+
+    test('a legacy item with no isForeignAsset field at all still classifies purely by name (backward compatible)', () => {
+      const israeliStocks = [
+        { stockName: 'טבע', quantity: 10, purchasePrice: 100, currentPrice: 10000, dailyChangePercent: 0, purchaseDate: '2023-01-01' }
+      ];
+      const analysis = calculatePortfolioAnalysis(israeliStocks, [], [], [], []);
+      expect(analysis.exchangeDistribution.israeli.value).toBeCloseTo(100000, 5);
+      expect(analysis.exchangeDistribution.american.value).toBe(0);
+    });
+  });
+
   test('classifies profitable stocks as topPerformers and losing stocks as worstPerformers', () => {
     const israeliStocks = [
       { stockName: 'WINNER', quantity: 10, purchasePrice: 10, currentPrice: 2000, dailyChangePercent: 0, purchaseDate: '2023-01-01' }, // profit

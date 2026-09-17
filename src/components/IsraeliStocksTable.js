@@ -2,11 +2,59 @@ import React from 'react';
 import EditableCell from './EditableCell';
 import { profitClass, formatDailyChangePercent } from '../utils/formatters';
 import { calculateStockRealGainTax, monthKeyFromDate } from '../utils/cpiTax';
+import { KNOWN_SECTOR_KEYS, sectorLabelHe, UNCLASSIFIED_SECTOR_KEY } from '../utils/sectorLabels';
 
-// Renders the 4 editable fields (name/date/price/quantity) for one Israeli
-// stock row — used for both the single-stock row and each expanded detail
-// row, since they're identical apart from an optional style prop.
-function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClick, handleInlineEdit, finishInlineEdit, handleKeyDown, formatDate, formatPrice, nameCellStyle }) {
+// "נכס זר?" + "סקטור" - both presentation-layer classification fields
+// (see israeliEtfClassifier.js / sectorAnalysis.js), not price/quantity
+// data, so they're plain controlled inputs rather than going through the
+// click-to-edit EditableCell pattern the rest of this row uses - there's
+// no ambiguity about "is this being edited right now" to track for a
+// checkbox/select that commits on every change.
+function IsraeliClassificationFields({ stock, isEditMode, handleInlineEdit }) {
+  const isForeignAsset = stock.isForeignAsset; // null/undefined = auto-detect by name
+  return (
+    <>
+      <td>
+        <select
+          value={isForeignAsset === true ? 'foreign' : isForeignAsset === false ? 'domestic' : 'auto'}
+          disabled={!isEditMode}
+          onChange={(e) => {
+            const v = e.target.value;
+            const newValue = v === 'foreign' ? true : v === 'domestic' ? false : null;
+            handleInlineEdit(stock.id, 'isForeignAsset', newValue, 'israeli');
+          }}
+        >
+          <option value="auto">אוטומטי (לפי שם)</option>
+          <option value="foreign">נכס זר</option>
+          <option value="domestic">נכס מקומי</option>
+        </select>
+      </td>
+      <td>
+        <select
+          value={stock.sector || UNCLASSIFIED_SECTOR_KEY}
+          disabled={!isEditMode}
+          onChange={(e) => {
+            const v = e.target.value;
+            handleInlineEdit(stock.id, 'sector', v === UNCLASSIFIED_SECTOR_KEY ? '' : v, 'israeli');
+          }}
+        >
+          <option value={UNCLASSIFIED_SECTOR_KEY}>לא סווג</option>
+          {KNOWN_SECTOR_KEYS.map((key) => (
+            <option key={key} value={key}>
+              {sectorLabelHe(key)}
+            </option>
+          ))}
+        </select>
+      </td>
+    </>
+  );
+}
+
+// Renders the 4 editable fields (name/date/price/quantity), plus (under
+// showAdditionalData) the classification fields, for one Israeli stock
+// row — used for both the single-stock row and each expanded detail row,
+// since they're identical apart from an optional style prop.
+function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClick, handleInlineEdit, finishInlineEdit, handleKeyDown, formatDate, formatPrice, nameCellStyle, showAdditionalData }) {
   return (
     <>
       <EditableCell
@@ -69,6 +117,9 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         handleKeyDown={handleKeyDown}
         displayValue={stock.quantity}
       />
+      {showAdditionalData && (
+        <IsraeliClassificationFields stock={stock} isEditMode={isEditMode} handleInlineEdit={handleInlineEdit} />
+      )}
     </>
   );
 }
@@ -172,6 +223,8 @@ function IsraeliStocksTable({
                   <th>תאריך קנייה</th>
                   <th>מחיר קנייה (₪)</th>
                   <th>כמות</th>
+                  {showAdditionalData && <th>נכס זר?</th>}
+                  {showAdditionalData && <th>סקטור</th>}
                   <th>סה"כ קנייה בש"ח</th>
                   <th>מחיר נוכחי (₪)</th>
                   <th>סה"כ שווי היום (₪)</th>
@@ -200,7 +253,8 @@ function IsraeliStocksTable({
                     finishInlineEdit,
                     handleKeyDown,
                     formatDate,
-                    formatPrice
+                    formatPrice,
+                    showAdditionalData
                   };
                   const computedCellProps = {
                     normalizeIsraeliPrice,
@@ -243,6 +297,8 @@ function IsraeliStocksTable({
                         <td>פתח קיבוץ</td>
                         <td>פתח קיבוץ</td>
                         <td>{summary.totalQuantity}</td>
+                        {showAdditionalData && <td>פתח קיבוץ</td>}
+                        {showAdditionalData && <td>פתח קיבוץ</td>}
                         <td>{formatPrice(summary.totalPurchaseValue)}</td>
                         <td>{formatPrice(summary.averageCurrentPrice)}</td>
                         <td>{formatPrice(summary.totalCurrentValue)}</td>
