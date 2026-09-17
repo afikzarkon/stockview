@@ -109,6 +109,7 @@ function App() {
   const [formData, setFormData] = useState({
     itemType: 'stock',
     stockName: '',
+    officialName: '',
     securityId: '',
     purchaseDate: '',
     purchasePrice: '',
@@ -352,7 +353,27 @@ function App() {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: value,
+      // A manual edit of the raw TASE id field invalidates any name
+      // already resolved via the search box below it (see
+      // handleSelectIsraeliStock) - the two would otherwise silently drift
+      // out of sync (an id that no longer matches the displayed name).
+      ...(name === 'stockName' ? { officialName: '' } : {})
+    }));
+  };
+
+  // Called when the user picks a suggestion from StockFormView's Israeli-
+  // stock name search (see useIsraeliStockSearch.js) - fills both the
+  // numeric TASE id (stockName, unchanged everywhere else it's used - the
+  // scraper, price refresh, distribution grouping all still key off it)
+  // and the newly-resolved official company name in one update, instead of
+  // two separate handleInputChange calls that could otherwise render a
+  // stock with only one of the two set if something went wrong in between.
+  const handleSelectIsraeliStock = (result) => {
+    setFormData(prev => ({
+      ...prev,
+      stockName: result.securityId,
+      officialName: result.officialName
     }));
   };
 
@@ -416,6 +437,11 @@ function App() {
       const stockData = {
         id: Date.now(),
         stockName: formData.stockName,
+        // Only meaningful (and only ever set) for Israeli stocks, resolved
+        // via the search box in StockFormView - '' for anything picked
+        // via the raw-id fallback path, same as legacy holdings that
+        // predate this field, so display code must treat it as optional.
+        officialName: formData.exchange === 'israeli' ? (formData.officialName || '') : '',
         purchaseDate: formData.purchaseDate,
         purchasePrice: parseFloat(formData.purchasePrice),
         quantity: parseInt(formData.quantity),
@@ -530,6 +556,7 @@ function App() {
     setFormData({
       itemType: 'stock',
       stockName: '',
+      officialName: '',
       securityId: '',
       purchaseDate: '',
       purchasePrice: '',
@@ -646,6 +673,7 @@ function App() {
     setEditingStock(null);
     setFormData({
       stockName: '',
+      officialName: '',
       securityId: '',
       purchasePrice: '',
       initialInvestment: '',
@@ -669,6 +697,7 @@ function App() {
     setEditingStock(null);
     setFormData({
       stockName: '',
+      officialName: '',
       securityId: '',
       purchasePrice: '',
       initialInvestment: '',
@@ -827,6 +856,7 @@ function App() {
           exchangeRateFetching={exchangeRateFetching}
           exchangeRateNotFound={exchangeRateNotFound}
           onPullExchangeRate={handlePullExchangeRate}
+          onSelectIsraeliStock={handleSelectIsraeliStock}
         />
       </>
     );

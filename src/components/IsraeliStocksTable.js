@@ -20,7 +20,7 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         handleInlineEdit={handleInlineEdit}
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
-        displayValue={stock.stockName}
+        displayValue={stock.officialName ? `${stock.officialName} (${stock.stockName})` : stock.stockName}
         style={nameCellStyle}
       />
       <EditableCell
@@ -238,7 +238,7 @@ function IsraeliStocksTable({
                           >
                             {isExpanded ? '▼' : '▶'}
                           </button>
-                          {stockName}
+                          {stocks[0].officialName ? `${stocks[0].officialName} (${stockName})` : stockName}
                         </td>
                         <td>פתח קיבוץ</td>
                         <td>פתח קיבוץ</td>
