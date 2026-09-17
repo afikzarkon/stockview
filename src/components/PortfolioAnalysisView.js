@@ -35,6 +35,7 @@ import { useBenchmarkHistory } from '../hooks/useBenchmarkHistory';
 import { useStockSectors } from '../hooks/useStockSectors';
 import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
 import { useDividendData } from '../hooks/useDividendData';
+import { useHistoricalPortfolioValue } from '../hooks/useHistoricalPortfolioValue';
 import { formatDate } from '../utils/formatters';
 import { computeTaxLossHarvestingOpportunities } from '../utils/taxLossHarvesting';
 import {
@@ -163,6 +164,23 @@ function PortfolioAnalysisView({
   addManualError = ''
 }) {
   const stats = useMemo(() => computePortfolioStats(snapshots), [snapshots]);
+
+  // Custom date-range performance check - independent of the saved-
+  // snapshot equity curve above, computed from real historical closing
+  // prices instead (see utils/historicalPortfolioValue.js). Both dates
+  // must be picked before anything is fetched/computed.
+  const [customRangeFrom, setCustomRangeFrom] = useState('');
+  const [customRangeTo, setCustomRangeTo] = useState('');
+  const {
+    series: customRangeSeries,
+    loading: customRangeLoading,
+    error: customRangeError
+  } = useHistoricalPortfolioValue({
+    fromDate: customRangeFrom,
+    toDate: customRangeTo,
+    israeliStocks,
+    americanStocks
+  });
 
   const harvesting = useMemo(
     () => computeTaxLossHarvestingOpportunities(israeliStocks, americanStocks, pensionFunds, cpi, bankSavingsFunds),
@@ -691,6 +709,96 @@ function PortfolioAnalysisView({
                 </div>
               </>
             )}
+
+            {/* בלתי-תלוי בשמירות שקטות - מבוסס אך ורק על שערי סגירה
+                היסטוריים אמיתיים (ראו utils/historicalPortfolioValue.js),
+                ולכן זמין גם אם עדיין אין מספיק שמירות לגרף שמעל. */}
+            <div className="custom-range-section" style={{ marginTop: 24 }}>
+              <h3>בדיקת תשואה לטווח תאריכים מותאם אישית</h3>
+              <div className="date-range-controls" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div className="form-group">
+                  <label htmlFor="customRangeFrom">מתאריך</label>
+                  <input
+                    type="date"
+                    id="customRangeFrom"
+                    value={customRangeFrom}
+                    onChange={(e) => setCustomRangeFrom(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="customRangeTo">עד תאריך</label>
+                  <input
+                    type="date"
+                    id="customRangeTo"
+                    value={customRangeTo}
+                    onChange={(e) => setCustomRangeTo(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {customRangeFrom && customRangeTo && (
+                <>
+                  {customRangeLoading && <p className="history-empty-note">מחשב שווי תיק היסטורי…</p>}
+                  {!customRangeLoading && customRangeError && <p className="history-empty-note">{customRangeError}</p>}
+                  {!customRangeLoading && !customRangeError && (() => {
+                    const validPoints = customRangeSeries.filter((p) => p.valueILS != null);
+                    if (validPoints.length < 2) {
+                      return (
+                        <p className="history-empty-note">
+                          אין מספיק נתוני מחיר היסטוריים בטווח הזה כדי לחשב תשואה (ייתכן שהתיק לא כלל אחזקות בכל התאריכים בטווח).
+                        </p>
+                      );
+                    }
+                    const first = validPoints[0];
+                    const last = validPoints[validPoints.length - 1];
+                    const changePercent = first.valueILS > 0 ? ((last.valueILS / first.valueILS) - 1) * 100 : null;
+                    const anyPartial = customRangeSeries.some((p) => p.isPartial);
+                    return (
+                      <>
+                        <div className="distribution-grid" style={{ marginTop: 12 }}>
+                          <div className="distribution-card">
+                            <h3>שווי בתחילת הטווח</h3>
+                            <div className="distribution-value">{formatPriceWithSign(first.valueILS)} ₪</div>
+                            <div className="distribution-percentage">{formatDate(first.date)}</div>
+                          </div>
+                          <div className="distribution-card">
+                            <h3>שווי בסוף הטווח</h3>
+                            <div className="distribution-value">{formatPriceWithSign(last.valueILS)} ₪</div>
+                            <div className="distribution-percentage">{formatDate(last.date)}</div>
+                          </div>
+                          <div className="distribution-card">
+                            <h3>שינוי בטווח שנבחר</h3>
+                            <div className={`distribution-value ${changePercent >= 0 ? 'profit-positive' : 'profit-negative'}`}>
+                              {changePercent != null ? `${changePercent.toFixed(1)}%` : '—'}
+                            </div>
+                            <div className="distribution-percentage">מבוסס על שערי סגירה היסטוריים בפועל</div>
+                          </div>
+                        </div>
+                        {anyPartial && (
+                          <p className="history-empty-note" style={{ marginTop: 8 }}>
+                            שימו לב: בחלק מהתאריכים בטווח לא נמצא מחיר היסטורי לכל ההחזקות - התוצאה עשויה להיות חלקית.
+                          </p>
+                        )}
+                        <div className="equity-chart-container" style={{ marginTop: 16 }}>
+                          <ResponsiveContainer width="100%" height={220}>
+                            <LineChart data={validPoints} margin={{ top: 10, right: 24, left: 8, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(102,126,234,0.15)" />
+                              <XAxis dataKey="date" tickFormatter={(d) => formatDate(d)} tick={{ fontSize: 12 }} />
+                              <YAxis tickFormatter={(v) => `${Math.round(v / 1000)}k`} tick={{ fontSize: 12 }} width={50} />
+                              <Tooltip
+                                labelFormatter={(d) => formatDate(d)}
+                                formatter={(value) => [`${formatPriceWithSign(value)} ₪`, 'שווי תיק (משוער)']}
+                              />
+                              <Line type="monotone" dataKey="valueILS" stroke="#16a34a" strokeWidth={2.5} dot={false} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
           </div>
 
           <div className="analysis-section" ref={(el) => (sectionRefs.current.monthly = el)}>

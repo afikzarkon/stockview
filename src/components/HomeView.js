@@ -25,8 +25,6 @@ function HomeView({
   saveLoading,
   lastSavedAt,
   saveError,
-  handleSaveSnapshot,
-  snapshotSaving,
   snapshotSaveError,
   lastSnapshotSavedAt,
   legacyImportBanner,
@@ -174,22 +172,16 @@ function HomeView({
               >
                 {showAmericanColumns ? 'הסתר נתונים נוספים' : 'לחץ כאן כדי לראות נתונים נוספים'}
               </button>
-
-              <button
-                type="button"
-                className="btn btn-info"
-                onClick={handleSaveSnapshot}
-                disabled={snapshotSaving}
-              >
-                {snapshotSaving ? 'שומר…' : 'שמור מידע יומי עדכני'}
-              </button>
             </div>
 
+            {/* אין יותר כפתור שמירה ידני - הנתון היומי נשמר אוטומטית ובשקט
+                ברקע (ראו useAutoSnapshot.js) לאחר שהמחירים החיים נטענו
+                בפועל, לא בעת עליית העמוד. השורה הזו רק מציגה משוב פסיבי. */}
             {(lastSnapshotSavedAt || snapshotSaveError) && (
               <div className="snapshot-status-row">
                 {lastSnapshotSavedAt ? (
                   <span className="user-email" style={{ fontSize: 12, opacity: 0.8 }}>
-                    מידע יומי נשמר: {lastSnapshotSavedAt.toLocaleTimeString('he-IL')}
+                    מידע יומי נשמר אוטומטית: {lastSnapshotSavedAt.toLocaleTimeString('he-IL')}
                   </span>
                 ) : null}
                 {snapshotSaveError ? (

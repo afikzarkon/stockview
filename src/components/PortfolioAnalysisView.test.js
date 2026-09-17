@@ -74,6 +74,15 @@ describe('PortfolioAnalysisView', () => {
     useStockSectors.mockReturnValue({ sectorBySymbol: {}, loading: false });
     useAnalystRecommendations.mockReturnValue({ recommendationsBySymbol: {}, loading: false });
     useDividendData.mockReturnValue({ dividendsBySymbol: {}, loading: false });
+    // Backs the custom date-range picker's useHistoricalPortfolioValue call
+    // - real network calls (not mocked at the hook level, unlike the
+    // hooks above) since it's not jest.mock()'d, matching how the rest of
+    // this suite exercises it as a real dependency.
+    global.fetch = jest.fn().mockRejectedValue(new Error('network unavailable in test'));
+  });
+
+  afterEach(() => {
+    delete global.fetch;
   });
 
   test('renders without crashing, with the sidebar nav grouped into 5 labeled groups', () => {
@@ -634,6 +643,50 @@ describe('PortfolioAnalysisView', () => {
       expect(
         within(historyCards()[0]).getAllByText('אין פירוט פריטים לשמירה זו (נשמרה לפני שנוסף פירוט מלא)').length
       ).toBeGreaterThan(0);
+    });
+  });
+
+  describe('custom date-range performance check', () => {
+    test('shows nothing extra until both dates are picked, then computes the change from real historical closes', async () => {
+      global.fetch.mockImplementation((url) => {
+        const u = String(url);
+        if (u.includes('israeli-stocks-history')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              history: {
+                TEVA: [
+                  { date: '2024-01-01', close: 10000 },
+                  { date: '2024-06-01', close: 12000 }
+                ]
+              }
+            })
+          });
+        }
+        if (u.includes('american-stocks-history') || u.includes('exchange-rate-history')) {
+          return Promise.resolve({ ok: true, json: async () => ({ history: u.includes('exchange-rate') ? [] : {} }) });
+        }
+        return Promise.resolve({ ok: true, json: async () => ({}) });
+      });
+
+      const { container, getByText, queryByText } = render(
+        <PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />
+      );
+      expect(queryByText('שינוי בטווח שנבחר')).toBeNull();
+
+      fireEvent.change(container.querySelector('#customRangeFrom'), { target: { value: '2024-01-01' } });
+      fireEvent.change(container.querySelector('#customRangeTo'), { target: { value: '2024-06-01' } });
+
+      await waitFor(() => expect(getByText('שינוי בטווח שנבחר')).toBeInTheDocument());
+      // (12000/10000 - 1) * 100 = 20%
+      expect(getByText('20.0%')).toBeInTheDocument();
+    });
+
+    test('surfaces an error message instead of a fake/blank result when the underlying fetch fails', async () => {
+      const { container, getByText } = render(<PortfolioAnalysisView {...makeProps()} />);
+      fireEvent.change(container.querySelector('#customRangeFrom'), { target: { value: '2024-01-01' } });
+      fireEvent.change(container.querySelector('#customRangeTo'), { target: { value: '2024-06-01' } });
+      await waitFor(() => expect(getByText('לא ניתן היה לטעון נתוני מחירים היסטוריים כרגע')).toBeInTheDocument());
     });
   });
 });

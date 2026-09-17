@@ -12,6 +12,7 @@ import { usePriceRefresh } from './hooks/usePriceRefresh';
 import { useCpiIndex } from './hooks/useCpiIndex';
 import { usePortfolioSnapshots } from './hooks/usePortfolioSnapshots';
 import { useMonthlySnapshots } from './hooks/useMonthlySnapshots';
+import { useAutoSnapshot } from './hooks/useAutoSnapshot';
 import { buildItemizedMonthlyBreakdown } from './utils/monthlySnapshotBreakdown';
 import { useRebalanceTargets } from './hooks/useRebalanceTargets';
 import { useTheme } from './hooks/useTheme';
@@ -141,6 +142,10 @@ function App() {
   const [legacyImportLoading, setLegacyImportLoading] = useState(false);
   const [legacyImportBanner, setLegacyImportBanner] = useState('');
 
+  // Set once, the first time a full price-refresh cycle actually
+  // completes (see usePriceRefresh.js) - gates useAutoSnapshot below so it
+  // never captures a value from a stale/incomplete initial render.
+  const [firstPriceCycleComplete, setFirstPriceCycleComplete] = useState(false);
   usePriceRefresh({
     israeliStocks,
     americanStocks,
@@ -148,7 +153,8 @@ function App() {
     setAmericanStocks,
     isEditMode,
     editingField,
-    isAddingNewStock
+    isAddingNewStock,
+    onFirstCycleComplete: () => setFirstPriceCycleComplete(true)
   });
 
   // כל חודשי המדד הרלוונטיים לתיק: תאריכי קניית מניות ישראליות +
@@ -186,19 +192,9 @@ function App() {
     snapshots,
     snapshotsLoading,
     saveSnapshotNow,
-    saving: snapshotSaving,
     saveError: snapshotSaveError,
     lastSavedAt: lastSnapshotSavedAt
   } = usePortfolioSnapshots(user, authHeader);
-
-  // Snapshot saving is manual (a button, not automatic) - see
-  // usePortfolioSnapshots.js for why. Guarded by portfolioReady so a click
-  // during the brief "empty arrays" initial-load state can't save a bogus
-  // 0-value snapshot (saveSnapshotNow itself also guards against <= 0).
-  const handleSaveSnapshot = () => {
-    if (!portfolioReady) return;
-    saveSnapshotNow(analysis.summaryMetrics.overallTotalValueILS, snapshotBreakdown);
-  };
 
   const {
     monthlySnapshots,
@@ -216,6 +212,20 @@ function App() {
     addingManual,
     addManualError
   } = useMonthlySnapshots(user, authHeader);
+
+  // Replaces the old manual "שמור מידע יומי עדכני" button entirely - see
+  // useAutoSnapshot.js for the full mechanism. portfolioReady is folded
+  // into the same gate as firstPriceCycleComplete so a snapshot is never
+  // captured before the portfolio has actually finished loading either.
+  useAutoSnapshot({
+    firstCycleComplete: firstPriceCycleComplete && portfolioReady,
+    totalValueILS: analysis.summaryMetrics.overallTotalValueILS,
+    breakdown: snapshotBreakdown,
+    snapshots,
+    saveSnapshotNow,
+    monthlySnapshots,
+    saveMonthlySnapshot
+  });
 
   // Confirms before every save, since the comparison table is only
   // meaningful if the checkpoint is taken on a consistent day each month -
@@ -1009,8 +1019,6 @@ function App() {
         saveLoading={saveLoading}
         lastSavedAt={lastSavedAt}
         saveError={saveError}
-        handleSaveSnapshot={handleSaveSnapshot}
-        snapshotSaving={snapshotSaving}
         snapshotSaveError={snapshotSaveError}
         lastSnapshotSavedAt={lastSnapshotSavedAt}
         legacyImportBanner={legacyImportBanner}
