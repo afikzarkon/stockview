@@ -164,37 +164,11 @@ async function fetchYahooHistoricalRateForDate(symbol, dateStr) {
   return { date: closest.date, rate: closest.close };
 }
 
-// Recent news headlines for a US stock, via Yahoo's public search endpoint
-// (same "no crumb/cookie needed" family as fetchYahooHistoricalCloses
-// above — confirmed with a real request during development: works with
-// just a User-Agent header, unlike the quoteSummary-based functions
-// below). quotesCount:0 skips the ticker/company autocomplete results
-// this endpoint also returns, which aren't needed here.
-async function fetchYahooNews(symbol, count = 10) {
-  const response = await axios.get('https://query1.finance.yahoo.com/v1/finance/search', {
-    params: { q: symbol, newsCount: count, quotesCount: 0 },
-    timeout: 15000,
-    headers: YAHOO_HEADERS
-  });
-
-  const news = response?.data?.news;
-  if (!Array.isArray(news)) return [];
-
-  return news
-    .map((item) => ({
-      uuid: item.uuid || null,
-      title: item.title || null,
-      publisher: item.publisher || null,
-      link: item.link || null,
-      publishedAtEpoch: unwrapYahooNumber(item.providerPublishTime),
-      relatedTickers: Array.isArray(item.relatedTickers) ? item.relatedTickers : []
-    }))
-    .filter((item) => item.uuid && item.title && item.link);
-}
-
-// Ticker/company autocomplete suggestions, via the same public search
-// endpoint as fetchYahooNews above — quotesCount (not newsCount) this time.
-// No crumb/cookie needed, same as fetchYahooNews.
+// Ticker/company autocomplete suggestions, via Yahoo's public search
+// endpoint (same "no crumb/cookie needed" family as
+// fetchYahooHistoricalCloses above — confirmed with a real request during
+// development: works with just a User-Agent header, unlike the
+// quoteSummary-based functions below).
 async function fetchYahooSymbolSearch(query, count = 8) {
   const response = await axios.get('https://query1.finance.yahoo.com/v1/finance/search', {
     params: { q: query, newsCount: 0, quotesCount: count },
@@ -762,7 +736,6 @@ module.exports = {
   getYahooPayload,
   fetchYahooHistoricalCloses,
   fetchYahooHistoricalRateForDate,
-  fetchYahooNews,
   fetchYahooSymbolSearch,
   fetchYahooAssetProfile,
   fetchYahooAnalystData,

@@ -83,8 +83,7 @@ async function getCachedDividendHistory(symbol, fromDateStr) {
       return history;
     } catch (err) {
       console.warn('[dividends] failed to resolve history', { symbol, error: err && err.message });
-      // Same "fail this one symbol, not the whole batch" approach as
-      // correlationRoutes.js.
+      // "Fail this one symbol, not the whole batch" approach.
       return [];
     }
   })();

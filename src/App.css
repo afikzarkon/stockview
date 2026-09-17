@@ -2171,35 +2171,6 @@ body {
   font-weight: 600;
 }
 
-.news-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.news-item {
-  padding: 10px 12px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  border: 1px solid #e1e8ed;
-}
-
-.news-title {
-  font-weight: 600;
-  color: #2c3e50;
-  text-decoration: none;
-}
-
-.news-title:hover {
-  text-decoration: underline;
-}
-
-.news-meta {
-  margin-top: 4px;
-  font-size: 0.85rem;
-  color: #64748b;
-}
-
 /* Responsive design for analysis page */
 @media (max-width: 768px) {
   .analysis-container {
@@ -2548,7 +2519,6 @@ body {
 /* Smaller inline "chip" surfaces nested one level deeper. */
 [data-theme='dark'] .date-item,
 [data-theme='dark'] .report-item,
-[data-theme='dark'] .news-item,
 [data-theme='dark'] .edit-row,
 [data-theme='dark'] .cpi-status-banner,
 [data-theme='dark'] .monthly-history-category-header,
@@ -2585,7 +2555,6 @@ body {
 [data-theme='dark'] .date-label,
 [data-theme='dark'] .report-card h3,
 [data-theme='dark'] .report-name,
-[data-theme='dark'] .news-title,
 [data-theme='dark'] .pie-label-item .label-name,
 [data-theme='dark'] .pie-label-item .label-value,
 [data-theme='dark'] .stocks-table td,
@@ -2656,7 +2625,6 @@ body {
 [data-theme='dark'] .form-help,
 [data-theme='dark'] .form-hint,
 [data-theme='dark'] .date-count,
-[data-theme='dark'] .news-meta,
 [data-theme='dark'] .section-subtitle,
 [data-theme='dark'] .rebalance-sum-hint,
 [data-theme='dark'] .auth-subtitle,
@@ -3531,31 +3499,6 @@ body {
   color: var(--sw-accent);
   background: var(--sw-accent-soft);
   transform: translateY(-1px);
-}
-
-.sw-news-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
-}
-
-.sw-news-card {
-  background: var(--sw-surface-2);
-  border: 1px solid var(--sw-border);
-  border-radius: 12px;
-  padding: 12px 14px;
-  transition: border-color 0.15s ease, transform 0.15s ease;
-}
-
-.sw-news-card:hover {
-  border-color: var(--sw-border-hover);
-  transform: translateY(-2px);
-}
-
-.sw-news-title {
-  font-weight: 600;
-  display: block;
-  margin-bottom: 4px;
 }
 
 /* ===== Phase 2: data-depth visualizations (price history, fundamentals
