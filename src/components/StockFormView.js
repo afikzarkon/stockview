@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { useIsraeliStockSearch } from '../hooks/useIsraeliStockSearch';
 
 function StockFormView({
   isEditMode,
@@ -10,8 +11,22 @@ function StockFormView({
   handleCancelEdit,
   exchangeRateFetching = false,
   exchangeRateNotFound = false,
-  onPullExchangeRate
+  onPullExchangeRate,
+  onSelectIsraeliStock
 }) {
+  // Name-based autocomplete for adding a NEW Israeli stock only (editing an
+  // existing lot keeps the plain numeric-id field below untouched - lower
+  // risk, and there's no real need to re-resolve a name that's already
+  // been resolved once). searchText is local/uncommitted - only
+  // onSelectIsraeliStock actually updates formData (stockName + a new
+  // officialName field), exactly like picking a suggestion in any other
+  // autocomplete in this app.
+  const [searchText, setSearchText] = useState('');
+  const [showIsraeliSuggestions, setShowIsraeliSuggestions] = useState(false);
+  const showIsraeliSearch = !isEditMode && formData.itemType === 'stock' && formData.exchange === 'israeli';
+  const { results: israeliSearchResults, loading: israeliSearchLoading } = useIsraeliStockSearch(
+    showIsraeliSearch ? searchText : ''
+  );
   return (
     <div className="App">
       <div className="form-container">
@@ -34,6 +49,60 @@ function StockFormView({
                 <option value="bank_savings">קופת חיסכון בבנק</option>
               </select>
             </div>
+            {formData.itemType === 'stock' && showIsraeliSearch && (
+              <div className="form-group">
+                <label htmlFor="israeliStockSearch">חיפוש מנייה ישראלית לפי שם</label>
+                <div
+                  className="sw-search-box"
+                  onBlur={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget)) setShowIsraeliSuggestions(false);
+                  }}
+                >
+                  <input
+                    type="text"
+                    id="israeliStockSearch"
+                    name="israeliStockSearch"
+                    className="sw-search-input"
+                    value={searchText}
+                    onChange={(e) => {
+                      setSearchText(e.target.value);
+                      setShowIsraeliSuggestions(true);
+                    }}
+                    onFocus={() => setShowIsraeliSuggestions(true)}
+                    placeholder="לדוגמה: טבע, בנק הפועלים..."
+                    autoComplete="off"
+                  />
+                  {showIsraeliSuggestions && searchText.trim().length >= 2 && (
+                    <div className="sw-search-suggestions">
+                      {israeliSearchLoading ? (
+                        <div className="sw-search-suggestion-empty">מחפש…</div>
+                      ) : israeliSearchResults.length === 0 ? (
+                        <div className="sw-search-suggestion-empty">
+                          לא נמצאו תוצאות - אפשר להזין את ה-ID ידנית למטה.
+                        </div>
+                      ) : (
+                        israeliSearchResults.map((r) => (
+                          <button
+                            key={r.securityId}
+                            type="button"
+                            className="sw-search-suggestion"
+                            onClick={() => {
+                              onSelectIsraeliStock(r);
+                              setSearchText(r.officialName);
+                              setShowIsraeliSuggestions(false);
+                            }}
+                          >
+                            {r.officialName}
+                            <span className="sw-search-exchange">({r.securityId})</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {formData.itemType === 'stock' && (
               <div className="form-group">
                 <label htmlFor="stockName">
@@ -50,7 +119,9 @@ function StockFormView({
                 />
                 {formData.exchange === 'israeli' && (
                   <small className="form-help">
-                    עבור מניות ישראליות, הזן את ה-ID של המנייה מ-TASE (מספר כמו 1159243)
+                    {formData.officialName
+                      ? `נבחר: ${formData.officialName}`
+                      : 'עבור מניות ישראליות, הזן את ה-ID של המנייה מ-TASE (מספר כמו 1159243), או השתמש בחיפוש לפי שם מעל'}
                   </small>
                 )}
               </div>

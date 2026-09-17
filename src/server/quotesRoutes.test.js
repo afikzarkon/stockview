@@ -19,12 +19,16 @@ jest.mock('./yahooQuotes', () => ({
   getYahooPayload: jest.fn(),
   fetchYahooHistoricalRateForDate: jest.fn()
 }));
+jest.mock('./bizportalSearch', () => ({
+  searchIsraeliSecuritiesByName: jest.fn()
+}));
 
 const http = require('http');
 const express = require('express');
 const { mountQuotesRoutes } = require('./quotesRoutes');
 const taseScraper = require('./taseScraper');
 const yahooQuotes = require('./yahooQuotes');
+const bizportalSearch = require('./bizportalSearch');
 
 // Jest's node test environment doesn't expose global fetch, so use Node's
 // built-in http module for these requests instead of adding a dependency.
@@ -80,6 +84,7 @@ describe('quotesRoutes', () => {
     taseScraper.scrapeTaseFallbackWithAxios.mockRejectedValue(new Error('network unavailable in test'));
     yahooQuotes.getYahooPayload.mockRejectedValue(new Error('network unavailable in test'));
     yahooQuotes.fetchYahooHistoricalRateForDate.mockRejectedValue(new Error('network unavailable in test'));
+    bizportalSearch.searchIsraeliSecuritiesByName.mockRejectedValue(new Error('network unavailable in test'));
   });
 
   test('GET /api/israeli-stock/:id rejects a non-numeric id with 400', async () => {
@@ -196,5 +201,28 @@ describe('quotesRoutes', () => {
     const res = await get(`${baseUrl}/api/exchange-rate/2023-06-15`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ rate: null, date: null });
+  });
+
+  test('GET /api/israeli-stock-search returns an empty result list without calling the search module for a blank query', async () => {
+    const res = await get(`${baseUrl}/api/israeli-stock-search?q=`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: [] });
+    expect(bizportalSearch.searchIsraeliSecuritiesByName).not.toHaveBeenCalled();
+  });
+
+  test('GET /api/israeli-stock-search degrades gracefully to an empty result list when the search module fails', async () => {
+    const res = await get(`${baseUrl}/api/israeli-stock-search?q=${encodeURIComponent('טבע')}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: [] });
+  });
+
+  test('GET /api/israeli-stock-search returns the resolved securities on success', async () => {
+    bizportalSearch.searchIsraeliSecuritiesByName.mockResolvedValue([
+      { securityId: '629014', officialName: 'טבע', symbol: 'TEVA' }
+    ]);
+    const res = await get(`${baseUrl}/api/israeli-stock-search?q=${encodeURIComponent('טבע')}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: [{ securityId: '629014', officialName: 'טבע', symbol: 'TEVA' }] });
+    expect(bizportalSearch.searchIsraeliSecuritiesByName).toHaveBeenCalledWith('טבע');
   });
 });

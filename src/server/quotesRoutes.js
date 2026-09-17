@@ -10,6 +10,7 @@ const {
   scrapeTaseFallbackWithAxios
 } = require('./taseScraper');
 const { getYahooPayload, fetchYahooHistoricalRateForDate } = require('./yahooQuotes');
+const { searchIsraeliSecuritiesByName } = require('./bizportalSearch');
 
 const taseInFlight = new Map();
 
@@ -175,6 +176,24 @@ function mountQuotesRoutes(app) {
       return res.json({ rate: result ? result.rate : null, date: result ? result.date : null });
     } catch (err) {
       return res.json({ rate: null, date: null });
+    }
+  });
+
+  // Israeli/TASE security search by free-text company name (see
+  // bizportalSearch.js) - lets the "add stock" form offer autocomplete
+  // suggestions and auto-resolve the official company name instead of
+  // requiring the user to already know the numeric TASE security id.
+  app.get('/api/israeli-stock-search', async (req, res) => {
+    const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (!query) {
+      return res.json({ results: [] });
+    }
+    try {
+      const results = await searchIsraeliSecuritiesByName(query);
+      return res.json({ results });
+    } catch (err) {
+      console.warn('[israeli-stock-search] failed', { query, error: errMessage(err) });
+      return res.json({ results: [] });
     }
   });
 }
