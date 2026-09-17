@@ -42,15 +42,17 @@ function Harness({ initialFund }) {
 }
 
 // Column order in the pension table: 0=fundName, 1=initialInvestment,
-// 2=currentValue, 3=currentValueDate, 4=previousValue, 5=previousValueDate
-// (showAdditionalData is true in these tests).
+// 2=currentValue, 3=currentValueDate, 4=previousValue, 5=previousValueDate,
+// 6=todaysIndex, 7=depositIndex (showAdditionalData is true in these tests).
 function pensionRowCells(container) {
   const row = container.querySelector('tbody tr');
   return {
     currentValue: row.children[2],
     currentValueDate: row.children[3],
     previousValue: row.children[4],
-    previousValueDate: row.children[5]
+    previousValueDate: row.children[5],
+    todaysIndex: row.children[6],
+    depositIndex: row.children[7]
   };
 }
 
@@ -112,5 +114,76 @@ describe('FinancialAccountsTables - pension "שווי נוכחי" edit', () => {
     expect(cells.currentValue.querySelector('input[type="number"]')).toBeNull();
     expect(cells.currentValue.textContent).toBe('210000 ₪');
     expect(cells.currentValueDate.textContent).toBe('2024-05-01');
+  });
+});
+
+describe('FinancialAccountsTables - pension previousValue/previousValueDate are read-only', () => {
+  // Regression test for the exact bug this closes: previousValue/
+  // previousValueDate used to be independently click-to-edit, bypassing
+  // applyPensionValueUpdate's history-preserving flow entirely. They must
+  // now only ever change as a side effect of editing "שווי נוכחי" (covered
+  // by the describe block above) - clicking them directly must do nothing.
+  test('clicking the previousValue cell does not open an editable input', () => {
+    const fund = {
+      id: 4,
+      fundName: 'קופה',
+      currentValue: 111000,
+      currentValueDate: '2024-06-30',
+      previousValue: 100000,
+      previousValueDate: '2024-03-31',
+      deposits: []
+    };
+    const { container } = render(<Harness initialFund={fund} />);
+    const cells = pensionRowCells(container);
+
+    fireEvent.click(cells.previousValue);
+    expect(cells.previousValue.querySelector('input')).toBeNull();
+    expect(cells.previousValue.textContent).toBe('100000 ₪');
+
+    fireEvent.click(cells.previousValueDate);
+    expect(cells.previousValueDate.querySelector('input')).toBeNull();
+    expect(cells.previousValueDate.textContent).toBe('2024-03-31');
+  });
+});
+
+describe('FinancialAccountsTables - pension CPI columns', () => {
+  test("shows today's known CPI index once per fund, and each deposit's own month index in its expanded row", () => {
+    const fund = {
+      id: 5,
+      fundName: 'קופה עם הפקדות',
+      currentValue: 111000,
+      currentValueDate: '2024-06-30',
+      previousValue: 100000,
+      previousValueDate: '2024-01-01',
+      deposits: [{ date: '2024-02-15', amount: 10000 }]
+    };
+    const cpi = { currentIndex: 105.3, indexByMonth: { '2024-02': 104.1 } };
+    const { container, getByText } = render(
+      <FinancialAccountsTables
+        pensionFunds={[fund]}
+        cashFunds={[]}
+        bankBalances={[]}
+        cpi={cpi}
+        showAdditionalData={true}
+        isEditMode={false}
+        editingField={null}
+        handleCellClick={() => {}}
+        handleInlineEdit={() => {}}
+        finishInlineEdit={() => {}}
+        handleKeyDown={() => {}}
+        formatDate={(d) => d}
+        formatPriceWithSign={(v) => String(v)}
+        handleDelete={() => {}}
+      />
+    );
+    const cells = pensionRowCells(container);
+    expect(cells.todaysIndex.textContent).toBe('105.3');
+    // the summary row doesn't show a single deposit-month index (a fund
+    // can have deposits from several different months)
+    expect(cells.depositIndex.textContent).toBe('-');
+
+    // expand the fund to reveal its one deposit row
+    fireEvent.click(container.querySelector('.expand-button'));
+    expect(getByText('104.1')).toBeInTheDocument();
   });
 });

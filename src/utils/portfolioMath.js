@@ -1,4 +1,5 @@
 import { indexedCostBasis, calculateLinkedRealResult } from './cpiTax';
+import { calculateModifiedDietzReturn } from './modifiedDietz';
 
 export const TAX_RATE = 0.25;
 
@@ -74,19 +75,24 @@ export const calculateAmericanStockMetrics = (stock, taxRate = TAX_RATE) => {
   };
 };
 
-// מחזיר את סכום כל ההפקדות (מתוך פנקס ההפקדות) שבוצעו בטווח התאריכים
+// מחזיר את כל ההפקדות (מתוך פנקס ההפקדות) שבוצעו בטווח התאריכים
 // (fromDateExclusive, toDateInclusive] - כלומר אחרי העדכון הקודם ועד
 // (כולל) העדכון הנוכחי. אם fromDateExclusive חסר, כל ההפקדות עד
-// toDateInclusive נכללות (מקרה של קופה חדשה בלי עדכון קודם).
-export const sumDepositsInRange = (deposits, fromDateExclusive, toDateInclusive) => {
-  if (!Array.isArray(deposits)) return 0;
-  return deposits.reduce((sum, d) => {
-    if (!d || !d.date) return sum;
-    if (fromDateExclusive && d.date <= fromDateExclusive) return sum;
-    if (toDateInclusive && d.date > toDateInclusive) return sum;
-    return sum + (d.amount || 0);
-  }, 0);
+// toDateInclusive נכללות (מקרה של קופה חדשה בלי עדכון קודם). primitive
+// משותף ל-sumDepositsInRange (סכום בלבד) ול-calculatePensionPeriodReturn
+// (שצריך גם את התאריך המדויק של כל הפקדה, לשם השקלול לפי Modified Dietz).
+export const filterDepositsInRange = (deposits, fromDateExclusive, toDateInclusive) => {
+  if (!Array.isArray(deposits)) return [];
+  return deposits.filter((d) => {
+    if (!d || !d.date) return false;
+    if (fromDateExclusive && d.date <= fromDateExclusive) return false;
+    if (toDateInclusive && d.date > toDateInclusive) return false;
+    return true;
+  });
 };
+
+export const sumDepositsInRange = (deposits, fromDateExclusive, toDateInclusive) =>
+  filterDepositsInRange(deposits, fromDateExclusive, toDateInclusive).reduce((sum, d) => sum + (d.amount || 0), 0);
 
 // "סוגר תקופה" לקופת גמל: השווי הנוכחי מתעדכן לערך ולתאריך החדשים
 // שהמשתמש הזין, והשווי הקודם עובר לערך/לתאריך שהיו קודם. בניגוד לגרסה
@@ -118,17 +124,31 @@ export const applyPensionValueEditPayload = (pensionFund, payload) => {
   return applyPensionValueUpdate(pensionFund, newValue, newDate);
 };
 
-// תשואת התקופה (מעדכון קודם לעדכון נוכחי), מנוטרלת אוטומטית מהפקדות
-// שבוצעו בתקופה הזו: השווי הקודם "מותאם" בהוספת סכום ההפקדות שנפלו
-// בין previousValueDate ל-currentValueDate, כך שהתשואה משקפת רק
-// עלייה/ירידה אמיתית בשווי, לא כסף חדש שהוזרם לקופה.
+// תשואת התקופה (מעדכון קודם לעדכון נוכחי), מנוטרלת מהפקדות שבוצעו
+// בתקופה הזו לפי Modified Dietz (ראו modifiedDietz.js): הפקדה שנופלת
+// באמצע התקופה משוקללת לפי חלק התקופה שבו הכסף באמת היה מושקע, ולא
+// נחשבת - כמו בגרסה הישנה - כאילו הייתה מושקעת מתחילת התקופה
+// (ולכן "מנפחת" את בסיס ההשוואה ומדגישה תשואה קטנה מהאמיתית). לדוגמה:
+// הפקדה ב-1 לחודש בתקופה חודשית מקבלת משקל מלא (~1) כמו קודם; הפקדה
+// ב-25 לחודש מקבלת משקל חלקי בלבד (~0.17) ולא מלא - ולכן משפיעה הרבה
+// פחות על adjustedPreviousValue מהחישוב השטוח הישן.
 export const calculatePensionPeriodReturn = (pensionFund) => {
   const currentValue = pensionFund.currentValue ?? pensionFund.amount ?? 0;
   const previousValue = pensionFund.previousValue ?? 0;
   const deposits = Array.isArray(pensionFund.deposits) ? pensionFund.deposits : [];
-  const depositsInPeriod = sumDepositsInRange(deposits, pensionFund.previousValueDate, pensionFund.currentValueDate);
+  const periodDeposits = filterDepositsInRange(deposits, pensionFund.previousValueDate, pensionFund.currentValueDate);
+  const { netCashFlow: depositsInPeriod, percent: dietzPercent } = calculateModifiedDietzReturn({
+    beginningValue: previousValue,
+    endingValue: currentValue,
+    cashFlows: periodDeposits,
+    periodStart: pensionFund.previousValueDate,
+    periodEnd: pensionFund.currentValueDate
+  });
   const adjustedPreviousValue = previousValue + depositsInPeriod;
-  const percent = adjustedPreviousValue > 0 ? ((currentValue / adjustedPreviousValue) - 1) * 100 : 0;
+  // dietzPercent is null when the Modified Dietz denominator (previousValue
+  // + weighted deposits) is exactly 0 - a brand-new fund with no previous
+  // value yet, where "period return" isn't a meaningful number anyway.
+  const percent = dietzPercent ?? 0;
   return { adjustedPreviousValue, depositsInPeriod, percent };
 };
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { calculatePensionRealGainTax, calculateBankSavingsFundTax } from '../utils/cpiTax';
+import { calculatePensionRealGainTax, calculateBankSavingsFundTax, monthKeyFromDate } from '../utils/cpiTax';
 import { calculatePensionPeriodReturn, hasAmbiguousPensionPeriod } from '../utils/portfolioMath';
 import { computeBankSavingsFundValue } from '../utils/bankSavingsFund';
 
@@ -82,6 +82,8 @@ function FinancialAccountsTables({
                   <th>תאריך שווי נוכחי</th>
                   <th>סך ערך ההשקעה בעדכון הקודם (₪)</th>
                   {showAdditionalData && <th>תאריך שווי קודם</th>}
+                  {showAdditionalData && <th>מדד היום (הידוע)</th>}
+                  {showAdditionalData && <th>מדד ביום ההפקדה</th>}
                   {showAdditionalData && <th>רווח ריאלי (חייב במס)</th>}
                   {showAdditionalData && <th>רווח אינפלציוני (פטור)</th>}
                   {showAdditionalData && <th>רווח לאחר מס (₪)</th>}
@@ -206,34 +208,21 @@ function FinancialAccountsTables({
                           />
                         ) : (item.currentValueDate ? formatDate(item.currentValueDate) : '-')}
                       </td>
-                      <td onClick={() => handleCellClick(item.id, 'previousValue', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
-                        {editingField === `${item.id}-previousValue` ? (
-                          <input
-                            type="number"
-                            value={item.previousValue ?? ''}
-                            onChange={(e) => handleInlineEdit(item.id, 'previousValue', parseFloat(e.target.value), 'pension')}
-                            onBlur={finishInlineEdit}
-                            onKeyDown={(e) => handleKeyDown(e, item.id, 'previousValue', 'pension')}
-                            autoFocus
-                            step="0.01"
-                            min="0"
-                          />
-                        ) : `${formatPriceWithSign(previousValue)} ₪`}
-                      </td>
+                      {/* previousValue/previousValueDate הן תצוגה בלבד בכוונה - עריכה ישירה
+                          שלהן תעקוף את applyPensionValueUpdate שדואג לשמר היסטוריה נכונה
+                          כשמעדכנים "שווי נוכחי" (ראו portfolioMath.js). זה בעצמו הבאג שהיה
+                          כאן בעבר - השדות האלה משתנים רק כתוצאה מעדכון "שווי נוכחי" חדש. */}
+                      <td>{`${formatPriceWithSign(previousValue)} ₪`}</td>
                       {showAdditionalData && (
-                      <td onClick={() => handleCellClick(item.id, 'previousValueDate', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
-                        {editingField === `${item.id}-previousValueDate` ? (
-                          <input
-                            type="date"
-                            value={item.previousValueDate || ''}
-                            onChange={(e) => handleInlineEdit(item.id, 'previousValueDate', e.target.value, 'pension')}
-                            onBlur={finishInlineEdit}
-                            onKeyDown={(e) => handleKeyDown(e, item.id, 'previousValueDate', 'pension')}
-                            autoFocus
-                          />
-                        ) : (item.previousValueDate ? formatDate(item.previousValueDate) : '-')}
-                      </td>
+                        <td>{item.previousValueDate ? formatDate(item.previousValueDate) : '-'}</td>
                       )}
+                      {showAdditionalData && (
+                        <td>{cpi && cpi.currentIndex != null ? cpi.currentIndex : '-'}</td>
+                      )}
+                      {/* מדד ביום ההפקדה הוא ערך פר-הפקדה (לכל הפקדה החודש שלה) - לא
+                          מוצג כאן בשורת הסיכום כי לקופה יכולות להיות הפקדות ממספר
+                          חודשים שונים; ראו את הערך האמיתי בשורות ההפקדה המורחבות למטה. */}
+                      {showAdditionalData && <td>-</td>}
                       {showAdditionalData && (
                       <td className={realGain !== null && realGain > 0 ? 'profit-positive' : realGain !== null && realGain < 0 ? 'profit-negative' : ''}>
                         {realGain !== null ? `${formatPriceWithSign(realGain)} ₪` : '-'}
@@ -277,7 +266,7 @@ function FinancialAccountsTables({
                     </tr>
                     {isExpanded && deposits.length === 0 && (
                       <tr className={`${isEditMode ? 'editable-row' : ''} detail-row`}>
-                        <td style={{ paddingLeft: '20px' }} colSpan={(showAdditionalData ? 14 : 9) + (isEditMode ? 1 : 0)}>אין הפקדות רשומות</td>
+                        <td style={{ paddingLeft: '20px' }} colSpan={(showAdditionalData ? 15 : 9) + (isEditMode ? 1 : 0)}>אין הפקדות רשומות</td>
                       </tr>
                     )}
                     {isExpanded && deposits.map((d, i) => (
@@ -289,6 +278,9 @@ function FinancialAccountsTables({
                         <td></td>
                         {showAdditionalData && <td></td>}
                         {showAdditionalData && <td></td>}
+                        {showAdditionalData && (
+                          <td>{cpi && cpi.indexByMonth ? cpi.indexByMonth[monthKeyFromDate(d.date)] ?? '-' : '-'}</td>
+                        )}
                         {showAdditionalData && <td></td>}
                         {showAdditionalData && <td></td>}
                         {showAdditionalData && <td></td>}
