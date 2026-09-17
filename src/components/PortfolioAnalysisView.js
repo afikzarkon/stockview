@@ -251,6 +251,7 @@ function PortfolioAnalysisView({
       uniqueAmericanHoldings.map((holding) => {
         const data = dividendsBySymbol[holding.symbol];
         const lots = lotsBySymbol.get(holding.symbol) || [];
+        const quantityHeld = lots.reduce((sum, lot) => sum + (lot.quantity || 0), 0);
         return {
           symbol: holding.symbol,
           dividendRate: data?.dividendRate ?? null,
@@ -259,10 +260,20 @@ function PortfolioAnalysisView({
           nextDate: data
             ? formatEpochDateISO(data.nextDividendDateEpoch) || formatEpochDateISO(data.exDividendDateEpoch)
             : null,
-          receivedUSD: data ? computeReceivedDividends(data.history, lots) : 0
+          receivedUSD: data ? computeReceivedDividends(data.history, lots) : 0,
+          // Forward-looking, unlike receivedUSD above (historical/actual
+          // payments already collected) - dividendRate (Yahoo's trailing
+          // annual $/share) times the quantity currently held, not tied to
+          // any particular past payment date.
+          projectedAnnualUSD: data?.dividendRate != null ? data.dividendRate * quantityHeld : null
         };
       }),
     [uniqueAmericanHoldings, dividendsBySymbol, lotsBySymbol]
+  );
+
+  const totalProjectedAnnualUSD = useMemo(
+    () => dividendRows.reduce((sum, row) => sum + (row.projectedAnnualUSD || 0), 0),
+    [dividendRows]
   );
 
   const totalReceivedUSD = useMemo(
@@ -1508,6 +1519,13 @@ function PortfolioAnalysisView({
                     <div className="distribution-value profit-positive">${totalReceivedUSD.toFixed(2)}</div>
                     <div className="distribution-percentage">מצטבר, מאז תאריך הרכישה של כל פוזיציה</div>
                   </div>
+                  <div className="distribution-card">
+                    <h3>הכנסת דיבידנד שנתית צפויה</h3>
+                    <div className="distribution-value">${totalProjectedAnnualUSD.toFixed(2)}</div>
+                    <div className="distribution-percentage">
+                      דיבידנד שנתי למניה (לפי הנתון הידוע היום) × כמות מוחזקת כרגע - תחזית, לא סכום שכבר התקבל
+                    </div>
+                  </div>
                 </div>
 
                 <div className="stocks-table-container" style={{ marginTop: 16 }}>
@@ -1519,6 +1537,7 @@ function PortfolioAnalysisView({
                         <th>תשואת דיבידנד</th>
                         <th>יחס חלוקה (Payout)</th>
                         <th>תאריך תשלום קרוב</th>
+                        <th>הכנסה שנתית צפויה ($)</th>
                         <th>סה"כ שהתקבל ($)</th>
                       </tr>
                     </thead>
@@ -1530,6 +1549,7 @@ function PortfolioAnalysisView({
                           <td>{row.dividendYieldPercent != null ? `${row.dividendYieldPercent.toFixed(2)}%` : '—'}</td>
                           <td>{row.payoutRatio != null ? `${(row.payoutRatio * 100).toFixed(0)}%` : '—'}</td>
                           <td>{row.nextDate ? formatDate(row.nextDate) : '—'}</td>
+                          <td>{row.projectedAnnualUSD != null ? `$${row.projectedAnnualUSD.toFixed(2)}` : '—'}</td>
                           <td>${row.receivedUSD.toFixed(2)}</td>
                         </tr>
                       ))}
