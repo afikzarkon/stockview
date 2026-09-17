@@ -94,17 +94,18 @@ export const filterDepositsInRange = (deposits, fromDateExclusive, toDateInclusi
 export const sumDepositsInRange = (deposits, fromDateExclusive, toDateInclusive) =>
   filterDepositsInRange(deposits, fromDateExclusive, toDateInclusive).reduce((sum, d) => sum + (d.amount || 0), 0);
 
-// "סוגר תקופה" לקופת גמל: השווי הנוכחי מתעדכן לערך ולתאריך החדשים
-// שהמשתמש הזין, והשווי הקודם עובר לערך/לתאריך שהיו קודם. בניגוד לגרסה
-// הישנה, אין יותר שדה "הפקדה בעדכון זה" ידני - הפקדות מנוהלות בנפרד
-// כפנקס מתוארך (deposits), בדיוק כמו רכישות מניה. חישוב התשואה (לא
-// כאן - ראו calculatePensionPeriodReturn למטה) מזהה אוטומטית לפי
-// התאריכים אילו הפקדות נופלו בתוך התקופה ומנטרל אותן.
-export const applyPensionValueUpdate = (pensionFund, newCurrentValue, newCurrentValueDate) => {
-  const oldCurrentValue = pensionFund.currentValue ?? pensionFund.amount ?? 0;
-  const oldCurrentValueDate = pensionFund.currentValueDate || '';
+// "סוגר תקופה" לפריט מבוסס-ledger (קופת גמל, כספית שקלית, עו"ש - כל
+// ישות עם "שווי נוכחי" שהמשתמש מזין ידנית ופנקס הפקדות/משיכות משלה):
+// השווי הנוכחי מתעדכן לערך ולתאריך החדשים שהמשתמש הזין, והשווי הקודם
+// עובר לערך/לתאריך שהיו קודם. הפקדות/משיכות מנוהלות בנפרד כפנקס
+// מתוארך (deposits), בדיוק כמו רכישות מניה. חישוב התשואה (לא כאן - ראו
+// calculateLedgerPeriodReturn למטה) מזהה אוטומטית לפי התאריכים אילו
+// הפקדות נופלו בתוך התקופה ומנטרל אותן.
+export const applyLedgerValueUpdate = (item, newCurrentValue, newCurrentValueDate) => {
+  const oldCurrentValue = item.currentValue ?? item.amount ?? 0;
+  const oldCurrentValueDate = item.currentValueDate || '';
   return {
-    ...pensionFund,
+    ...item,
     previousValue: oldCurrentValue,
     previousValueDate: oldCurrentValueDate,
     currentValue: newCurrentValue,
@@ -117,58 +118,67 @@ export const applyPensionValueUpdate = (pensionFund, newCurrentValue, newCurrent
 // The UI asks for the value and date together in one action, so payload is
 // normally { value, date }. A bare number is accepted too, defaulting to
 // today's date, purely as a defensive fallback for any other caller.
-export const applyPensionValueEditPayload = (pensionFund, payload) => {
+export const applyLedgerValueEditPayload = (item, payload) => {
   const hasDate = payload && typeof payload === 'object' && payload.date;
   const newValue = hasDate ? payload.value : payload;
   const newDate = hasDate ? payload.date : new Date().toISOString().slice(0, 10);
-  return applyPensionValueUpdate(pensionFund, newValue, newDate);
+  return applyLedgerValueUpdate(item, newValue, newDate);
 };
 
-// תשואת התקופה (מעדכון קודם לעדכון נוכחי), מנוטרלת מהפקדות שבוצעו
-// בתקופה הזו לפי Modified Dietz (ראו modifiedDietz.js): הפקדה שנופלת
-// באמצע התקופה משוקללת לפי חלק התקופה שבו הכסף באמת היה מושקע, ולא
-// נחשבת - כמו בגרסה הישנה - כאילו הייתה מושקעת מתחילת התקופה
+// תשואת התקופה (מעדכון קודם לעדכון נוכחי), מנוטרלת מהפקדות/משיכות
+// שבוצעו בתקופה הזו לפי Modified Dietz (ראו modifiedDietz.js): הפקדה
+// שנופלת באמצע התקופה משוקללת לפי חלק התקופה שבו הכסף באמת היה מושקע,
+// ולא נחשבת - כמו בגרסה הישנה - כאילו הייתה מושקעת מתחילת התקופה
 // (ולכן "מנפחת" את בסיס ההשוואה ומדגישה תשואה קטנה מהאמיתית). לדוגמה:
 // הפקדה ב-1 לחודש בתקופה חודשית מקבלת משקל מלא (~1) כמו קודם; הפקדה
 // ב-25 לחודש מקבלת משקל חלקי בלבד (~0.17) ולא מלא - ולכן משפיעה הרבה
-// פחות על adjustedPreviousValue מהחישוב השטוח הישן.
-export const calculatePensionPeriodReturn = (pensionFund) => {
-  const currentValue = pensionFund.currentValue ?? pensionFund.amount ?? 0;
-  const previousValue = pensionFund.previousValue ?? 0;
-  const deposits = Array.isArray(pensionFund.deposits) ? pensionFund.deposits : [];
-  const periodDeposits = filterDepositsInRange(deposits, pensionFund.previousValueDate, pensionFund.currentValueDate);
+// פחות על adjustedPreviousValue מהחישוב השטוח הישן. משיכה (amount שלילי)
+// מטופלת בדיוק באותה נוסחה - הנוסחה agnostic לסימן.
+export const calculateLedgerPeriodReturn = (item) => {
+  const currentValue = item.currentValue ?? item.amount ?? 0;
+  const previousValue = item.previousValue ?? 0;
+  const deposits = Array.isArray(item.deposits) ? item.deposits : [];
+  const periodDeposits = filterDepositsInRange(deposits, item.previousValueDate, item.currentValueDate);
   const { netCashFlow: depositsInPeriod, percent: dietzPercent } = calculateModifiedDietzReturn({
     beginningValue: previousValue,
     endingValue: currentValue,
     cashFlows: periodDeposits,
-    periodStart: pensionFund.previousValueDate,
-    periodEnd: pensionFund.currentValueDate
+    periodStart: item.previousValueDate,
+    periodEnd: item.currentValueDate
   });
   const adjustedPreviousValue = previousValue + depositsInPeriod;
   // dietzPercent is null when the Modified Dietz denominator (previousValue
-  // + weighted deposits) is exactly 0 - a brand-new fund with no previous
+  // + weighted deposits) is exactly 0 - a brand-new item with no previous
   // value yet, where "period return" isn't a meaningful number anyway.
   const percent = dietzPercent ?? 0;
   return { adjustedPreviousValue, depositsInPeriod, percent };
 };
 
-// Detects a pension fund whose "previous" and "current" value snapshots
+// Detects a ledger item whose "previous" and "current" value snapshots
 // share the same date - a degenerate, zero-length period that's a strong
 // signal something went wrong during data entry, not a real edge case to
 // silently accept.
 //
 // Why this matters: the table's "שווי נוכחי" edit dialog asks for the date
-// together with the value (see applyPensionValueEditPayload above), which
+// together with the value (see applyLedgerValueEditPayload above), which
 // closes the main way this used to happen - but nothing stops a user from
 // still entering the same date on purpose, or old data imported before that
 // fix. A same-day period can't produce a meaningful return - and worse, ANY
 // deposit made before that shared date, no matter how long before, is
 // silently excluded from "since previous update" - which is exactly the
 // bug this flag is meant to surface before it produces a wrong number.
-export const hasAmbiguousPensionPeriod = (pensionFund) => {
-  const prev = pensionFund?.previousValueDate;
-  const curr = pensionFund?.currentValueDate;
+export const hasAmbiguousLedgerPeriod = (item) => {
+  const prev = item?.previousValueDate;
+  const curr = item?.currentValueDate;
   if (!prev || !curr) return false;
   return prev === curr;
 };
+
+// Thin pension-named aliases - kept so existing call sites/imports (App.js,
+// FinancialAccountsTables.js, tests) don't all need renaming just because
+// the underlying logic is now shared with cashFunds/bankBalances too.
+export const applyPensionValueUpdate = applyLedgerValueUpdate;
+export const applyPensionValueEditPayload = applyLedgerValueEditPayload;
+export const calculatePensionPeriodReturn = calculateLedgerPeriodReturn;
+export const hasAmbiguousPensionPeriod = hasAmbiguousLedgerPeriod;
 

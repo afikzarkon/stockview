@@ -59,4 +59,32 @@ describe('computeBankSavingsFundValue', () => {
     expect(computeBankSavingsFundValue(undefined)).toBe(0);
     expect(computeBankSavingsFundValue({})).toBe(0);
   });
+
+  // The formula is sign-agnostic (a plain reduce over amount * rate^years),
+  // so a withdrawal recorded as a negative-amount "deposit" already works
+  // correctly with no code change: it compounds negatively from its own
+  // date exactly like a positive deposit compounds positively, and nets
+  // out of the running total the same way.
+  test('a withdrawal (negative amount) compounds negatively from its own date and nets out of the total', () => {
+    const fund = {
+      interestRate: 10,
+      deposits: [
+        { date: '2023-01-01', amount: 1000 }, // 1 year -> ~1100
+        { date: '2024-01-01', amount: -400 }  // withdrawn immediately, 0 years -> -400
+      ]
+    };
+    const value = computeBankSavingsFundValue(fund, new Date('2024-01-01'));
+    expect(value).toBeCloseTo(700, 0);
+  });
+
+  test('withdrawing everything (deposit + equal-and-opposite same-day withdrawal) leaves 0', () => {
+    const fund = {
+      interestRate: 10,
+      deposits: [
+        { date: '2024-01-01', amount: 1000 },
+        { date: '2024-01-01', amount: -1000 }
+      ]
+    };
+    expect(computeBankSavingsFundValue(fund, new Date('2024-01-01'))).toBe(0);
+  });
 });

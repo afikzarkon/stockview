@@ -2,7 +2,7 @@ import './App.css';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { formatPriceWithSign, normalizeIsraeliStocksFromStorage } from './utils/formatters';
 import { calculatePortfolioSummary } from './utils/portfolioSummary';
-import { applyPensionValueEditPayload } from './utils/portfolioMath';
+import { applyLedgerValueEditPayload } from './utils/portfolioMath';
 import { calculatePortfolioAnalysis } from './utils/portfolioAnalysis';
 import { fetchCurrentPrice, fetchIsraeliStockPrice, fetchHistoricalExchangeRate } from './api/stockPrices';
 import { apiUrl } from './apiBase';
@@ -460,16 +460,39 @@ function App() {
         setHasUnsavedChanges(true);
       }
     } else if (formData.itemType === 'cash_fund') {
-      const cashItem = {
-        id: Date.now(),
-        fundName: formData.stockName,
-        securityId: formData.securityId,
-        updateDate: formData.purchaseDate,
-        amount: parseFloat(formData.purchasePrice)
-      };
-      const updatedCashFunds = [...cashFunds, cashItem];
-      setCashFunds(updatedCashFunds);
-      setHasUnsavedChanges(true);
+      // בדיוק כמו קופת גמל: מתקבצים אוטומטית לפי מפתח זהה (כאן - מספר
+      // נייר הערך, לא השם, כי השם אופציונלי) בלי לבחור "חדש/קיים". סכום
+      // שלילי = משיכה (ראו הערת ה-help בטופס) - הנוסחאות ב-portfolioMath.js
+      // agnostic לסימן.
+      const depositAmount = parseFloat(formData.purchasePrice) || 0;
+      const depositDate = formData.purchaseDate;
+      const trimmedSecurityId = (formData.securityId || '').trim();
+      const existingFund = trimmedSecurityId && cashFunds.find((fund) => fund.securityId === trimmedSecurityId);
+
+      if (existingFund) {
+        const updatedCashFunds = cashFunds.map((fund) =>
+          fund.securityId === trimmedSecurityId
+            ? { ...fund, deposits: [...(Array.isArray(fund.deposits) ? fund.deposits : []), { date: depositDate, amount: depositAmount }] }
+            : fund
+        );
+        setCashFunds(updatedCashFunds);
+        setHasUnsavedChanges(true);
+      } else {
+        const cashItem = {
+          id: Date.now(),
+          fundName: (formData.stockName || '').trim(),
+          securityId: trimmedSecurityId,
+          currentValue: depositAmount,
+          currentValueDate: depositDate,
+          previousValue: 0,
+          previousValueDate: '',
+          deposits: [{ date: depositDate, amount: depositAmount }],
+          amount: depositAmount
+        };
+        const updatedCashFunds = [...cashFunds, cashItem];
+        setCashFunds(updatedCashFunds);
+        setHasUnsavedChanges(true);
+      }
     } else if (formData.itemType === 'pension') {
       // בדיוק כמו מניות: מתקבצים אוטומטית לפי שם זהה, בלי לבחור "חדש/קיים".
       const depositAmount = parseFloat(formData.initialInvestment) || 0;
@@ -508,14 +531,36 @@ function App() {
         setHasUnsavedChanges(true);
       }
     } else if (formData.itemType === 'bank') {
-      const bankItem = {
-        id: Date.now(),
-        updateDate: formData.purchaseDate,
-        amount: parseFloat(formData.purchasePrice)
-      };
-      const updatedBankBalances = [...bankBalances, bankItem];
-      setBankBalances(updatedBankBalances);
-      setHasUnsavedChanges(true);
+      // עו"ש - חשבון יחיד (אין שדה שם בטופס): הפקדה/משיכה מצטרפת תמיד
+      // לחשבון הקיים (הראשון במערך) אם יש כזה, כמו הפקדה נוספת לקופת
+      // גמל קיימת. סכום שלילי = משיכה.
+      const depositAmount = parseFloat(formData.purchasePrice) || 0;
+      const depositDate = formData.purchaseDate;
+      const existingAccount = bankBalances[0];
+
+      if (existingAccount) {
+        const updatedBankBalances = bankBalances.map((account, index) =>
+          index === 0
+            ? { ...account, deposits: [...(Array.isArray(account.deposits) ? account.deposits : []), { date: depositDate, amount: depositAmount }] }
+            : account
+        );
+        setBankBalances(updatedBankBalances);
+        setHasUnsavedChanges(true);
+      } else {
+        const bankItem = {
+          id: Date.now(),
+          updateDate: depositDate,
+          currentValue: depositAmount,
+          currentValueDate: depositDate,
+          previousValue: 0,
+          previousValueDate: '',
+          deposits: [{ date: depositDate, amount: depositAmount }],
+          amount: depositAmount
+        };
+        const updatedBankBalances = [...bankBalances, bankItem];
+        setBankBalances(updatedBankBalances);
+        setHasUnsavedChanges(true);
+      }
     } else if (formData.itemType === 'bank_savings') {
       // בדיוק כמו קופת גמל: מתקבצים אוטומטית לפי שם זהה, בלי לבחור "חדש/קיים".
       const depositAmount = parseFloat(formData.initialInvestment) || 0;
@@ -739,24 +784,35 @@ function App() {
         // שני התאריכים מזוהות אוטומטית לפי הפנקס בזמן חישוב התשואה
         // (ראו calculatePensionPeriodReturn), לא כאן.
         // value מגיע כ-{ value, date } מדיאלוג העריכה ב-FinancialAccountsTables
-        // (שמבקש את שניהם באותה פעולה, ראו applyPensionValueEditPayload).
+        // (שמבקש את שניהם באותה פעולה, ראו applyLedgerValueEditPayload).
         if (field === 'currentValue') {
-          return applyPensionValueEditPayload(item, value);
+          return applyLedgerValueEditPayload(item, value);
         }
         return { ...item, [field]: value };
       });
       setPensionFunds(updatedPensionFunds);
       setHasUnsavedChanges(true);
     } else if (exchange === 'bank') {
-      const updatedBankBalances = bankBalances.map(item => 
-        item.id === id ? { ...item, [field]: value } : item
-      );
+      // "שווי נוכחי" עובר דרך applyLedgerValueEditPayload בדיוק כמו קופת
+      // גמל - ראו ההערה על exchange === 'pension' למעלה. שאר השדות
+      // מתעדכנים ישירות.
+      const updatedBankBalances = bankBalances.map(item => {
+        if (item.id !== id) return item;
+        if (field === 'currentValue') {
+          return applyLedgerValueEditPayload(item, value);
+        }
+        return { ...item, [field]: value };
+      });
       setBankBalances(updatedBankBalances);
       setHasUnsavedChanges(true);
     } else if (exchange === 'cash_fund') {
-      const updatedCashFunds = cashFunds.map(item =>
-        item.id === id ? { ...item, [field]: value } : item
-      );
+      const updatedCashFunds = cashFunds.map(item => {
+        if (item.id !== id) return item;
+        if (field === 'currentValue') {
+          return applyLedgerValueEditPayload(item, value);
+        }
+        return { ...item, [field]: value };
+      });
       setCashFunds(updatedCashFunds);
       setHasUnsavedChanges(true);
     } else if (exchange === 'bank_savings') {

@@ -146,18 +146,34 @@ function StockFormView({
             )}
 
             {formData.itemType === 'cash_fund' && (
-              <div className="form-group">
-                <label htmlFor="securityId">מספר נייר ערך *</label>
-                <input
-                  type="text"
-                  id="securityId"
-                  name="securityId"
-                  value={formData.securityId}
-                  onChange={handleInputChange}
-                  required
-                  placeholder="לדוגמה: 5119609"
-                />
-              </div>
+              <>
+                <div className="form-group">
+                  <label htmlFor="stockName">שם הכספית (אופציונלי)</label>
+                  <input
+                    type="text"
+                    id="stockName"
+                    name="stockName"
+                    value={formData.stockName}
+                    onChange={handleInputChange}
+                    placeholder="לדוגמה: כספית שקלית - בית השקעות"
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="securityId">מספר נייר ערך *</label>
+                  <input
+                    type="text"
+                    id="securityId"
+                    name="securityId"
+                    value={formData.securityId}
+                    onChange={handleInputChange}
+                    required
+                    placeholder="לדוגמה: 5119609"
+                  />
+                  <small className="form-help">
+                    אם כבר יש כספית עם מספר נייר זהה, ההפקדה/המשיכה תצטרף אליה אוטומטית - בדיוק כמו קופת גמל.
+                  </small>
+                </div>
+              </>
             )}
 
             {formData.itemType === 'bank_savings' && (
@@ -229,7 +245,7 @@ function StockFormView({
               </>
             ) : formData.itemType === 'bank' ? (
               <div className="form-group">
-                <label htmlFor="purchasePrice">סכום בעו"ש *</label>
+                <label htmlFor="purchasePrice">סכום ההפקדה/משיכה בעו"ש *</label>
                 <input
                   type="number"
                   id="purchasePrice"
@@ -238,13 +254,15 @@ function StockFormView({
                   onChange={handleInputChange}
                   required
                   step="0.01"
-                  min="0"
                   placeholder="0.00"
                 />
+                <small className="form-help">
+                  סכום חיובי = הפקדה, סכום שלילי = משיכה. השווי הנוכחי יתעדכן בהתאם.
+                </small>
               </div>
             ) : formData.itemType === 'cash_fund' ? (
               <div className="form-group">
-                <label htmlFor="purchasePrice">סכום *</label>
+                <label htmlFor="purchasePrice">סכום ההפקדה/משיכה *</label>
                 <input
                   type="number"
                   id="purchasePrice"
@@ -253,9 +271,11 @@ function StockFormView({
                   onChange={handleInputChange}
                   required
                   step="0.01"
-                  min="0"
                   placeholder="0.00"
                 />
+                <small className="form-help">
+                  סכום חיובי = הפקדה, סכום שלילי = משיכה. השווי הנוכחי יתעדכן בהתאם.
+                </small>
               </div>
             ) : formData.itemType === 'bank_savings' ? (
               <>
