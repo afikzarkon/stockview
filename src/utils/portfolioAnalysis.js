@@ -6,6 +6,7 @@
 import { calculateAmericanStockMetrics } from './portfolioMath';
 import { normalizeIsraeliPrice, toNum } from './formatters';
 import { computeBankSavingsFundValue } from './bankSavingsFund';
+import { effectiveExchangeForIsraeliStock } from './israeliEtfClassifier';
 
 export const calculatePortfolioAnalysis = (
   israeliStocks,
@@ -23,16 +24,28 @@ export const calculatePortfolioAnalysis = (
     return Math.max(days, 0);
   };
 
-  // Distribution by exchange
+  // Distribution by exchange. Presentation-layer only: an Israeli-listed
+  // ETF that tracks a foreign index (see israeliEtfClassifier.js) counts
+  // toward the "american"/foreign bucket here even though it's still
+  // priced/scraped as a normal TASE security - the israeliStocks array
+  // itself is never touched by this reclassification.
   const israeliTotalValue = israeliStocks.reduce((sum, stock) => {
+    if (effectiveExchangeForIsraeliStock(stock) !== 'israeli') return sum;
     const normalizedPrice = normalizeIsraeliPrice(stock.currentPrice);
     return sum + (toNum(normalizedPrice) * toNum(stock.quantity));
   }, 0);
 
-  const americanTotalValueILS = americanStocks.reduce((sum, stock) => {
-    const metrics = calculateAmericanStockMetrics(stock);
-    return sum + metrics.totalCurrentValueILS;
+  const israeliEtfReclassifiedValueILS = israeliStocks.reduce((sum, stock) => {
+    if (effectiveExchangeForIsraeliStock(stock) !== 'american') return sum;
+    const normalizedPrice = normalizeIsraeliPrice(stock.currentPrice);
+    return sum + (toNum(normalizedPrice) * toNum(stock.quantity));
   }, 0);
+
+  const americanTotalValueILS =
+    americanStocks.reduce((sum, stock) => {
+      const metrics = calculateAmericanStockMetrics(stock);
+      return sum + metrics.totalCurrentValueILS;
+    }, 0) + israeliEtfReclassifiedValueILS;
 
   const pensionTotalValueILS = pensionFunds.reduce(
     (sum, item) => sum + toNum(item.currentValue != null ? item.currentValue : item.amount),
@@ -84,7 +97,10 @@ export const calculatePortfolioAnalysis = (
     const yearsHeld = daysHeld / 365;
 
     if (!stockDistribution[stock.stockName]) {
-      stockDistribution[stock.stockName] = { ...newDistributionEntry('israeli'), name: stock.stockName };
+      stockDistribution[stock.stockName] = {
+        ...newDistributionEntry(effectiveExchangeForIsraeliStock(stock)),
+        name: stock.stockName
+      };
     }
 
     stockDistribution[stock.stockName].value += value;

@@ -4,19 +4,35 @@
 // heavily concentrated in one sector; this is only visible once you group
 // by sector instead of by exchange.
 //
-// Scoped to American stocks only: sector data here comes from Yahoo
-// Finance keyed by ticker, and Israeli/TASE holdings in this app are
-// identified by a TASE security id, not a Yahoo-compatible ticker, so
-// there's no sector mapping available for them without a separate data
-// source. This is a deliberate, disclosed limitation, not an oversight.
+// American stocks: sector comes from Yahoo Finance, keyed by ticker
+// (sectorBySymbol, from useStockSectors.js/server/sectorRoutes.js) - fully
+// automatic. Israeli/TASE holdings have no Yahoo-compatible ticker, so
+// there's no automatic sector source for them - instead, an optional
+// manual `sector` field on the item itself (set via a dropdown in
+// FinancialAccountsTables.js, using the same SECTOR_LABELS_HE keys as the
+// American side so the two consolidate into the same buckets) is used
+// when present. A holding with neither falls into UNCLASSIFIED_SECTOR_KEY,
+// same as before.
 
 import { calculateAmericanStockMetrics } from './portfolioMath';
+import { normalizeIsraeliPrice, toNum } from './formatters';
 import { UNCLASSIFIED_SECTOR_KEY } from './sectorLabels';
 
+function addToSector(totalsBySector, sectorKey, value, symbol) {
+  if (!totalsBySector[sectorKey]) {
+    totalsBySector[sectorKey] = { sectorKey, value: 0, symbols: new Set() };
+  }
+  totalsBySector[sectorKey].value += value;
+  if (symbol) totalsBySector[sectorKey].symbols.add(symbol);
+}
+
 // sectorBySymbol: { [symbol]: { sector: string|null, industry: string|null } }
-export const computeSectorDistribution = (americanStocks, sectorBySymbol) => {
+// israeliStocks (optional): each item may carry its own manually-tagged
+// `sector` field (a SECTOR_LABELS_HE key, or absent/falsy for unclassified).
+export const computeSectorDistribution = (americanStocks, sectorBySymbol, israeliStocks = []) => {
   const stocks = Array.isArray(americanStocks) ? americanStocks : [];
   const bySymbol = sectorBySymbol || {};
+  const israeli = Array.isArray(israeliStocks) ? israeliStocks : [];
 
   const totalsBySector = {};
   let totalValueILS = 0;
@@ -28,12 +44,15 @@ export const computeSectorDistribution = (americanStocks, sectorBySymbol) => {
 
     const symbol = String(stock.stockName || '').trim().toUpperCase();
     const sectorKey = bySymbol[symbol]?.sector || UNCLASSIFIED_SECTOR_KEY;
+    addToSector(totalsBySector, sectorKey, value, symbol);
+  });
 
-    if (!totalsBySector[sectorKey]) {
-      totalsBySector[sectorKey] = { sectorKey, value: 0, symbols: new Set() };
-    }
-    totalsBySector[sectorKey].value += value;
-    if (symbol) totalsBySector[sectorKey].symbols.add(symbol);
+  israeli.forEach((stock) => {
+    const value = toNum(normalizeIsraeliPrice(stock.currentPrice)) * toNum(stock.quantity);
+    totalValueILS += value;
+
+    const sectorKey = stock.sector || UNCLASSIFIED_SECTOR_KEY;
+    addToSector(totalsBySector, sectorKey, value, stock.stockName);
   });
 
   const sectors = Object.values(totalsBySector)

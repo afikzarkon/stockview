@@ -190,8 +190,8 @@ function PortfolioAnalysisView({
   const americanSymbols = useMemo(() => americanStocks.map((s) => s.stockName), [americanStocks]);
   const { sectorBySymbol, loading: sectorsLoading } = useStockSectors(americanSymbols);
   const sectorDistribution = useMemo(
-    () => computeSectorDistribution(americanStocks, sectorBySymbol),
-    [americanStocks, sectorBySymbol]
+    () => computeSectorDistribution(americanStocks, sectorBySymbol, israeliStocks),
+    [americanStocks, sectorBySymbol, israeliStocks]
   );
 
   // One row per unique American ticker (a stock bought in several lots
@@ -1434,9 +1434,9 @@ function PortfolioAnalysisView({
           </div>
 
           <div className="analysis-section" ref={(el) => (sectionRefs.current.sector = el)}>
-            <h2 className="section-title">פיזור לפי סקטור (מניות אמריקאיות)</h2>
-            {americanStocks.length === 0 ? (
-              <p className="history-empty-note">אין מניות אמריקאיות בתיק כרגע.</p>
+            <h2 className="section-title">פיזור לפי סקטור</h2>
+            {americanStocks.length === 0 && israeliStocks.length === 0 ? (
+              <p className="history-empty-note">אין מניות בתיק כרגע.</p>
             ) : sectorsLoading && !sectorDistribution.hasData ? (
               <p className="history-empty-note">טוען נתוני סקטור…</p>
             ) : !sectorDistribution.hasData ? (
