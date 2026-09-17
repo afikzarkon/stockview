@@ -33,6 +33,29 @@ const REAL_TEVA_RESPONSE = [
   }
 ];
 
+// Captured live from the real endpoint (query "קסם S&P 500") - covers both
+// the ETF shape that should now be included and the mutual-fund shape
+// ("קרנות נאמנות") that must still be excluded, since it shares the same
+// underlying index/name text as its ETF sibling.
+const REAL_ETF_RESPONSE = [
+  {
+    PaperId: '1146471',
+    PaperName: 'קסם S&P 500 ETF',
+    PaperSymbol: 'KSM ETF (4D) S&P 500',
+    PaperLink: 'https://www.bizportal.co.il/tradedfund/quote/generalview/1146471',
+    PaperType: 'קרנות סל',
+    IS_foreign: '0'
+  },
+  {
+    PaperId: '5124482',
+    PaperName: 'קסם S&P 500 KTF',
+    PaperSymbol: 'KSM KTF (4D) S&P 500',
+    PaperLink: 'https://www.bizportal.co.il/mutualfunds/quote/generalview/5124482',
+    PaperType: 'קרנות נאמנות',
+    IS_foreign: '0'
+  }
+];
+
 describe('searchIsraeliSecuritiesByName', () => {
   beforeEach(() => {
     mockAxios.get.mockReset();
@@ -102,5 +125,16 @@ describe('searchIsraeliSecuritiesByName', () => {
     });
     const results = await searchIsraeliSecuritiesByName('x');
     expect(results).toEqual([]);
+  });
+
+  test('includes a TASE-listed ETF ("קרנות סל") but excludes its mutual-fund sibling ("קרנות נאמנות")', async () => {
+    mockAxios.get.mockResolvedValue({ headers: { 'set-cookie': ['BizCookieName=abc123; Path=/'] } });
+    mockAxios.post.mockResolvedValue({ data: REAL_ETF_RESPONSE });
+
+    const results = await searchIsraeliSecuritiesByName('קסם S&P 500');
+
+    expect(results).toEqual([
+      { securityId: '1146471', officialName: 'קסם S&P 500 ETF', symbol: 'KSM ETF (4D) S&P 500' }
+    ]);
   });
 });

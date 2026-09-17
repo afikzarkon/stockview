@@ -91,15 +91,23 @@ async function requestAutoSuggest(query, cookie) {
   return response.data;
 }
 
-// Domestic (non-foreign) TASE-listed equities only - the raw endpoint also
-// matches mutual funds, indices, commodities, and foreign-listed stocks
-// against the same query text, none of which belong in an "Israeli stock"
-// search result. PaperId "0" is Bizportal's placeholder for entries that
-// don't carry a real TASE security id (seen on some foreign-stock rows).
+// Domestic (non-foreign) TASE-listed equities and ETFs only - the raw
+// endpoint also matches mutual funds ("קרנות נאמנות", not exchange-traded -
+// they have no live TASE quote to scrape), indices, commodities, and
+// foreign-listed stocks against the same query text, none of which belong
+// in an "Israeli stock" search result. Confirmed live against the real
+// endpoint: a TASE-listed ETF (e.g. "קסם S&P 500 ETF", "תכלית סל ת\"א 35")
+// comes back with PaperType "קרנות סל" and a real PaperId that resolves the
+// same way a stock's does (verified against Teva's PaperId matching the id
+// already used elsewhere in this app). PaperId "0" is Bizportal's
+// placeholder for entries that don't carry a real TASE security id (seen
+// on some foreign-stock rows).
+const DOMESTIC_PAPER_TYPES = new Set(['מניות', 'קרנות סל']);
+
 function isDomesticStockEntry(entry) {
   return Boolean(
     entry &&
-      entry.PaperType === 'מניות' &&
+      DOMESTIC_PAPER_TYPES.has(entry.PaperType) &&
       String(entry.IS_foreign) === '0' &&
       entry.PaperId &&
       String(entry.PaperId) !== '0'
