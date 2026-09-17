@@ -173,6 +173,31 @@ describe('PortfolioAnalysisView', () => {
     expect(container.textContent).not.toContain('תשואת דיבידנד ותאריך תשלום קרוב');
   });
 
+  describe('dividend table - projected annual income column', () => {
+    test('shows dividendRate × quantity held (not the historical "received" amount) for a known holding', () => {
+      // americanStocks (top-level fixture) has one AAPL lot with quantity 10.
+      useDividendData.mockReturnValue({
+        dividendsBySymbol: { AAPL: { dividendRate: 1.5, dividendYieldPercent: 0.8, payoutRatio: 0.2, history: [] } },
+        loading: false
+      });
+      const { getByText } = render(<PortfolioAnalysisView {...makeProps()} />);
+      const dividendsSection = getByText('מעקב דיבידנדים (מניות אמריקאיות)').closest('.analysis-section');
+      // 1.5 * 10 = 15.00, distinct from receivedUSD (0, no history entries) -
+      // appears twice (the summary card + the table cell), both correct.
+      expect(within(dividendsSection).getAllByText('$15.00').length).toBe(2);
+    });
+
+    test('shows "—" when no dividend rate is known for a holding, instead of a fabricated $0.00', () => {
+      useDividendData.mockReturnValue({ dividendsBySymbol: {}, loading: false });
+      const { getByText } = render(<PortfolioAnalysisView {...makeProps()} />);
+      const dividendsSection = getByText('מעקב דיבידנדים (מניות אמריקאיות)').closest('.analysis-section');
+      const row = within(dividendsSection).getByText('AAPL').closest('tr');
+      // Last-but-one column is the new projected-income column; last is "סה"כ שהתקבל" - both "-" here.
+      const cells = within(row).getAllByRole('cell');
+      expect(cells[cells.length - 2].textContent).toBe('—');
+    });
+  });
+
   describe('"מעקב חודשי" section', () => {
     const currentMonthKey = new Date().toISOString().slice(0, 7);
     const july = {
