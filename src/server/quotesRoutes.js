@@ -9,7 +9,6 @@ const {
   scrapeTaseWithPuppeteer,
   scrapeTaseFallbackWithAxios
 } = require('./taseScraper');
-const { isTaseApiConfigured, fetchTaseQuoteFromApi } = require('./taseApi');
 const { getYahooPayload, fetchYahooHistoricalRateForDate } = require('./yahooQuotes');
 
 const taseInFlight = new Map();
@@ -21,115 +20,85 @@ function errMessage(err) {
   return String(err);
 }
 
-async function fetchTaseQuote(stockId, req) {
-  // Official TASE Data Hub API - tried first when configured. This will
-  // simply fail (and fall through to scraping below) until TASE approves
-  // the "Securities Prices - Online" product registration in the
-  // developer portal (it starts in a "PENDING" state) - no code change
-  // needed once it's approved, it just starts working.
-  if (isTaseApiConfigured()) {
-    try {
-      const payload = await fetchTaseQuoteFromApi(stockId);
-      writeCachedTaseQuote(stockId, payload);
-      return payload;
-    } catch (err) {
-      console.warn('[tase] official API failed, falling back to scraping', {
-        stockId,
-        error: errMessage(err)
-      });
-    }
-  }
+// Ordered fallback chain for an Israeli stock quote - each entry is tried
+// in turn until one returns a usable payload. Adding another public source
+// (e.g. Globes/Bizportal) later means adding one more entry here, not
+// touching fetchTaseQuote's control flow. `retryOnce` mirrors the original
+// behavior: a single retry for the flaky Puppeteer path (transient
+// timeouts/RAM pressure on small hosting tiers are common and usually
+// resolve on a second attempt), no retry for the cheaper axios fallback.
+const TASE_SOURCES = [
+  { name: 'puppeteer', fn: scrapeTaseWithPuppeteer, retryOnce: true },
+  { name: 'axios-fallback', fn: scrapeTaseFallbackWithAxios, retryOnce: false }
+];
 
-  const taseUrl = `https://market.tase.co.il/he/market_data/security/${stockId}/major_data`;
+async function attemptTaseSource(source, taseUrl, stockId) {
+  const result = await source.fn(taseUrl);
+  const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
+  if (!isUsableTasePayload(payload)) {
+    const err = new Error(`${source.name} returned unusable payload`);
+    err._debugTextSnippet = result._debugTextSnippet;
+    throw err;
+  }
+  return { payload, result };
+}
+
+async function runTaseSource(source, taseUrl, stockId) {
   try {
-    let result;
-    try {
-      result = await scrapeTaseWithPuppeteer(taseUrl);
-      if (!isUsableTasePayload({ currentPrice: result.currentPrice, changePercent: result.changePercent })) {
-        throw new Error('first attempt returned unusable payload');
-      }
-    } catch (firstAttemptErr) {
-      // כשל חד-פעמי/זמני (timeout גבולי, עומס רגעי) הוא נפוץ בסביבות עם
-      // מעט RAM כמו ה-tier החינמי של Render - ניסיון חוזר אחד מספיק
-      // כדי לתפוס הרבה מהמקרים האלה בלי לפגוע משמעותית בזמן התגובה.
-      console.warn('[tase] first puppeteer attempt failed, retrying once', {
-        stockId,
-        error: errMessage(firstAttemptErr)
-      });
-      result = await scrapeTaseWithPuppeteer(taseUrl);
-    }
-    const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
-    if (!isUsableTasePayload(payload)) {
-      console.warn('[tase] puppeteer returned unusable payload (after retry)', {
-        stockId,
-        payload,
-        // מה שהדפדפן בפועל "רואה" בדף - עוזר לדעת אם הבעיה היא עמוד חסימת בוט,
-        // מבנה טקסט שונה מהצפוי, או שהעמוד בכלל לא נטען.
-        pageTextSnippet: result._debugTextSnippet
-      });
-      throw new Error('puppeteer returned unusable payload');
-    }
-    // Logged on every success too (not just failures) - a scrape can look
-    // "usable" (both fields are finite numbers) while still being wrong,
-    // e.g. if the regex matched a different field on the page than
-    // intended. This shows exactly what label/text produced the price,
-    // so a scaling bug can be diagnosed directly instead of guessed at.
-    console.log('[tase] puppeteer scrape succeeded', {
+    return await attemptTaseSource(source, taseUrl, stockId);
+  } catch (firstErr) {
+    if (!source.retryOnce) throw firstErr;
+    // כשל חד-פעמי/זמני (timeout גבולי, עומס רגעי) הוא נפוץ בסביבות עם
+    // מעט RAM כמו ה-tier החינמי של Render - ניסיון חוזר אחד מספיק
+    // כדי לתפוס הרבה מהמקרים האלה בלי לפגוע משמעותית בזמן התגובה.
+    console.warn(`[tase] first ${source.name} attempt failed, retrying once`, {
       stockId,
-      payload,
-      priceMatch: result._debugPriceMatch
+      error: errMessage(firstErr)
     });
-    writeCachedTaseQuote(stockId, payload);
-    return payload;
-  } catch (err) {
-    console.warn('[tase] puppeteer scrape failed, trying fallback', {
-      stockId,
-      error: errMessage(err)
-    });
+    return await attemptTaseSource(source, taseUrl, stockId);
+  }
+}
+
+async function fetchTaseQuote(stockId, req) {
+  const taseUrl = `https://market.tase.co.il/he/market_data/security/${stockId}/major_data`;
+  const errors = {};
+  for (const source of TASE_SOURCES) {
     try {
-      const result = await scrapeTaseFallbackWithAxios(taseUrl);
-      const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
-      if (!isUsableTasePayload(payload)) {
-        console.warn('[tase] axios fallback returned unusable payload', {
-          stockId,
-          payload,
-          pageTextSnippet: result._debugTextSnippet
-        });
-        throw new Error('axios fallback returned unusable payload');
-      }
-      console.log('[tase] axios fallback succeeded', {
+      const { payload, result } = await runTaseSource(source, taseUrl, stockId);
+      // Logged on every success too (not just failures) - a scrape can look
+      // "usable" (both fields are finite numbers) while still being wrong,
+      // e.g. if the regex matched a different field on the page than
+      // intended. This shows exactly what label/text produced the price,
+      // so a scaling bug can be diagnosed directly instead of guessed at.
+      console.log(`[tase] ${source.name} succeeded`, {
         stockId,
         payload,
         priceMatch: result._debugPriceMatch
       });
       writeCachedTaseQuote(stockId, payload);
       return payload;
-    } catch (e2) {
-      console.error('[tase] both scraping methods failed', {
+    } catch (err) {
+      errors[source.name] = errMessage(err);
+      console.warn(`[tase] ${source.name} failed`, {
         stockId,
-        puppeteerError: errMessage(err),
-        fallbackError: errMessage(e2)
+        error: errMessage(err),
+        // מה שהמקור בפועל "ראה" - עוזר לדעת אם הבעיה היא עמוד חסימת בוט,
+        // מבנה טקסט שונה מהצפוי, או שהעמוד בכלל לא נטען.
+        pageTextSnippet: err._debugTextSnippet
       });
-      const stale = readStaleTaseQuote(stockId);
-      if (stale) {
-        console.warn('[tase] serving stale cached quote after failures', { stockId });
-        return stale;
-      }
-      if (req.query && (req.query.debug === '1' || req.query.debug === 'true')) {
-        return {
-          currentPrice: null,
-          changePercent: null,
-          _debug: {
-            stockId,
-            taseUrl,
-            puppeteerError: errMessage(err),
-            fallbackError: errMessage(e2)
-          }
-        };
-      }
-      return { currentPrice: null, changePercent: null };
     }
   }
+
+  console.error('[tase] all sources failed', { stockId, errors });
+  const stale = readStaleTaseQuote(stockId);
+  if (stale) {
+    console.warn('[tase] serving stale cached quote after failures', { stockId });
+    return stale;
+  }
+  if (req.query && (req.query.debug === '1' || req.query.debug === 'true')) {
+    return { currentPrice: null, changePercent: null, _debug: { stockId, taseUrl, errors } };
+  }
+  return { currentPrice: null, changePercent: null };
 }
 
 function mountQuotesRoutes(app) {
