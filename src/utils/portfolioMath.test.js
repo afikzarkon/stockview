@@ -212,10 +212,17 @@ describe('applyPensionValueEditPayload', () => {
 });
 
 describe('calculatePensionPeriodReturn', () => {
-  test('nets out a deposit made during the period so it is not counted as profit (auto-detected by date, no manual field needed)', () => {
+  test('nets out a deposit made during the period so it is not counted as profit, time-weighted by Modified Dietz (a mid-period deposit gets partial, not full, credit toward the adjusted base)', () => {
     // מקרה מהשיחה: previousValue=100,000 (בתאריך 2024-01-01), הפקדה של
-    // 10,000 בתאריך 2024-02-15 (בתוך התקופה), שווי חדש=111,000 בתאריך
-    // 2024-03-31 - רווח אמיתי של 1,000 בלבד, לא 11,000.
+    // 10,000 בתאריך 2024-02-15 (מדויק באמצע התקופה 2024-01-01..2024-03-31,
+    // משקל 0.5), שווי חדש=111,000 בתאריך 2024-03-31 - רווח אמיתי של 1,000
+    // בלבד, לא 11,000. adjustedPreviousValue (100,000 + מלוא ה-10,000,
+    // שקוללה כ"נטו" בלי משקל) עדיין 110,000 - זה שדה עזר לתצוגה בלבד
+    // (updateProfitLoss ב-FinancialAccountsTables.js); ה-percent עצמו
+    // הוא זה שמשתמש בפועל בשקלול: המכנה הוא 100,000 + (10,000*0.5)=105,000,
+    // לא 110,000 כמו בגרסה הישנה (השטוחה) - ולכן 1,000/105,000 = 0.952%,
+    // גבוה יותר מ-1,000/110,000 = 0.909% הישן, כי הפקדה שהייתה מושקעת רק
+    // חצי מהתקופה לא אמורה "לספוג" חצי מהמכנה כאילו הייתה שם מההתחלה.
     const fund = {
       previousValue: 100000,
       previousValueDate: '2024-01-01',
@@ -226,7 +233,39 @@ describe('calculatePensionPeriodReturn', () => {
     const result = calculatePensionPeriodReturn(fund);
     expect(result.depositsInPeriod).toBe(10000);
     expect(result.adjustedPreviousValue).toBe(110000);
-    expect(result.percent).toBeCloseTo(0.909, 2);
+    expect(result.percent).toBeCloseTo(0.952, 3);
+  });
+
+  test('a deposit the day right after the period starts gets near-full weight - close to the old flat-add approximation', () => {
+    // הפקדה יום אחד בלבד לאחר previousValueDate (משקל ~0.989, כי הייתה
+    // מושקעת כל התקופה בפועל, פרט ליום אחד) - המכנה קרוב מאוד לגרסה
+    // השטוחה הישנה (100,000+10,000=110,000), כי כאן אין בפועל "אמצע
+    // תקופה" משמעותי לשקלל. (הפקדה בתאריך previousValueDate עצמו
+    // מוחרגת כליל - ראו "ignores a deposit made before the period" -
+    // כאילו הייתה כבר חלק מהשווי הקודם שנרשם.)
+    const fund = {
+      previousValue: 100000,
+      previousValueDate: '2024-01-01',
+      currentValue: 111000,
+      currentValueDate: '2024-03-31',
+      deposits: [{ date: '2024-01-02', amount: 10000 }]
+    };
+    const result = calculatePensionPeriodReturn(fund);
+    expect(result.percent).toBeCloseTo(0.91, 2);
+  });
+
+  test('a deposit right at the end of the period gets almost no weight - barely affects the denominator', () => {
+    // הפקדה ביום האחרון של התקופה (משקל ~0, כמעט לא הייתה מושקעת בפועל) -
+    // המכנה נשאר קרוב ל-100,000 המקורי, לא ל-110,000.
+    const fund = {
+      previousValue: 100000,
+      previousValueDate: '2024-01-01',
+      currentValue: 111000,
+      currentValueDate: '2024-03-31',
+      deposits: [{ date: '2024-03-31', amount: 10000 }]
+    };
+    const result = calculatePensionPeriodReturn(fund);
+    expect(result.percent).toBeCloseTo(1, 2); // 1000 / ~100000 ≈ 1%, not 0.909%
   });
 
   test('ignores a deposit made before the period (already accounted for in a prior update)', () => {
