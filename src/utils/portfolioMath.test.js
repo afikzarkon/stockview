@@ -5,7 +5,9 @@ import {
   applyPensionValueEditPayload,
   sumDepositsInRange,
   calculatePensionPeriodReturn,
-  hasAmbiguousPensionPeriod
+  hasAmbiguousPensionPeriod,
+  applyLedgerValueUpdate,
+  calculateLedgerPeriodReturn
 } from './portfolioMath';
 
 describe('calculateAmericanStockMetrics', () => {
@@ -328,5 +330,39 @@ describe('hasAmbiguousPensionPeriod', () => {
   test('handles undefined/null input gracefully without throwing', () => {
     expect(hasAmbiguousPensionPeriod(undefined)).toBe(false);
     expect(hasAmbiguousPensionPeriod(null)).toBe(false);
+  });
+});
+
+// Generic ledger helpers (applyLedgerValueUpdate/calculateLedgerPeriodReturn)
+// power cashFunds and bankBalances too now, not just pension funds - the
+// pension-named exports above are thin aliases for these same functions
+// (see portfolioMath.js), so this just confirms the generic entry points
+// work identically for a non-pension item, and that a withdrawal
+// (negative deposit amount) nets out correctly.
+describe('applyLedgerValueUpdate / calculateLedgerPeriodReturn (cash fund / checking account use)', () => {
+  test('applyLedgerValueUpdate rolls the old current value into previous, for any ledger item', () => {
+    const cashFund = { id: 1, fundName: 'כספית', currentValue: 5000, currentValueDate: '2024-01-01', amount: 5000 };
+    const updated = applyLedgerValueUpdate(cashFund, 5200, '2024-02-01');
+    expect(updated.previousValue).toBe(5000);
+    expect(updated.previousValueDate).toBe('2024-01-01');
+    expect(updated.currentValue).toBe(5200);
+    expect(updated.currentValueDate).toBe('2024-02-01');
+  });
+
+  test('a withdrawal (negative deposit amount) in-period reduces the adjusted base instead of inflating it', () => {
+    // עו"ש: יתרה קודמת 10,000, משיכה של 3,000 באמצע התקופה, יתרה נוכחית
+    // 7,500 - הרווח/הפסד האמיתי הוא +500 (לא -2,500), כי חלק מהירידה
+    // הוא כסף שהמשתמש הוציא בכוונה, לא הפסד השקעה.
+    const account = {
+      previousValue: 10000,
+      previousValueDate: '2024-01-01',
+      currentValue: 7500,
+      currentValueDate: '2024-01-31',
+      deposits: [{ date: '2024-01-15', amount: -3000 }]
+    };
+    const result = calculateLedgerPeriodReturn(account);
+    expect(result.depositsInPeriod).toBe(-3000);
+    expect(result.adjustedPreviousValue).toBe(7000);
+    expect(result.percent).toBeGreaterThan(0); // real gain, not a loss
   });
 });
