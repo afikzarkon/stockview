@@ -1,35 +1,4 @@
-import {
-  averageAbsCorrelation,
-  computePortfolioHealthScore,
-  healthScoreLabelHe
-} from './portfolioHealthScore';
-
-describe('averageAbsCorrelation', () => {
-  test('averages the absolute value of every pair, ignoring the diagonal and nulls', () => {
-    const symbols = ['A', 'B', 'C'];
-    const matrix = [
-      [1, 0.5, null],
-      [0.5, 1, -0.3],
-      [null, -0.3, 1]
-    ];
-    // pairs: |0.5|, |-0.3| -> (0.5 + 0.3) / 2 = 0.4
-    expect(averageAbsCorrelation(symbols, matrix)).toBeCloseTo(0.4, 6);
-  });
-
-  test('returns null when no pair has a value', () => {
-    const symbols = ['A', 'B'];
-    const matrix = [
-      [1, null],
-      [null, 1]
-    ];
-    expect(averageAbsCorrelation(symbols, matrix)).toBeNull();
-  });
-
-  test('handles missing/empty input without throwing', () => {
-    expect(averageAbsCorrelation([], [])).toBeNull();
-    expect(averageAbsCorrelation(null, null)).toBeNull();
-  });
-});
+import { computePortfolioHealthScore, healthScoreLabelHe } from './portfolioHealthScore';
 
 describe('healthScoreLabelHe', () => {
   test('maps score bands to labels', () => {
@@ -51,11 +20,6 @@ describe('computePortfolioHealthScore', () => {
     const result = computePortfolioHealthScore({
       concentrationTop3Percent: 0,
       topSectorPercent: 0,
-      correlationSymbols: ['A', 'B'],
-      correlationMatrix: [
-        [1, 0],
-        [0, 1]
-      ],
       volatilityPercent: 0,
       maxDrawdownPercent: 0,
       allocationMaxAbsDiffPercent: 0
@@ -64,23 +28,17 @@ describe('computePortfolioHealthScore', () => {
     expect(result.breakdown).toEqual({
       concentration: 100,
       sectorConcentration: 100,
-      correlation: 100,
       volatility: 100,
       drawdown: 100,
       allocationDrift: 100
     });
-    expect(result.availableCount).toBe(6);
+    expect(result.availableCount).toBe(5);
   });
 
   test('scores every sub-metric at/beyond its worst-case reference as 0', () => {
     const result = computePortfolioHealthScore({
       concentrationTop3Percent: 100,
       topSectorPercent: 100,
-      correlationSymbols: ['A', 'B'],
-      correlationMatrix: [
-        [1, 1],
-        [1, 1]
-      ],
       volatilityPercent: 40,
       maxDrawdownPercent: 50,
       allocationMaxAbsDiffPercent: 30
@@ -102,15 +60,12 @@ describe('computePortfolioHealthScore', () => {
     const result = computePortfolioHealthScore({
       concentrationTop3Percent: 20, // -> score 80
       topSectorPercent: null, // no American stocks -> excluded
-      correlationSymbols: [], // fewer than 2 -> excluded
-      correlationMatrix: [],
       volatilityPercent: null, // not enough snapshot history -> excluded
       maxDrawdownPercent: null,
       allocationMaxAbsDiffPercent: null // no rebalancing targets set -> excluded
     });
     expect(result.breakdown.concentration).toBe(80);
     expect(result.breakdown.sectorConcentration).toBeNull();
-    expect(result.breakdown.correlation).toBeNull();
     expect(result.breakdown.volatility).toBeNull();
     expect(result.breakdown.drawdown).toBeNull();
     expect(result.breakdown.allocationDrift).toBeNull();

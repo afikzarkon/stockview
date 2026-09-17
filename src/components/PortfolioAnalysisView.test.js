@@ -4,16 +4,12 @@ import { calculatePortfolioAnalysis } from '../utils/portfolioAnalysis';
 import { useBenchmarkHistory } from '../hooks/useBenchmarkHistory';
 import { useStockSectors } from '../hooks/useStockSectors';
 import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
-import { useHoldingsPriceHistory } from '../hooks/useHoldingsPriceHistory';
 import { useDividendData } from '../hooks/useDividendData';
-import { useStockNews } from '../hooks/useStockNews';
 
 jest.mock('../hooks/useBenchmarkHistory');
 jest.mock('../hooks/useStockSectors');
 jest.mock('../hooks/useAnalystRecommendations');
-jest.mock('../hooks/useHoldingsPriceHistory');
 jest.mock('../hooks/useDividendData');
-jest.mock('../hooks/useStockNews');
 
 const noop = () => {};
 
@@ -77,17 +73,15 @@ describe('PortfolioAnalysisView', () => {
     useBenchmarkHistory.mockReturnValue({ points: [], loading: false, error: '' });
     useStockSectors.mockReturnValue({ sectorBySymbol: {}, loading: false });
     useAnalystRecommendations.mockReturnValue({ recommendationsBySymbol: {}, loading: false });
-    useHoldingsPriceHistory.mockReturnValue({ historyBySymbol: {}, loading: false });
     useDividendData.mockReturnValue({ dividendsBySymbol: {}, loading: false });
-    useStockNews.mockReturnValue({ newsBySymbol: {}, loading: false });
   });
 
   test('renders without crashing, with the sidebar nav grouped into 5 labeled groups', () => {
     const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
     const groupLabels = Array.from(container.querySelectorAll('.sw-sidebar-group-label')).map((el) => el.textContent);
     expect(groupLabels).toEqual(['סקירה כללית', 'הרכב התיק', 'מניות אמריקאיות', 'כלים', 'דוחות']);
-    // 17 sections total (16 from before, plus the new "מעקב חודשי")
-    expect(container.querySelectorAll('.sw-sidebar-item').length).toBe(17);
+    // 15 sections total (17 before, minus correlation and news which were removed)
+    expect(container.querySelectorAll('.sw-sidebar-item').length).toBe(15);
   });
 
   test('clicking a sidebar item scrolls the corresponding section into view', () => {
@@ -95,7 +89,7 @@ describe('PortfolioAnalysisView', () => {
     window.HTMLElement.prototype.scrollIntoView = scrollIntoViewMock;
 
     render(<PortfolioAnalysisView {...makeProps()} />);
-    fireEvent.click(screen.getByText('קורלציה בין אחזקות'));
+    fireEvent.click(screen.getByText('מעקב דיבידנדים'));
     expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
   });
 
@@ -130,10 +124,8 @@ describe('PortfolioAnalysisView', () => {
       'פיזור לפי מניות',
       'פיזור לפי תאריכי קנייה',
       'פיזור לפי סקטור (מניות אמריקאיות)',
-      'קורלציה בין אחזקות (מניות אמריקאיות)',
       'מעקב דיבידנדים (מניות אמריקאיות)',
       'לוח רבעונים (מניות אמריקאיות)',
-      'חדשות רלוונטיות (מניות אמריקאיות)',
       'המלצות אנליסטים (מניות אמריקאיות)',
       'איזון מחדש (Rebalancing)',
       'הזדמנויות לקיזוז מס (Tax-Loss Harvesting)',
@@ -165,7 +157,7 @@ describe('PortfolioAnalysisView', () => {
     expect(labels).toContain('ינואר 2023');
   });
 
-  test('the static "how this is computed" explanations under section titles are gone (dynamic result callouts like the benchmark/correlation summaries stay)', () => {
+  test('the static "how this is computed" explanations under section titles are gone (dynamic result callouts like the benchmark summary stay)', () => {
     const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
     expect(container.textContent).not.toContain('מבוסס על סיווג הסקטור');
     expect(container.textContent).not.toContain('מבוסס על תשואות יומיות היסטוריות');

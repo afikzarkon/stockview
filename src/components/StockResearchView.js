@@ -28,9 +28,7 @@ import {
 import { useStockSearch } from '../hooks/useStockSearch';
 import { useStockResearch } from '../hooks/useStockResearch';
 import { useDividendData } from '../hooks/useDividendData';
-import { useStockNews } from '../hooks/useStockNews';
 import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
-import { buildNewsFeed } from '../utils/newsFeed';
 import { sectorLabelHe } from '../utils/sectorLabels';
 import { formatDate } from '../utils/formatters';
 import { buildStockScorecard, categoryPercent, CATEGORY_LABELS_HE, VERDICT_LABELS_HE } from '../utils/stockScorecard';
@@ -265,10 +263,8 @@ function StockResearchView({ onBack, theme }) {
   const { research, loading: researchLoading, error: researchError } = useStockResearch(selectedSymbol);
   const searchSymbols = useMemo(() => (selectedSymbol ? [selectedSymbol] : []), [selectedSymbol]);
   const { dividendsBySymbol } = useDividendData(searchSymbols);
-  const { newsBySymbol } = useStockNews(searchSymbols);
   const { recommendationsBySymbol, loading: analystLoading } = useAnalystRecommendations(searchSymbols);
 
-  const newsFeed = useMemo(() => buildNewsFeed(newsBySymbol, 8), [newsBySymbol]);
   const rec = selectedSymbol ? recommendationsBySymbol[selectedSymbol] : null;
   const analystUpside = rec ? computeUpsidePercent(research?.currentPrice, rec.targetMeanPrice) : null;
   const analystSentiment = rec ? recommendationSentiment(rec.recommendationKey) : null;
@@ -444,8 +440,7 @@ function StockResearchView({ onBack, theme }) {
     { key: 'fundamentals', label: 'תמצית פיננסית' },
     ...categoryEntries.map(([key], i) => ({ key, label: `${i + 1}. ${CATEGORY_LABELS_HE[key]}` })),
     { key: 'management', label: 'הנהלה' },
-    { key: 'similar', label: 'חברות דומות' },
-    { key: 'news', label: 'חדשות' }
+    { key: 'similar', label: 'חברות דומות' }
   ];
 
   return (
@@ -1222,27 +1217,6 @@ function StockResearchView({ onBack, theme }) {
                         >
                           {c.symbol}
                         </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* News */}
-                <div className="sw-card" ref={(el) => (sectionRefs.current.news = el)}>
-                  <h3 className="sw-section-title">חדשות אחרונות</h3>
-                  {newsFeed.length === 0 ? (
-                    <p className="sw-empty-note">אין חדשות עדכניות עבור המנייה הזו כרגע.</p>
-                  ) : (
-                    <div className="sw-news-grid">
-                      {newsFeed.map((story) => (
-                        <div className="sw-news-card" key={story.uuid}>
-                          <a className="sw-link sw-news-title" href={story.link} target="_blank" rel="noopener noreferrer">
-                            {story.title}
-                          </a>
-                          <div className="sw-mini-sub">
-                            {[story.publisher, story.date ? formatDate(story.date) : null].filter(Boolean).join(' · ')}
-                          </div>
-                        </div>
                       ))}
                     </div>
                   )}

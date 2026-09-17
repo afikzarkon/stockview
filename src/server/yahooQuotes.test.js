@@ -17,7 +17,6 @@ jest.mock('./yahooCrumb', () => ({
 const {
   unwrapYahooNumber,
   fetchYahooAssetProfile,
-  fetchYahooNews,
   fetchYahooSymbolSearch,
   fetchYahooSimilarCompanies,
   getYahooPayload,
@@ -127,73 +126,6 @@ describe('fetchYahooQuoteSummary 429 handling (via fetchYahooAssetProfile)', () 
     // take noticeably longer than either one alone.
     expect(elapsed).toBeGreaterThanOrEqual(300);
   }, 10000);
-});
-
-// fetchYahooNews's response shape below is trimmed from a real Yahoo
-// search response for 'AAPL' captured during development (real news
-// stories, real thumbnail/relatedTickers shape) - not invented.
-describe('fetchYahooNews', () => {
-  beforeEach(() => {
-    mockAxios.get.mockReset();
-  });
-
-  const realYahooSearchResponse = {
-    data: {
-      explains: [],
-      count: 2,
-      quotes: [],
-      news: [
-        {
-          uuid: '8e589e0f-9a52-3867-b1ca-e6c94ba71693',
-          title: 'Apple and Meta Struggled in August But Which Looks Stronger in September?',
-          publisher: '24/7 Wall St.',
-          link: 'https://finance.yahoo.com/m/8e589e0f-9a52-3867-b1ca-e6c94ba71693/apple-and-meta-struggled-in.html',
-          providerPublishTime: 1788273496,
-          type: 'STORY',
-          relatedTickers: ['META', 'AAPL']
-        },
-        {
-          // Missing a link - real Yahoo responses sometimes omit fields;
-          // this entry should be filtered out rather than shown as a
-          // broken/unclickable news item.
-          uuid: 'no-link-story',
-          title: 'A story with no link',
-          publisher: 'Nobody',
-          providerPublishTime: 1788271200,
-          relatedTickers: ['AAPL']
-        }
-      ]
-    }
-  };
-
-  test('parses real news items and filters out ones missing a usable link', async () => {
-    mockAxios.get.mockResolvedValueOnce(realYahooSearchResponse);
-    const result = await fetchYahooNews('AAPL', 10);
-    expect(result).toEqual([
-      {
-        uuid: '8e589e0f-9a52-3867-b1ca-e6c94ba71693',
-        title: 'Apple and Meta Struggled in August But Which Looks Stronger in September?',
-        publisher: '24/7 Wall St.',
-        link: 'https://finance.yahoo.com/m/8e589e0f-9a52-3867-b1ca-e6c94ba71693/apple-and-meta-struggled-in.html',
-        publishedAtEpoch: 1788273496,
-        relatedTickers: ['META', 'AAPL']
-      }
-    ]);
-  });
-
-  test('passes q/newsCount/quotesCount params through to the search endpoint', async () => {
-    mockAxios.get.mockResolvedValueOnce({ data: { news: [] } });
-    await fetchYahooNews('MSFT', 5);
-    expect(mockAxios.get).toHaveBeenCalledWith(
-      'https://query1.finance.yahoo.com/v1/finance/search',
-      expect.objectContaining({ params: { q: 'MSFT', newsCount: 5, quotesCount: 0 } })
-    );
-  });
-
-  test('returns an empty array (not throwing) when the news field is missing', async () => {
-    mockAxios.get.mockResolvedValueOnce({ data: {} });
-    expect(await fetchYahooNews('AAPL')).toEqual([]);
-  });
 });
 
 // fetchYahooSymbolSearch's response shape below is trimmed from a real

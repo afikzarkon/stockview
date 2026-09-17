@@ -3,13 +3,11 @@ import StockResearchView from './StockResearchView';
 import { useStockSearch } from '../hooks/useStockSearch';
 import { useStockResearch } from '../hooks/useStockResearch';
 import { useDividendData } from '../hooks/useDividendData';
-import { useStockNews } from '../hooks/useStockNews';
 import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
 
 jest.mock('../hooks/useStockSearch');
 jest.mock('../hooks/useStockResearch');
 jest.mock('../hooks/useDividendData');
-jest.mock('../hooks/useStockNews');
 jest.mock('../hooks/useAnalystRecommendations');
 
 const noop = () => {};
@@ -49,7 +47,6 @@ describe('StockResearchView', () => {
     });
     useStockResearch.mockReturnValue({ research: null, loading: false, error: '' });
     useDividendData.mockReturnValue({ dividendsBySymbol: {} });
-    useStockNews.mockReturnValue({ newsBySymbol: {} });
     useAnalystRecommendations.mockReturnValue({ recommendationsBySymbol: {}, loading: false });
   });
 
