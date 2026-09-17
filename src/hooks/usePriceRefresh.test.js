@@ -219,4 +219,66 @@ describe('usePriceRefresh', () => {
     jest.advanceTimersByTime(10000);
     expect(fetchIsraeliStockPrice).not.toHaveBeenCalled();
   });
+
+  test('calls onFirstCycleComplete exactly once, after the first tick actually settles', async () => {
+    fetchIsraeliStockPrice.mockResolvedValue({ currentPrice: 1000, changePercent: 0 });
+    fetchExchangeRate.mockResolvedValue(3.7);
+    fetchCurrentPrice.mockResolvedValue({ currentPrice: 100, changePercent: 0 });
+    const onFirstCycleComplete = jest.fn();
+
+    renderHook(() =>
+      usePriceRefresh({
+        israeliStocks: [{ stockName: 'TEVA', quantity: 1 }],
+        americanStocks: [],
+        setIsraeliStocks: jest.fn(),
+        setAmericanStocks: jest.fn(),
+        isEditMode: false,
+        editingField: null,
+        isAddingNewStock: false,
+        onFirstCycleComplete
+      })
+    );
+
+    expect(onFirstCycleComplete).not.toHaveBeenCalled();
+
+    // Flushes every microtask hop between the fake-timer tick firing and
+    // onFirstCycleComplete's callback running: the mocked fetch's resolved
+    // promise -> the per-symbol async map callback -> Promise.all in each
+    // branch -> Promise.allSettled -> its .then(). A generous fixed number
+    // of awaited ticks is simpler and just as reliable here as counting
+    // the exact chain depth.
+    const flush = async () => {
+      for (let i = 0; i < 10; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await Promise.resolve();
+      }
+    };
+
+    jest.advanceTimersByTime(10000);
+    await flush();
+    expect(onFirstCycleComplete).toHaveBeenCalledTimes(1);
+
+    // A second tick must not fire it again.
+    jest.advanceTimersByTime(10000);
+    await flush();
+    expect(onFirstCycleComplete).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not call onFirstCycleComplete on a tick skipped for being mid-edit', () => {
+    const onFirstCycleComplete = jest.fn();
+    renderHook(() =>
+      usePriceRefresh({
+        israeliStocks: [{ stockName: 'TEVA', quantity: 1 }],
+        americanStocks: [],
+        setIsraeliStocks: jest.fn(),
+        setAmericanStocks: jest.fn(),
+        isEditMode: true,
+        editingField: null,
+        isAddingNewStock: false,
+        onFirstCycleComplete
+      })
+    );
+    jest.advanceTimersByTime(10000);
+    expect(onFirstCycleComplete).not.toHaveBeenCalled();
+  });
 });

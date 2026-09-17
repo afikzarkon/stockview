@@ -27,8 +27,6 @@ function makeProps(overrides = {}) {
     saveLoading: false,
     lastSavedAt: null,
     saveError: '',
-    handleSaveSnapshot: noop,
-    snapshotSaving: false,
     snapshotSaveError: '',
     lastSnapshotSavedAt: null,
     legacyImportBanner: '',
@@ -84,24 +82,17 @@ test('always shows the detailed portfolio summary (no collapse toggle)', () => {
   expect(queryByText('הצג סיכום מפורט ▼')).toBeNull();
 });
 
-test('the "save daily info" button sits alongside the edit-mode/additional-info controls, is separate from the portfolio-data save button, calls handleSaveSnapshot, and reflects saving/error/last-saved state', () => {
-  const handleSaveSnapshot = jest.fn();
-  const { getByText, container, rerender } = render(<HomeView {...makeProps({ handleSaveSnapshot })} />);
+test('there is no manual "save daily info" button - the daily snapshot is taken silently (see useAutoSnapshot.js) - only a passive status line reflects it', () => {
+  const { queryByText, getByText, rerender } = render(<HomeView {...makeProps()} />);
 
-  const snapshotButton = getByText('שמור מידע יומי עדכני');
-  // lives in the same .control-buttons action bar as edit mode / show-additional-data
-  expect(snapshotButton.closest('.control-buttons')).toBe(container.querySelector('.control-buttons'));
-  fireEvent.click(snapshotButton);
-  expect(handleSaveSnapshot).toHaveBeenCalled();
-
-  rerender(<HomeView {...makeProps({ handleSaveSnapshot, snapshotSaving: true })} />);
-  expect(getByText('שומר…')).toBeInTheDocument();
+  expect(queryByText('שמור מידע יומי עדכני')).toBeNull();
+  expect(queryByText('שומר…')).toBeNull();
 
   const savedAt = new Date('2024-06-01T10:00:00');
-  rerender(<HomeView {...makeProps({ handleSaveSnapshot, lastSnapshotSavedAt: savedAt })} />);
-  expect(getByText(`מידע יומי נשמר: ${savedAt.toLocaleTimeString('he-IL')}`)).toBeInTheDocument();
+  rerender(<HomeView {...makeProps({ lastSnapshotSavedAt: savedAt })} />);
+  expect(getByText(`מידע יומי נשמר אוטומטית: ${savedAt.toLocaleTimeString('he-IL')}`)).toBeInTheDocument();
 
-  rerender(<HomeView {...makeProps({ handleSaveSnapshot, snapshotSaveError: 'שמירת תמונת המצב נכשלה, נסה שוב' })} />);
+  rerender(<HomeView {...makeProps({ snapshotSaveError: 'שמירת תמונת המצב נכשלה, נסה שוב' })} />);
   expect(getByText('שמירת תמונת המצב נכשלה, נסה שוב')).toBeInTheDocument();
 });
 

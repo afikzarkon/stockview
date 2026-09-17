@@ -2,7 +2,7 @@
 // the stock arrays, unless the user is mid-edit or mid-add.
 // Extracted from App.js — behavior is unchanged, only the location moved.
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { fetchCurrentPrice, fetchExchangeRate, fetchIsraeliStockPrice } from '../api/stockPrices';
 
 const POLLING_INTERVAL_MS = 10000;
@@ -98,8 +98,17 @@ export function usePriceRefresh({
   setAmericanStocks,
   isEditMode,
   editingField,
-  isAddingNewStock
+  isAddingNewStock,
+  // Fired once, the first time a full refresh cycle actually completes
+  // (both branches settled) - not on raw mount, where prices are still
+  // whatever was last persisted rather than freshly confirmed live. Used
+  // by useAutoSnapshot.js to know it's safe to capture a snapshot value
+  // without risking the "stale/incomplete render" problem that got the
+  // old always-on auto-save reverted (see usePortfolioSnapshots.js).
+  onFirstCycleComplete
 }) {
+  const hasCompletedFirstCycleRef = useRef(false);
+
   useEffect(() => {
     const interval = setInterval(() => {
       // Don't refresh while the user is editing or adding a stock
@@ -120,7 +129,12 @@ export function usePriceRefresh({
       Promise.allSettled([
         refreshIsraeliStocks(israeliStocks, setIsraeliStocks),
         refreshAmericanStocks(americanStocks, setAmericanStocks)
-      ]);
+      ]).then(() => {
+        if (!hasCompletedFirstCycleRef.current) {
+          hasCompletedFirstCycleRef.current = true;
+          if (onFirstCycleComplete) onFirstCycleComplete();
+        }
+      });
     }, POLLING_INTERVAL_MS);
 
     return () => clearInterval(interval);
