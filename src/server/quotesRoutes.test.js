@@ -1,19 +1,23 @@
 /**
  * @jest-environment node
  */
-// taseScraper.js pulls in cheerio/puppeteer, which (via undici) need Web
-// Streams globals Jest doesn't provide by default. Since these tests are
-// about route wiring and error handling, not the scraper internals
-// (which were verified manually against a live sandbox — see the
-// project's refactor notes), we mock taseScraper entirely rather than
-// fight the dependency chain.
+// taseScraper.js pulls in puppeteer, which (via undici) needs Web Streams
+// globals Jest doesn't provide by default. Since these tests are about
+// route wiring and the order of the quote source chain, not any one
+// source's internals (each has its own test file), every source module is
+// mocked rather than fighting the dependency chain.
 jest.mock('./taseScraper', () => ({
   readCachedTaseQuote: jest.fn(),
   readStaleTaseQuote: jest.fn(),
   writeCachedTaseQuote: jest.fn(),
   isUsableTasePayload: jest.fn(),
-  scrapeTaseWithPuppeteer: jest.fn(),
-  scrapeTaseFallbackWithAxios: jest.fn()
+  scrapeTaseQuote: jest.fn()
+}));
+jest.mock('./taseQuoteApi', () => ({
+  fetchTaseQuoteFromApi: jest.fn()
+}));
+jest.mock('./taseHistoryApi', () => ({
+  fetchTaseQuoteFromEod: jest.fn()
 }));
 jest.mock('./yahooQuotes', () => ({
   getYahooPayload: jest.fn(),
@@ -27,6 +31,8 @@ const http = require('http');
 const express = require('express');
 const { mountQuotesRoutes } = require('./quotesRoutes');
 const taseScraper = require('./taseScraper');
+const taseQuoteApi = require('./taseQuoteApi');
+const taseHistoryApi = require('./taseHistoryApi');
 const yahooQuotes = require('./yahooQuotes');
 const bizportalSearch = require('./bizportalSearch');
 
@@ -80,8 +86,9 @@ describe('quotesRoutes', () => {
     taseScraper.isUsableTasePayload.mockImplementation(
       (p) => p && typeof p.currentPrice === 'number' && typeof p.changePercent === 'number'
     );
-    taseScraper.scrapeTaseWithPuppeteer.mockRejectedValue(new Error('puppeteer unavailable in test'));
-    taseScraper.scrapeTaseFallbackWithAxios.mockRejectedValue(new Error('network unavailable in test'));
+    taseQuoteApi.fetchTaseQuoteFromApi.mockRejectedValue(new Error('network unavailable in test'));
+    taseHistoryApi.fetchTaseQuoteFromEod.mockRejectedValue(new Error('network unavailable in test'));
+    taseScraper.scrapeTaseQuote.mockRejectedValue(new Error('puppeteer unavailable in test'));
     yahooQuotes.getYahooPayload.mockRejectedValue(new Error('network unavailable in test'));
     yahooQuotes.fetchYahooHistoricalRateForDate.mockRejectedValue(new Error('network unavailable in test'));
     bizportalSearch.searchIsraeliSecuritiesByName.mockRejectedValue(new Error('network unavailable in test'));
@@ -93,12 +100,23 @@ describe('quotesRoutes', () => {
     expect(res.body.error).toBe('invalid stock id');
   });
 
-  test('GET /api/israeli-stock/:id tries puppeteer then the axios fallback, and degrades gracefully when both fail', async () => {
+  test('GET /api/israeli-stock/:id tries all three sources, and degrades gracefully when every one fails', async () => {
     const res = await get(`${baseUrl}/api/israeli-stock/1234`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ currentPrice: null, changePercent: null });
-    expect(taseScraper.scrapeTaseWithPuppeteer).toHaveBeenCalled();
-    expect(taseScraper.scrapeTaseFallbackWithAxios).toHaveBeenCalled();
+    expect(taseQuoteApi.fetchTaseQuoteFromApi).toHaveBeenCalled();
+    expect(taseHistoryApi.fetchTaseQuoteFromEod).toHaveBeenCalled();
+    expect(taseScraper.scrapeTaseQuote).toHaveBeenCalled();
+  });
+
+  // Every source is addressed by security id alone - the scraper builds its
+  // own page URL. A source accidentally receiving something else (the URL
+  // the route used to construct, say) would request the wrong security.
+  test('GET /api/israeli-stock/:id passes the security id to each source', async () => {
+    await get(`${baseUrl}/api/israeli-stock/629014`);
+    expect(taseQuoteApi.fetchTaseQuoteFromApi).toHaveBeenCalledWith('629014');
+    expect(taseHistoryApi.fetchTaseQuoteFromEod).toHaveBeenCalledWith('629014');
+    expect(taseScraper.scrapeTaseQuote).toHaveBeenCalledWith('629014');
   });
 
   test('GET /api/israeli-stock/:id serves a stale cached quote if scraping fails but a stale value exists', async () => {
@@ -113,35 +131,61 @@ describe('quotesRoutes', () => {
     const res = await get(`${baseUrl}/api/israeli-stock/9999`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ currentPrice: 4000, changePercent: 0.5 });
-    expect(taseScraper.scrapeTaseWithPuppeteer).not.toHaveBeenCalled();
+    expect(taseQuoteApi.fetchTaseQuoteFromApi).not.toHaveBeenCalled();
   });
 
-  test('GET /api/israeli-stock/:id succeeds via puppeteer without needing the fallback', async () => {
-    taseScraper.scrapeTaseWithPuppeteer.mockResolvedValue({ currentPrice: 5000, changePercent: 2.3 });
+  // The whole point of the reordering: the cheap JSON API answers first and
+  // the headless browser is never launched. Puppeteer on the hot path (the
+  // client polls every 10s) was both the slow and the failure-prone part.
+  test('GET /api/israeli-stock/:id succeeds via the TASE API without touching the later sources', async () => {
+    taseQuoteApi.fetchTaseQuoteFromApi.mockResolvedValue({ currentPrice: 11960, changePercent: 1.36 });
+    const res = await get(`${baseUrl}/api/israeli-stock/629014`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ currentPrice: 11960, changePercent: 1.36 });
+    expect(taseHistoryApi.fetchTaseQuoteFromEod).not.toHaveBeenCalled();
+    expect(taseScraper.scrapeTaseQuote).not.toHaveBeenCalled();
+  });
+
+  // The API entry deliberately has no retryOnce - the chain itself is the
+  // retry, with a different source, rather than hitting a failing endpoint
+  // twice in a row.
+  test('GET /api/israeli-stock/:id does not retry the TASE API, it moves straight to the EOD source', async () => {
+    taseHistoryApi.fetchTaseQuoteFromEod.mockResolvedValue({ currentPrice: 7811, changePercent: -1.72 });
+    const res = await get(`${baseUrl}/api/israeli-stock/604611`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ currentPrice: 7811, changePercent: -1.72 });
+    expect(taseQuoteApi.fetchTaseQuoteFromApi).toHaveBeenCalledTimes(1);
+    expect(taseScraper.scrapeTaseQuote).not.toHaveBeenCalled();
+  });
+
+  // A source that resolves with nulls (e.g. the TASE API's HTTP-200-with-a-
+  // null-body answer for an unknown id) must be treated as a failure and
+  // fall through, not returned as if it were a real quote.
+  test('GET /api/israeli-stock/:id falls through a source that resolves with an unusable null payload', async () => {
+    taseQuoteApi.fetchTaseQuoteFromApi.mockResolvedValue({ currentPrice: null, changePercent: null });
+    taseHistoryApi.fetchTaseQuoteFromEod.mockResolvedValue({ currentPrice: 6000, changePercent: 1.1 });
+    const res = await get(`${baseUrl}/api/israeli-stock/1111`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ currentPrice: 6000, changePercent: 1.1 });
+  });
+
+  test('GET /api/israeli-stock/:id reaches the scraper only after both APIs fail', async () => {
+    taseScraper.scrapeTaseQuote.mockResolvedValue({ currentPrice: 5000, changePercent: 2.3 });
     const res = await get(`${baseUrl}/api/israeli-stock/1111`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ currentPrice: 5000, changePercent: 2.3 });
-    expect(taseScraper.scrapeTaseFallbackWithAxios).not.toHaveBeenCalled();
+    expect(taseQuoteApi.fetchTaseQuoteFromApi).toHaveBeenCalled();
+    expect(taseHistoryApi.fetchTaseQuoteFromEod).toHaveBeenCalled();
   });
 
-  test('GET /api/israeli-stock/:id retries puppeteer once on a transient failure before falling back', async () => {
-    taseScraper.scrapeTaseWithPuppeteer
+  test('GET /api/israeli-stock/:id still retries the scraper once on a transient failure', async () => {
+    taseScraper.scrapeTaseQuote
       .mockRejectedValueOnce(new Error('transient timeout'))
       .mockResolvedValueOnce({ currentPrice: 5000, changePercent: 2.3 });
     const res = await get(`${baseUrl}/api/israeli-stock/1111`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ currentPrice: 5000, changePercent: 2.3 });
-    expect(taseScraper.scrapeTaseWithPuppeteer).toHaveBeenCalledTimes(2);
-    expect(taseScraper.scrapeTaseFallbackWithAxios).not.toHaveBeenCalled();
-  });
-
-  test('GET /api/israeli-stock/:id falls back to axios only after both puppeteer attempts fail', async () => {
-    taseScraper.scrapeTaseWithPuppeteer.mockRejectedValue(new Error('still failing'));
-    taseScraper.scrapeTaseFallbackWithAxios.mockResolvedValue({ currentPrice: 6000, changePercent: 1.1 });
-    const res = await get(`${baseUrl}/api/israeli-stock/1111`);
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ currentPrice: 6000, changePercent: 1.1 });
-    expect(taseScraper.scrapeTaseWithPuppeteer).toHaveBeenCalledTimes(2);
+    expect(taseScraper.scrapeTaseQuote).toHaveBeenCalledTimes(2);
   });
 
   test('GET /api/american-stock/:symbol rejects a blank symbol with 400', async () => {

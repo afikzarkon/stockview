@@ -24,6 +24,7 @@ const axios = require('axios');
 
 const TASE_HISTORY_URL = 'https://api.tase.co.il/api/security/historyeod';
 const PAGE_SIZE = 30;
+const PTYPE_TODAY_ONLY = 0;
 const PTYPE_THREE_YEARS = 6;
 // 3 years of trading days is roughly 250/year * 3 = 750, at 30/page that's
 // 25 pages - one extra page of margin against off-by-one edges.
@@ -50,13 +51,43 @@ function taseDateToIso(taseDate) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-async function fetchHistoryPage(stockId, pageNum) {
+async function fetchHistoryPage(stockId, pageNum, pType = PTYPE_THREE_YEARS) {
   const response = await axios.post(
     TASE_HISTORY_URL,
-    { pType: PTYPE_THREE_YEARS, oId: toOid(stockId), TotalRec: 1, pageNum, lang: '0' },
+    { pType, oId: toOid(stockId), TotalRec: 1, pageNum, lang: '0' },
     { timeout: 15000, headers: BROWSER_HEADERS }
   );
   return response.data;
+}
+
+// A current quote from this same endpoint, using pType 0 ("today only"),
+// which returns the single most recent trading day. That row's CloseRate
+// and Change are exactly the two fields a quote needs, in the same agorot
+// convention as fetchTaseHistoricalCloses below - so this doubles as a
+// second, independent quote source behind taseQuoteApi.js without adding
+// another third-party dependency.
+//
+// Being end-of-day data, during an open session this can lag the live
+// intraday rate - which is precisely why quotesRoutes.js puts it SECOND,
+// after the live securitydata API, rather than first.
+async function fetchTaseQuoteFromEod(stockId) {
+  const data = await fetchHistoryPage(stockId, 1, PTYPE_TODAY_ONLY);
+  const item = data && Array.isArray(data.Items) ? data.Items[0] : null;
+  if (!item) {
+    return { currentPrice: null, changePercent: null };
+  }
+  // Number.isFinite on the raw value (not a Number()-converted copy) is
+  // what actually rejects a null/missing rate rather than silently
+  // reporting a 0 price - same reasoning as the CloseRate check below.
+  return {
+    currentPrice: Number.isFinite(item.CloseRate) ? item.CloseRate : null,
+    changePercent: Number.isFinite(item.Change) ? item.Change : null,
+    _debugPriceMatch: {
+      matchedLabel: 'EOD CloseRate',
+      rawToken: String(item.CloseRate),
+      fullMatch: `CloseRate=${item.CloseRate} Change=${item.Change} TradeDate=${item.TradeDate}`
+    }
+  };
 }
 
 // Pages backward from today until fromDateStr (YYYY-MM-DD) is reached, or
@@ -112,4 +143,4 @@ async function fetchTaseHistoricalCloses(stockId, fromDateStr) {
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 
-module.exports = { fetchTaseHistoricalCloses, taseDateToIso };
+module.exports = { fetchTaseHistoricalCloses, fetchTaseQuoteFromEod, taseDateToIso };

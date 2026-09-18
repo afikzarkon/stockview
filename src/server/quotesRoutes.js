@@ -6,9 +6,10 @@ const {
   readStaleTaseQuote,
   writeCachedTaseQuote,
   isUsableTasePayload,
-  scrapeTaseWithPuppeteer,
-  scrapeTaseFallbackWithAxios
+  scrapeTaseQuote
 } = require('./taseScraper');
+const { fetchTaseQuoteFromApi } = require('./taseQuoteApi');
+const { fetchTaseQuoteFromEod } = require('./taseHistoryApi');
 const { getYahooPayload, fetchYahooHistoricalRateForDate } = require('./yahooQuotes');
 const { searchIsraeliSecuritiesByName } = require('./bizportalSearch');
 
@@ -21,20 +22,30 @@ function errMessage(err) {
   return String(err);
 }
 
-// Ordered fallback chain for an Israeli stock quote - each entry is tried
-// in turn until one returns a usable payload. Adding another public source
-// (e.g. Globes/Bizportal) later means adding one more entry here, not
-// touching fetchTaseQuote's control flow. `retryOnce` mirrors the original
-// behavior: a single retry for the flaky Puppeteer path (transient
-// timeouts/RAM pressure on small hosting tiers are common and usually
-// resolve on a second attempt), no retry for the cheaper axios fallback.
+// Ordered fallback chain for an Israeli stock quote - each entry takes a
+// security id and is tried in turn until one returns a usable payload.
+// Adding another public source later means adding one more entry here, not
+// touching fetchTaseQuote's control flow.
+//
+// Ordering is cheapest-and-most-reliable first. The two JSON APIs are
+// independent of each other (different endpoints, different response
+// shapes) and independent of the page scraper, so a quote is only lost if
+// all three fail - unlike the previous chain, whose axios entry could never
+// succeed at all (see taseScraper.js's header), leaving Puppeteer as a
+// single point of failure and a null price whenever it timed out.
+//
+// `retryOnce` stays on the Puppeteer entry only: transient timeouts and RAM
+// pressure on small hosting tiers are common there and usually resolve on a
+// second attempt. A failing HTTP call to either API is not worth a blind
+// retry - the chain itself is the retry, with a different source.
 const TASE_SOURCES = [
-  { name: 'puppeteer', fn: scrapeTaseWithPuppeteer, retryOnce: true },
-  { name: 'axios-fallback', fn: scrapeTaseFallbackWithAxios, retryOnce: false }
+  { name: 'tase-api', fn: fetchTaseQuoteFromApi, retryOnce: false },
+  { name: 'tase-eod', fn: fetchTaseQuoteFromEod, retryOnce: false },
+  { name: 'puppeteer', fn: scrapeTaseQuote, retryOnce: true }
 ];
 
-async function attemptTaseSource(source, taseUrl, stockId) {
-  const result = await source.fn(taseUrl);
+async function attemptTaseSource(source, stockId) {
+  const result = await source.fn(stockId);
   const payload = { currentPrice: result.currentPrice, changePercent: result.changePercent };
   if (!isUsableTasePayload(payload)) {
     const err = new Error(`${source.name} returned unusable payload`);
@@ -44,9 +55,9 @@ async function attemptTaseSource(source, taseUrl, stockId) {
   return { payload, result };
 }
 
-async function runTaseSource(source, taseUrl, stockId) {
+async function runTaseSource(source, stockId) {
   try {
-    return await attemptTaseSource(source, taseUrl, stockId);
+    return await attemptTaseSource(source, stockId);
   } catch (firstErr) {
     if (!source.retryOnce) throw firstErr;
     // כשל חד-פעמי/זמני (timeout גבולי, עומס רגעי) הוא נפוץ בסביבות עם
@@ -56,21 +67,21 @@ async function runTaseSource(source, taseUrl, stockId) {
       stockId,
       error: errMessage(firstErr)
     });
-    return await attemptTaseSource(source, taseUrl, stockId);
+    return await attemptTaseSource(source, stockId);
   }
 }
 
 async function fetchTaseQuote(stockId, req) {
-  const taseUrl = `https://market.tase.co.il/he/market_data/security/${stockId}/major_data`;
   const errors = {};
   for (const source of TASE_SOURCES) {
     try {
-      const { payload, result } = await runTaseSource(source, taseUrl, stockId);
-      // Logged on every success too (not just failures) - a scrape can look
+      const { payload, result } = await runTaseSource(source, stockId);
+      // Logged on every success too (not just failures) - a quote can look
       // "usable" (both fields are finite numbers) while still being wrong,
-      // e.g. if the regex matched a different field on the page than
-      // intended. This shows exactly what label/text produced the price,
-      // so a scaling bug can be diagnosed directly instead of guessed at.
+      // e.g. if the scraper's regex matched a different field on the page
+      // than intended. Every source fills in _debugPriceMatch, so this line
+      // names which source won and what produced the price, and a scaling
+      // bug can be diagnosed directly instead of guessed at.
       console.log(`[tase] ${source.name} succeeded`, {
         stockId,
         payload,
@@ -97,7 +108,11 @@ async function fetchTaseQuote(stockId, req) {
     return stale;
   }
   if (req.query && (req.query.debug === '1' || req.query.debug === 'true')) {
-    return { currentPrice: null, changePercent: null, _debug: { stockId, taseUrl, errors } };
+    return {
+      currentPrice: null,
+      changePercent: null,
+      _debug: { stockId, sources: TASE_SOURCES.map((s) => s.name), errors }
+    };
   }
   return { currentPrice: null, changePercent: null };
 }

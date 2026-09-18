@@ -1,9 +1,21 @@
 // TASE (Tel Aviv Stock Exchange) price scraping: a Puppeteer-based scraper
-// with an Axios/Cheerio fallback for when the headless browser fails, plus
-// a short-TTL cache. Extracted from server.js — behavior is unchanged,
-// only the location moved.
-const axios = require('axios');
-const cheerio = require('cheerio');
+// plus a short-TTL cache.
+//
+// This is now the LAST resort in quotesRoutes.js's source chain, behind two
+// JSON APIs (taseQuoteApi.js and taseHistoryApi.js's fetchTaseQuoteFromEod).
+// It is kept because it reads the same rendered page a human sees, so it
+// survives an API being changed or withdrawn - but rendering a page in a
+// headless browser and regexing its innerText is the most fragile and by
+// far the most expensive way to get these two numbers, which is why nothing
+// reaches it unless both APIs have already failed.
+//
+// An Axios/Cheerio fallback used to live here as the second source. It was
+// removed after being measured against the live site: it returned null for
+// every security tested, because major_data renders a static shell and
+// fills in the numbers afterwards via JS (see the wait-condition comment in
+// scrapeTaseWithPuppeteer below) - raw HTML never contains a price, so
+// parsing it could only ever fail. It made the chain look two deep while
+// leaving exactly one working source.
 const puppeteer = require('puppeteer');
 
 const TASE_CACHE_TTL_MS = 60 * 1000;
@@ -12,6 +24,20 @@ let browserPromise = null;
 /** Render/Linux containers: small /dev/shm often crashes Chrome without this flag. */
 const TASE_PUPPETEER_GOTO_MS = Number(process.env.TASE_PUPPETEER_GOTO_MS) || 30000;
 const TASE_PUPPETEER_WAIT_MS = Number(process.env.TASE_PUPPETEER_WAIT_MS) || 12000;
+
+// The public page for a security's "נתונים עיקריים" tab. Lives here rather
+// than in quotesRoutes.js so that everything tied to the scraped page's
+// shape stays in one module - the other sources in the chain are addressed
+// by security id alone.
+function taseMajorDataUrl(stockId) {
+  return `https://market.tase.co.il/he/market_data/security/${stockId}/major_data`;
+}
+
+// Chain-facing entry point: every source in quotesRoutes.js's TASE_SOURCES
+// takes a security id, so the URL is built here instead of by the caller.
+async function scrapeTaseQuote(stockId) {
+  return scrapeTaseWithPuppeteer(taseMajorDataUrl(stockId));
+}
 
 function getPuppeteerExecutablePath() {
   const fromEnv = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_BIN;
@@ -39,11 +65,11 @@ function writeCachedTaseQuote(stockId, data) {
   taseQuoteCache.set(stockId, { data, ts: Date.now() });
 }
 
-// Mirrors the parsePriceToken() closures inside scrapeTaseWithPuppeteer and
-// scrapeTaseFallbackWithAxios above - duplicated for the same reason as
-// hasUsableTasePriceText (Puppeteer serializes its copy to run in-browser,
-// so it can't reference this module's code), kept here standalone so the
-// logic is unit-testable. If either copy changes, update this one too.
+// Mirrors the parsePriceToken() closure inside scrapeTaseWithPuppeteer -
+// duplicated for the same reason as hasUsableTasePriceText (Puppeteer
+// serializes its copy to run in-browser, so it can't reference this
+// module's code), kept here standalone so the logic is unit-testable. If
+// either copy changes, update this one too.
 function parseTasePriceToken(token) {
   if (!token) return null;
   const cleaned = token
@@ -242,69 +268,6 @@ async function scrapeTaseWithPuppeteer(taseUrl) {
   }
 }
 
-function axiosBodyToHtmlString(data) {
-  if (typeof data === 'string') return data;
-  if (Buffer.isBuffer(data)) return data.toString('utf8');
-  return '';
-}
-
-async function scrapeTaseFallbackWithAxios(taseUrl) {
-  const { data } = await axios.get(taseUrl, {
-    responseType: 'text',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7',
-    },
-    timeout: 12000
-  });
-  const $ = cheerio.load(axiosBodyToHtmlString(data));
-  const normalizeText = (t) => (t || '')
-    .replace(/[\u2212\u2012\u2013\u2014]/g, '-')
-    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
-    .replace(/\s+/g, ' ');
-  const fullText = normalizeText($('body').text());
-  const priceNumberRx = '(\\d[\\d\\s,.]*)';
-  const priceMatch =
-    fullText.match(new RegExp(`שער\\s*אחרון[^\\d]{0,80}${priceNumberRx}`)) ||
-    fullText.match(new RegExp(`שווי\\s*יחידה[^\\d]{0,80}${priceNumberRx}`)) ||
-    fullText.match(new RegExp(`שער\\s*פתיחה[^\\d]{0,80}${priceNumberRx}`));
-  const percentToken = '([()\\-\\u2212\\d.\u2012\u2013\u2014\u200E\u200F]+?)';
-  const percentMatch = fullText.match(new RegExp(`שינוי\\s*יומי[^%]{0,30}${percentToken}%`)) || fullText.match(new RegExp(`${percentToken}%`));
-  const parsePriceToken = (token) => {
-    if (!token) return null;
-    const cleaned = token
-      .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
-      .replace(/\s+/g, '')
-      .replace(/,/g, '');
-    const num = parseFloat(cleaned);
-    if (!Number.isFinite(num)) return null;
-    // Not multiplied by *100 - see the identical fix (and full
-    // explanation) in scrapeTaseWithPuppeteer's parsePriceToken above.
-    return Math.round(num);
-  };
-  const currentPrice = priceMatch ? parsePriceToken(priceMatch[1]) : null;
-  const parsePercentToken = (token) => {
-    if (!token) return null;
-    const s = token.replace(/[\u2212\u2012\u2013\u2014]/g, '-');
-    // negative if any '-' exists OR parentheses contain a number with optional '-'
-    const isNegative = /-/.test(s) || /\(\s*-?\d/.test(s) && /\)/.test(s);
-    const numMatch = s.match(/\d+(?:\.\d+)?/);
-    if (!numMatch) return null;
-    const val = parseFloat(numMatch[0]);
-    return isNegative ? -val : val;
-  };
-  const rawToken = percentMatch ? percentMatch[1] : null;
-  const changePercent = percentMatch ? parsePercentToken(rawToken) : null;
-  // include raw for server-side log only
-  return {
-    currentPrice,
-    changePercent,
-    _rawPercentToken: rawToken,
-    _debugTextSnippet: fullText.slice(0, 400),
-    _debugPriceMatch: priceMatch ? { rawToken: priceMatch[1], fullMatch: priceMatch[0] } : null
-  };
-}
-
 module.exports = {
   readCachedTaseQuote,
   readStaleTaseQuote,
@@ -312,6 +275,7 @@ module.exports = {
   isUsableTasePayload,
   hasUsableTasePriceText,
   parseTasePriceToken,
-  scrapeTaseWithPuppeteer,
-  scrapeTaseFallbackWithAxios
+  taseMajorDataUrl,
+  scrapeTaseQuote,
+  scrapeTaseWithPuppeteer
 };
