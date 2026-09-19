@@ -3707,3 +3707,25 @@ body {
   flex: 1 1 auto;
   min-width: 120px;
 }
+
+/* Monthly tracker: marks a category whose figures are derived from the
+   main tables rather than typed in (see AUTO_DERIVED_CATEGORIES). */
+.monthly-auto-derived-badge {
+  color: var(--sw-text-secondary);
+  font-size: 0.8em;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.monthly-manual-auto-title {
+  margin: 12px 0 6px;
+  font-size: 0.95rem;
+  color: var(--sw-text-secondary);
+}
+
+.monthly-manual-auto-section,
+.monthly-manual-entry-section {
+  border-top: 1px solid var(--sw-border, rgba(127, 127, 127, 0.18));
+  padding-top: 8px;
+  margin-top: 8px;
+}

@@ -2,7 +2,8 @@ import {
   computePortfolioValueAtDate,
   computeHistoricalPortfolioSeries,
   computeHistoricalBreakdownAtDate,
-  sumHistoricalBreakdown
+  sumHistoricalBreakdown,
+  buildSampleDates
 } from './historicalPortfolioValue';
 
 describe('computePortfolioValueAtDate', () => {
@@ -216,5 +217,104 @@ describe('computeHistoricalBreakdownAtDate', () => {
     const breakdown = computeHistoricalBreakdownAtDate('2024-03-01');
     expect(breakdown).toEqual({ israeli: [], american: [], pension: [], cashFunds: [], bank: [], bankSavings: [] });
     expect(sumHistoricalBreakdown(breakdown)).toBe(0);
+  });
+});
+
+// THE DATE-PICKER FREEZE, at the level it was actually caused.
+//
+// A date input emits partial values while the year is typed ("0002" before
+// "2024"), and a range starting in year 2 used to expand to ~105,000 weekly
+// sample points, each pricing every holding. Sampling is now bounded no
+// matter what range it is handed.
+describe('buildSampleDates', () => {
+  test('samples weekly for a normal range, ending exactly on the requested end date', () => {
+    const dates = buildSampleDates('2024-01-01', '2024-01-20');
+    expect(dates).toEqual(['2024-01-01', '2024-01-08', '2024-01-15', '2024-01-20']);
+  });
+
+  test('caps the number of points for an absurdly long range instead of scaling without limit', () => {
+    const dates = buildSampleDates('0002-01-01', '2026-09-19');
+    expect(dates.length).toBeLessThanOrEqual(401);
+    // Weekly sampling over that span would have produced this many.
+    expect(dates.length).toBeLessThan(105000);
+  });
+
+  test('every half-typed year a date input emits stays bounded', () => {
+    ['0002-03-01', '0020-03-01', '0202-03-01', '2024-03-01'].forEach((from) => {
+      expect(buildSampleDates(from, '2026-09-19').length).toBeLessThanOrEqual(401);
+    });
+  });
+
+  test('the end date is always the last point, whatever the step works out to', () => {
+    ['2024-01-02', '2024-06-13', '0002-01-01'].forEach((from) => {
+      const dates = buildSampleDates(from, '2026-09-19');
+      expect(dates[dates.length - 1]).toBe('2026-09-19');
+    });
+  });
+
+  test('returns nothing for an unparseable date', () => {
+    expect(buildSampleDates('not-a-date', '2024-01-01')).toEqual([]);
+  });
+});
+
+describe('close lookup performance and correctness', () => {
+  // The other half of the freeze: the carry-forward lookup used to copy and
+  // sort the entire close series on every single call - once per holding,
+  // per sampled date.
+  const makeCloses = (n) =>
+    Array.from({ length: n }, (_, i) => ({
+      date: new Date(Date.UTC(2023, 0, 1) + i * 86400000).toISOString().slice(0, 10),
+      close: 10000 + i
+    }));
+
+  test('carries the last close forward and finds the right one regardless of input order', () => {
+    const closes = makeCloses(400);
+    const shuffled = [...closes].reverse();
+    const holdings = { israeliStocks: [{ stockName: 'X', quantity: 1, purchaseDate: '2023-01-01' }] };
+
+    const sorted = computePortfolioValueAtDate('2023-06-15', holdings, {
+      taseHistoricalCloses: { X: closes }
+    });
+    const unsorted = computePortfolioValueAtDate('2023-06-15', holdings, {
+      taseHistoricalCloses: { X: shuffled }
+    });
+    expect(unsorted.valueILS).toBe(sorted.valueILS);
+  });
+
+  test('a date before the first close has no value to carry forward', () => {
+    const result = computePortfolioValueAtDate(
+      '2022-01-01',
+      { israeliStocks: [{ stockName: 'X', quantity: 1, purchaseDate: '2021-01-01' }] },
+      { taseHistoricalCloses: { X: makeCloses(10) } }
+    );
+    expect(result.valueILS).toBeNull();
+    expect(result.isPartial).toBe(true);
+  });
+
+  test('a long series over a long range completes quickly rather than blocking', () => {
+    const israeliStocks = Array.from({ length: 10 }, (_, i) => ({
+      stockName: `sym${i}`,
+      quantity: 10,
+      purchaseDate: '2023-01-01'
+    }));
+    const taseHistoricalCloses = {};
+    israeliStocks.forEach((s) => {
+      // Reversed, so an implementation that sorts per lookup pays for it.
+      taseHistoricalCloses[s.stockName] = makeCloses(750).reverse();
+    });
+
+    const started = Date.now();
+    const series = computeHistoricalPortfolioSeries(
+      '0002-01-01',
+      '2026-09-19',
+      { israeliStocks, americanStocks: [] },
+      { taseHistoricalCloses }
+    );
+    const elapsed = Date.now() - started;
+
+    expect(series.length).toBeLessThanOrEqual(401);
+    // Generous enough not to be flaky on a loaded CI box, and still orders
+    // of magnitude below the tens of seconds this used to take.
+    expect(elapsed).toBeLessThan(2000);
   });
 });

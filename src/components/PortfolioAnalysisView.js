@@ -13,6 +13,7 @@ import {
   Legend
 } from 'recharts';
 import { buildSeriesFromHistoricalValues, computeStatsFromSeries } from '../utils/portfolioStats';
+import { buildPortfolioCashFlows } from '../utils/portfolioCashFlows';
 import { buildComparisonSeries } from '../utils/benchmarkComparison';
 import { computeSectorDistribution } from '../utils/sectorAnalysis';
 import { sectorLabelHe } from '../utils/sectorLabels';
@@ -37,7 +38,9 @@ import {
   normalizeCategoryItems,
   isLegacyRollup,
   MONTHLY_CATEGORY_KEYS,
-  MONTHLY_CATEGORY_LABELS_HE
+  MONTHLY_CATEGORY_LABELS_HE,
+  AUTO_DERIVED_CATEGORIES,
+  MANUAL_ENTRY_CATEGORIES
 } from '../utils/monthlySnapshotComparison';
 import RebalancingSection from './RebalancingSection';
 
@@ -105,25 +108,47 @@ function formatMonthLabel(monthKey) {
   return new Date(year, month - 1, 1).toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
 }
 
-// Net external cash flow declared per category (positive = net deposit/
-// purchase, negative = net withdrawal/sale) - the user's own correction
-// for whatever the automatic contribution-adjustment (Modified Dietz, see
-// utils/monthlySnapshotComparison.js) can't see on its own: any change to
-// עו"ש/קרנות כספיות (no ledger at all to auto-detect from), or a
-// sale/withdrawal in ANY category (auto-detection only ever sees money
-// going IN, via purchase dates / deposit ledgers). Stored as
-// breakdown.cashFlows alongside the itemized per-category data on the
-// monthly snapshot itself, read by buildManualCashFlows there. Kept as
-// strings while being edited (like every other numeric input in this
-// form), parsed into numbers (dropping blank/zero entries) just before
-// being sent - used by the save, edit, and manual-backfill forms alike.
-const emptyCashFlows = () => MONTHLY_CATEGORY_KEYS.reduce((acc, key) => ({ ...acc, [key]: '' }), {});
+// Net external cash flow declared per category (positive = net deposit,
+// negative = net withdrawal), for the LIQUID categories only - current
+// accounts, money-market funds and bank savings.
+//
+// Stocks and provident funds are deliberately absent: their flows are
+// already recorded, dated, in the main tables (a purchase lot's own date
+// and cost; a provident fund's deposit ledger) and are read straight from
+// there. Offering a second, manual place to declare the same flow created
+// two sources for one number with nothing to say which was right, and
+// invited double-counting - the declared amount and the ledger entry would
+// both be netted out. A liquid account has no such ledger, so for those
+// the user's declaration is the only source there is.
+//
+// Kept as strings while being edited (like every other numeric input in
+// this form), parsed into numbers (dropping blank/zero entries) just
+// before being sent.
+const emptyCashFlows = () => MANUAL_ENTRY_CATEGORIES.reduce((acc, key) => ({ ...acc, [key]: '' }), {});
 const parseCashFlows = (draft) =>
-  MONTHLY_CATEGORY_KEYS.reduce((acc, key) => {
+  MANUAL_ENTRY_CATEGORIES.reduce((acc, key) => {
     const v = parseFloat(draft[key]);
     if (Number.isFinite(v) && v !== 0) acc[key] = v;
     return acc;
   }, {});
+
+// The declared flows a saved month carries on categories that NO LONGER
+// HAVE A FIELD - stocks and provident funds, declared back when that was
+// possible.
+//
+// These have to survive an edit untouched. Opening a month to correct an
+// unrelated figure must not quietly delete data that was recorded at the
+// time and that the comparison for that month still depends on; the figure
+// it produces would change for a reason the user never asked for. There's
+// no UI to re-enter them either, so a drop would be unrecoverable.
+const extractLegacyCashFlows = (savedCashFlows) => {
+  if (!savedCashFlows || typeof savedCashFlows !== 'object') return {};
+  return Object.entries(savedCashFlows).reduce((acc, [key, value]) => {
+    if (MANUAL_ENTRY_CATEGORIES.includes(key)) return acc;
+    if (Number.isFinite(value) && value !== 0) acc[key] = value;
+    return acc;
+  }, {});
+};
 
 function PortfolioAnalysisView({
   analysis,
@@ -197,8 +222,60 @@ function PortfolioAnalysisView({
   // today as holdings are added, until the user explicitly narrows it.
   const [performanceFrom, setPerformanceFrom] = useState('');
   const [performanceTo, setPerformanceTo] = useState('');
+
+  // A date input is NOT a single-value control: it fires onChange on every
+  // keystroke while the year is being typed. Typing "2023" emits "0002",
+  // "0020" and "0202" first, so the raw input value is briefly a date
+  // centuries in the past. Every one of those intermediate values used to
+  // be committed straight through to the fetch + recompute below, which is
+  // what froze the page (see buildSampleDates' own note).
+  //
+  // So a typed value is only accepted once it's actually a usable date.
+  // Anything else leaves the previously committed range in place: the user
+  // keeps typing, the chart keeps showing the last good range, and nothing
+  // is recomputed until they've finished.
+  const isCommittableDate = useCallback(
+    (value) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
+      const time = new Date(`${value}T00:00:00Z`).getTime();
+      if (Number.isNaN(time)) return false;
+      // No market data exists before this, and nothing after today can be
+      // priced - both bounds also keep a half-typed year out.
+      return value >= '1970-01-01' && value <= todayDate;
+    },
+    [todayDate]
+  );
+
+  const handlePerformanceFromChange = useCallback(
+    (value) => {
+      if (value === '') {
+        setPerformanceFrom('');
+        return;
+      }
+      if (isCommittableDate(value)) setPerformanceFrom(value);
+    },
+    [isCommittableDate]
+  );
+
+  const handlePerformanceToChange = useCallback(
+    (value) => {
+      if (value === '') {
+        setPerformanceTo('');
+        return;
+      }
+      if (isCommittableDate(value)) setPerformanceTo(value);
+    },
+    [isCommittableDate]
+  );
+
   const effectivePerformanceFrom = performanceFrom || portfolioInceptionDate;
-  const effectivePerformanceTo = performanceTo || todayDate;
+  // A range whose start is after its end produces nothing to chart, and is
+  // easy to reach mid-edit (narrowing "from" before widening "to"). The
+  // two are swapped rather than blanking the section out.
+  const effectivePerformanceTo =
+    performanceTo && performanceTo < effectivePerformanceFrom
+      ? effectivePerformanceFrom
+      : performanceTo || todayDate;
 
   const {
     series: performanceSeries,
@@ -216,9 +293,18 @@ function PortfolioAnalysisView({
     bankSavingsFunds
   });
 
+  // Every dated deposit/purchase the app knows about, so the return figures
+  // below measure the assets' own performance rather than how much money
+  // was paid in (see utils/portfolioCashFlows.js).
+  const portfolioCashFlows = useMemo(
+    () =>
+      buildPortfolioCashFlows({ israeliStocks, americanStocks, pensionFunds, cashFunds, bankSavingsFunds }),
+    [israeliStocks, americanStocks, pensionFunds, cashFunds, bankSavingsFunds]
+  );
+
   const stats = useMemo(
-    () => computeStatsFromSeries(buildSeriesFromHistoricalValues(performanceSeries)),
-    [performanceSeries]
+    () => computeStatsFromSeries(buildSeriesFromHistoricalValues(performanceSeries), portfolioCashFlows),
+    [performanceSeries, portfolioCashFlows]
   );
   const performanceHasPartialPoints = useMemo(
     () => performanceSeries.some((p) => p.isPartial),
@@ -390,87 +476,130 @@ function PortfolioAnalysisView({
   const [detailedView, setDetailedView] = useState(false);
 
   // Editing a past monthly save - mirrors the Home page's inline-edit
-  // pattern (App.js's editingField/handleCellClick/handleInlineEdit):
-  // editingMonth is which saved month (if any) is open for editing,
-  // editDraftBreakdown is a local mutable copy of just that month's
-  // itemized breakdown (categoryKey -> array of {key,label,value}), and
-  // editingCell is which single item's value currently shows an <input>
-  // ("categoryKey-itemKey"-ish) - same click-one-cell-at-a-time affordance
-  // as the Home tables, not a whole-row/whole-card edit mode.
+  // editingMonth is which saved month (if any) is open for editing, and
+  // editDraftBreakdown is a local copy of just that month's itemized
+  // breakdown while it's being edited.
+  //
+  // EVERY DRAFT ROW CARRIES A STABLE rowId, and that - not its label or its
+  // saved key - is what React keys the DOM by.
+  //
+  // This is the fix for the typing bug. The rows used to be keyed by
+  // item.key, while renaming a row rewrote item.key to whatever had been
+  // typed so far. So every keystroke changed the key React identified the
+  // row by, React concluded the old row was gone and a new one had
+  // appeared, and it destroyed and rebuilt the <input> - which is why the
+  // caret jumped out of the field after a single character. A rowId that
+  // is assigned once and never changes makes the row the same row for the
+  // whole edit, so the input is preserved and typing is continuous.
+  //
+  // Values are held as RAW STRINGS while editing, too. Parsing on each
+  // keystroke turned a half-typed "-" or "1." or an emptied field into
+  // NaN, which then poisoned the category subtotal and the card total.
+  // They're parsed once, at save.
   const [editingMonth, setEditingMonth] = useState(null);
   const [editDraftBreakdown, setEditDraftBreakdown] = useState(null);
-  const [editingCell, setEditingCell] = useState(null);
   const [editDraftCashFlows, setEditDraftCashFlows] = useState(emptyCashFlows);
+  // Carried through the edit untouched - see extractLegacyCashFlows.
+  const [editLegacyCashFlows, setEditLegacyCashFlows] = useState({});
+
+  const draftRowIdRef = useRef(0);
+  const nextDraftRowId = () => {
+    draftRowIdRef.current += 1;
+    return `row-${draftRowIdRef.current}`;
+  };
+
+  // A saved { key, label, value } item -> an editable draft row.
+  const toDraftRow = (item) => ({
+    rowId: nextDraftRowId(),
+    // Preserved so a row that is never renamed keeps matching the same
+    // holding when two months are compared item-by-item.
+    savedKey: item.key,
+    label: item.label,
+    valueText: Number.isFinite(item.value) ? String(item.value) : ''
+  });
+
+  const buildDraftFromBreakdown = (breakdown) =>
+    MONTHLY_CATEGORY_KEYS.reduce((acc, key) => {
+      acc[key] = normalizeCategoryItems(breakdown?.[key], key).map(toDraftRow);
+      return acc;
+    }, {});
+
+  // Draft row -> the { key, label, value } shape a snapshot stores. A
+  // renamed row takes its new label as its key; an untouched one keeps the
+  // key it was saved under.
+  const fromDraftRow = (row) => {
+    const label = row.label.trim();
+    const value = parseFloat(row.valueText);
+    return {
+      key: label && label !== row.savedKey ? label : row.savedKey || label,
+      label,
+      value: Number.isFinite(value) ? value : 0
+    };
+  };
+
+  const draftCategoryTotal = (rows) =>
+    (rows || []).reduce((sum, row) => {
+      const value = parseFloat(row.valueText);
+      return sum + (Number.isFinite(value) ? value : 0);
+    }, 0);
 
   const startEditingMonth = (snapshot) => {
+    const savedCashFlows = snapshot.breakdown?.cashFlows;
     setEditingMonth(snapshot.month);
-    setEditDraftBreakdown(
-      MONTHLY_CATEGORY_KEYS.reduce((acc, key) => {
-        acc[key] = normalizeCategoryItems(snapshot.breakdown?.[key], key).map((item) => ({ ...item }));
-        return acc;
-      }, {})
-    );
+    setEditDraftBreakdown(buildDraftFromBreakdown(snapshot.breakdown));
+    // Only the categories that still have an input become editable...
     setEditDraftCashFlows(
-      MONTHLY_CATEGORY_KEYS.reduce((acc, key) => {
-        const v = snapshot.breakdown?.cashFlows?.[key];
+      MANUAL_ENTRY_CATEGORIES.reduce((acc, key) => {
+        const v = savedCashFlows?.[key];
         acc[key] = Number.isFinite(v) ? String(v) : '';
         return acc;
       }, {})
     );
-    setEditingCell(null);
+    // ...and whatever a legacy month declared on the others rides along
+    // unchanged.
+    setEditLegacyCashFlows(extractLegacyCashFlows(savedCashFlows));
   };
 
   const cancelEditingMonth = () => {
     setEditingMonth(null);
     setEditDraftBreakdown(null);
     setEditDraftCashFlows(emptyCashFlows());
-    setEditingCell(null);
+    setEditLegacyCashFlows({});
   };
 
-  const handleEditItemValueChange = (categoryKey, itemKey, rawValue) => {
-    const numValue = parseFloat(rawValue);
+  // Both editors update one field of one row, addressed by its stable
+  // rowId - nothing about the row's identity changes as a result, so
+  // nothing remounts.
+  const updateDraftRow = (categoryKey, rowId, patch) => {
     setEditDraftBreakdown((prev) => ({
       ...prev,
-      [categoryKey]: prev[categoryKey].map((item) => (item.key === itemKey ? { ...item, value: numValue } : item))
+      [categoryKey]: prev[categoryKey].map((row) => (row.rowId === rowId ? { ...row, ...patch } : row))
     }));
   };
 
-  // Renaming a row also re-keys it. `key` is what a month's rows are
-  // matched on when two months are compared item-by-item, so a row whose
-  // label no longer matches its key would silently stop lining up with the
-  // same holding in the other month.
-  const handleEditItemLabelChange = (categoryKey, itemKey, rawLabel) => {
-    setEditDraftBreakdown((prev) => ({
-      ...prev,
-      [categoryKey]: prev[categoryKey].map((item) =>
-        item.key === itemKey ? { ...item, key: rawLabel, label: rawLabel } : item
-      )
-    }));
-    // The open value-cell is tracked by "category-itemKey", so re-keying the
-    // row would otherwise silently close an input the user is part-way
-    // through filling in.
-    setEditingCell((prev) => (prev === `${categoryKey}-${itemKey}` ? `${categoryKey}-${rawLabel}` : prev));
+  const handleEditItemValueChange = (categoryKey, rowId, rawValue) => {
+    updateDraftRow(categoryKey, rowId, { valueText: rawValue });
+  };
+
+  const handleEditItemLabelChange = (categoryKey, rowId, rawLabel) => {
+    updateDraftRow(categoryKey, rowId, { label: rawLabel });
   };
 
   // Free row management inside a saved month: a checkpoint may need a row
   // the portfolio no longer has (an account since closed), or be missing
   // one that existed at the time. Editing values alone couldn't express
   // either.
-  const newDraftRowIdRef = useRef(0);
   const addEditItemRow = (categoryKey) => {
-    newDraftRowIdRef.current += 1;
-    const placeholderKey = `שורה חדשה ${newDraftRowIdRef.current}`;
     setEditDraftBreakdown((prev) => ({
       ...prev,
-      [categoryKey]: [...prev[categoryKey], { key: placeholderKey, label: placeholderKey, value: 0 }]
+      [categoryKey]: [...prev[categoryKey], { rowId: nextDraftRowId(), savedKey: '', label: '', valueText: '' }]
     }));
-    setEditingCell(`${categoryKey}-${placeholderKey}`);
   };
 
-  const removeEditItemRow = (categoryKey, itemKey) => {
+  const removeEditItemRow = (categoryKey, rowId) => {
     setEditDraftBreakdown((prev) => ({
       ...prev,
-      [categoryKey]: prev[categoryKey].filter((item) => item.key !== itemKey)
+      [categoryKey]: prev[categoryKey].filter((row) => row.rowId !== rowId)
     }));
   };
 
@@ -520,13 +649,9 @@ function PortfolioAnalysisView({
       return;
     }
     setAutoFillMessage('');
-    setEditDraftBreakdown(
-      MONTHLY_CATEGORY_KEYS.reduce((acc, key) => {
-        acc[key] = (breakdown[key] || []).map((item) => ({ ...item }));
-        return acc;
-      }, {})
-    );
-    setEditingCell(null);
+    // Rebuilt through the same draft factory as every other row, so
+    // auto-filled rows are editable afterwards exactly like typed ones.
+    setEditDraftBreakdown(buildDraftFromBreakdown(breakdown));
   };
 
   const handleEditCashFlowChange = (categoryKey, rawValue) => {
@@ -534,16 +659,22 @@ function PortfolioAnalysisView({
   };
 
   const draftTotal = editDraftBreakdown
-    ? MONTHLY_CATEGORY_KEYS.reduce(
-        (sum, key) => sum + editDraftBreakdown[key].reduce((s, it) => s + (it.value || 0), 0),
-        0
-      )
+    ? MONTHLY_CATEGORY_KEYS.reduce((sum, key) => sum + draftCategoryTotal(editDraftBreakdown[key]), 0)
     : 0;
 
   const handleSaveEditedMonth = async () => {
     if (!editingMonth || !editDraftBreakdown || !onUpdateMonthlySnapshot) return;
-    const breakdownWithCashFlows = { ...editDraftBreakdown, cashFlows: parseCashFlows(editDraftCashFlows) };
-    const ok = await onUpdateMonthlySnapshot(editingMonth, draftTotal, breakdownWithCashFlows);
+    // Draft rows become stored items here, once - not on every keystroke.
+    // A row left completely blank is dropped rather than saved as a
+    // nameless zero.
+    const breakdown = MONTHLY_CATEGORY_KEYS.reduce((acc, key) => {
+      acc[key] = editDraftBreakdown[key].map(fromDraftRow).filter((item) => item.key);
+      return acc;
+    }, {});
+    // Legacy first, so an edited liquid category always wins over whatever
+    // was stored for it - the two key sets are otherwise disjoint.
+    breakdown.cashFlows = { ...editLegacyCashFlows, ...parseCashFlows(editDraftCashFlows) };
+    const ok = await onUpdateMonthlySnapshot(editingMonth, draftTotal, breakdown);
     if (ok) cancelEditingMonth();
   };
 
@@ -572,13 +703,16 @@ function PortfolioAnalysisView({
     }
   };
 
-  // "➕ הוספה ידנית" - lets the user deliberately backfill a past month
-  // they forgot to save, typing in their own remembered per-item values
-  // (not derived from the live portfolio) - a real feature available to
-  // everyone, unlike the old dev-only mock-seed button this replaced.
+  // "➕ הוספה ידנית" - backfills a past month the user never saved.
+  //
+  // Only the LIQUID categories are typed in here. Stocks and provident
+  // funds are derived from the month's historical closes and the deposit
+  // ledgers (manualAddAutoBreakdown below) and shown read-only: the app can
+  // work those out exactly, so asking the user to remember and retype them
+  // could only ever introduce a number that disagrees with the main tables.
   const [showManualAddForm, setShowManualAddForm] = useState(false);
   const [manualAddMonth, setManualAddMonth] = useState('');
-  const emptyManualItems = () => MONTHLY_CATEGORY_KEYS.reduce((acc, key) => ({ ...acc, [key]: [] }), {});
+  const emptyManualItems = () => MANUAL_ENTRY_CATEGORIES.reduce((acc, key) => ({ ...acc, [key]: [] }), {});
   const [manualAddItems, setManualAddItems] = useState(emptyManualItems);
   const [manualAddCashFlows, setManualAddCashFlows] = useState(emptyCashFlows);
   const manualAddIdRef = useRef(0);
@@ -588,6 +722,7 @@ function PortfolioAnalysisView({
     setManualAddMonth('');
     setManualAddItems(emptyManualItems());
     setManualAddCashFlows(emptyCashFlows());
+    setAutoFillMessage('');
   };
 
   const handleManualAddCashFlowChange = (categoryKey, rawValue) => {
@@ -611,9 +746,23 @@ function PortfolioAnalysisView({
     }));
   };
 
-  // Same automatic fill as the edit flow, for backfilling a past month:
-  // pick the month, press the button, and every row is derived from the
-  // historical closes and the account ledgers rather than typed in.
+  // The derived half of the backfill form: recomputed whenever the chosen
+  // month changes, never stored in state, so it can't drift from the main
+  // tables it comes from.
+  const manualAddAutoBreakdown = useMemo(
+    () => (manualAddMonth ? buildAutoBreakdownForMonth(manualAddMonth) : null),
+    [manualAddMonth, buildAutoBreakdownForMonth]
+  );
+
+  const manualAddAutoTotal = AUTO_DERIVED_CATEGORIES.reduce(
+    (sum, key) =>
+      sum + ((manualAddAutoBreakdown?.[key] || []).reduce((s, item) => s + (item.value || 0), 0)),
+    0
+  );
+
+  // Prefills the liquid rows from the account ledgers, as a starting point
+  // the user can then correct - unlike the derived categories above, these
+  // stay editable.
   const handleAutoFillManualAdd = () => {
     const breakdown = buildAutoBreakdownForMonth(manualAddMonth);
     if (!breakdown) {
@@ -622,7 +771,7 @@ function PortfolioAnalysisView({
     }
     setAutoFillMessage('');
     setManualAddItems(
-      MONTHLY_CATEGORY_KEYS.reduce((acc, key) => {
+      MANUAL_ENTRY_CATEGORIES.reduce((acc, key) => {
         acc[key] = (breakdown[key] || []).map((item) => {
           manualAddIdRef.current += 1;
           return { id: manualAddIdRef.current, label: item.label, value: String(item.value) };
@@ -633,18 +782,23 @@ function PortfolioAnalysisView({
   };
 
   const manualAddMonthAlreadySaved = !!manualAddMonth && monthlySnapshots.some((s) => s.month === manualAddMonth);
-  const manualAddTotal = MONTHLY_CATEGORY_KEYS.reduce((sum, key) => {
+  const manualAddManualTotal = MANUAL_ENTRY_CATEGORIES.reduce((sum, key) => {
     const catSum = manualAddItems[key].reduce((s, it) => {
       const v = parseFloat(it.value);
       return s + (Number.isFinite(v) ? v : 0);
     }, 0);
     return sum + catSum;
   }, 0);
+  const manualAddTotal = manualAddAutoTotal + manualAddManualTotal;
 
   const handleSubmitManualAdd = async () => {
     if (!onAddManualMonthlySnapshot || !manualAddMonth || manualAddMonthAlreadySaved) return;
     const breakdown = {};
-    MONTHLY_CATEGORY_KEYS.forEach((key) => {
+    // Derived categories go in exactly as computed.
+    AUTO_DERIVED_CATEGORIES.forEach((key) => {
+      breakdown[key] = (manualAddAutoBreakdown?.[key] || []).map((item) => ({ ...item }));
+    });
+    MANUAL_ENTRY_CATEGORIES.forEach((key) => {
       breakdown[key] = manualAddItems[key]
         .map((it) => ({ key: it.label.trim(), label: it.label.trim(), value: parseFloat(it.value) }))
         .filter((it) => it.key && Number.isFinite(it.value));
@@ -663,7 +817,13 @@ function PortfolioAnalysisView({
     setSaveCashFlows((prev) => ({ ...prev, [categoryKey]: rawValue }));
   };
   const handleSaveMonthlySnapshotClick = () => {
-    onSaveMonthlySnapshot(parseCashFlows(saveCashFlows));
+    // Re-saving this month REPLACES its stored row, so any flow it was
+    // saved with on a category that no longer has a field would be lost
+    // with it - the same silent drop the edit flow guards against. Carried
+    // through here too, under whatever is declared in the form now.
+    const existing = monthlySnapshots.find((snap) => snap.month === currentMonthKey);
+    const legacy = extractLegacyCashFlows(existing?.breakdown?.cashFlows);
+    onSaveMonthlySnapshot({ ...legacy, ...parseCashFlows(saveCashFlows) });
     setSaveCashFlows(emptyCashFlows());
   };
 
@@ -671,18 +831,19 @@ function PortfolioAnalysisView({
   const formatPercentCell = (v) => (v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}%` : '—');
   const percentCellClass = (v) => (v == null ? '' : v >= 0 ? 'profit-positive' : 'profit-negative');
 
-  // Shared compact grid of one small labeled number input per category -
-  // reused by the save/edit/manual-add forms alike (see emptyCashFlows'
-  // own comment for what these represent).
+  // Shared compact grid of one small labeled number input per LIQUID
+  // category - reused by the save/edit/manual-add forms alike (see
+  // emptyCashFlows' own comment for why stocks and provident funds have no
+  // field here).
   const renderCashFlowInputs = (values, onChange, idPrefix) => (
     <div className="monthly-cashflow-inputs">
       <p className="monthly-cashflow-hint">
-        תזרים חיצוני נטו בתקופה (₪, אופציונלי) - הפקדה/רכישה = מספר חיובי, משיכה/מכירה = מספר שלילי. עבור מניות/קופות
-        גמל/קופות חיסכון, הפקדות/רכישות כבר מזוהות אוטומטית לפי התאריך שהוזן בעת ההוספה - השדה כאן נועד בעיקר
-        למכירות/משיכות, שאין להן מעקב אוטומטי.
+        תזרים חיצוני נטו בתקופה (₪, אופציונלי) - הפקדה = מספר חיובי, משיכה = מספר שלילי. רלוונטי רק לעו"ש, לקרנות
+        כספיות ולקופות חיסכון, שאין להן שערי סגירה יומיים. עבור מניות וקופות גמל, ההפקדות והרכישות נלקחות אוטומטית
+        מהתאריכים והסכומים שבטבלאות הראשיות - אין צורך (ואי אפשר) להזין אותן כאן.
       </p>
       <div className="monthly-cashflow-grid">
-        {MONTHLY_CATEGORY_KEYS.map((key) => (
+        {MANUAL_ENTRY_CATEGORIES.map((key) => (
           <div key={key} className="monthly-cashflow-item">
             <label htmlFor={`${idPrefix}-cashflow-${key}`}>{MONTHLY_CATEGORY_LABELS_HE[key]}</label>
             <input
@@ -767,7 +928,8 @@ function PortfolioAnalysisView({
             <h2 className="section-title">ביצועי התיק לאורך זמן</h2>
             <p className="section-subtitle">
               מחושב בזמן אמת משערי הסגירה ההיסטוריים בפועל (בורסת תל אביב, וול סטריט ושער הדולר), לפי ההחזקות שהיו בתיק
-              בכל תאריך - ולא מתוך שמירות שנשמרו מראש. שינוי בתאריך קנייה או בכמות משתקף בגרף מיידית.
+              בכל תאריך - ולא מתוך שמירות שנשמרו מראש. שינוי בתאריך קנייה או בכמות משתקף בגרף מיידית. התשואה מחושבת
+              בשיטה משוקללת-זמן (Time-Weighted) ומנוטרלת מהפקדות, משיכות ורכישות חדשות.
             </p>
 
             <div
@@ -781,7 +943,7 @@ function PortfolioAnalysisView({
                   id="performanceFrom"
                   max={effectivePerformanceTo}
                   value={effectivePerformanceFrom}
-                  onChange={(e) => setPerformanceFrom(e.target.value)}
+                  onChange={(e) => handlePerformanceFromChange(e.target.value)}
                 />
               </div>
               <div className="form-group">
@@ -792,7 +954,7 @@ function PortfolioAnalysisView({
                   min={effectivePerformanceFrom}
                   max={todayDate}
                   value={effectivePerformanceTo}
-                  onChange={(e) => setPerformanceTo(e.target.value)}
+                  onChange={(e) => handlePerformanceToChange(e.target.value)}
                 />
               </div>
               {(performanceFrom || performanceTo) && (
@@ -854,6 +1016,17 @@ function PortfolioAnalysisView({
                     <div className="distribution-percentage">
                       {formatDate(stats.firstDate)} - {formatDate(stats.lastDate)}
                     </div>
+                    {stats.isCashFlowNeutralized && (
+                      <div
+                        className="distribution-percentage"
+                        title="תשואה משוקללת-זמן (Time-Weighted): כל הפקדה, משיכה ורכישה חדשה מנוטרלות, כך שהמספר משקף אך ורק את ביצועי הנכסים עצמם"
+                      >
+                        מנוטרל הפקדות ורכישות
+                        {stats.netCashFlow
+                          ? ` (${formatPriceWithSign(stats.netCashFlow)} ₪ נכנסו לתיק בתקופה)`
+                          : ''}
+                      </div>
+                    )}
                   </div>
                   <div className="distribution-card">
                     <h3>תשואה שנתית ממוצעת</h3>
@@ -866,7 +1039,9 @@ function PortfolioAnalysisView({
                         ? `${stats.annualizedReturnPercent.toFixed(1)}%`
                         : 'התקופה קצרה מדי'}
                     </div>
-                    <div className="distribution-percentage">תשואה שנתית מתואמת (CAGR) לאורך התקופה שנבחרה</div>
+                    <div className="distribution-percentage">
+                      תשואה שנתית מתואמת (CAGR) לאורך התקופה שנבחרה, מאותה תשואה מנוטרלת-הפקדות
+                    </div>
                   </div>
                   <div className="distribution-card">
                     <h3>שווי בתחילת התקופה</h3>
@@ -882,6 +1057,26 @@ function PortfolioAnalysisView({
                     </div>
                     <div className="distribution-percentage">{formatDate(stats.lastDate)}</div>
                   </div>
+                  {/* Shown alongside the neutralized return on purpose: this
+                      is the number people see in their account, and hiding it
+                      would just make the (correctly) smaller return figure
+                      look wrong. Labelled for what it is - a change in value,
+                      not a return. */}
+                  {stats.isCashFlowNeutralized && stats.naiveReturnPercent != null && (
+                    <div className="distribution-card">
+                      <h3>שינוי בשווי התיק (כולל הפקדות)</h3>
+                      <div
+                        className={`distribution-value ${
+                          stats.naiveReturnPercent >= 0 ? 'profit-positive' : 'profit-negative'
+                        }`}
+                      >
+                        {stats.naiveReturnPercent.toFixed(1)}%
+                      </div>
+                      <div className="distribution-percentage">
+                        כמה גדל שווי התיק בפועל - כולל כסף חדש שהוכנס אליו, ולכן אינו מדד לתשואה
+                      </div>
+                    </div>
+                  )}
                   <div className="distribution-card">
                     <h3>תנודתיות שנתית (משוערת)</h3>
                     <div className="distribution-value">
@@ -963,62 +1158,109 @@ function PortfolioAnalysisView({
                   </p>
                 )}
 
-                <div className="monthly-toolbar-buttons" style={{ marginBottom: 8 }}>
-                  <button
-                    type="button"
-                    className="monthly-toolbar-btn"
-                    onClick={handleAutoFillManualAdd}
-                    disabled={!manualAddMonth}
-                  >
-                    ⚡ מלא אוטומטית מהטבלאות
-                  </button>
-                  <span className="monthly-status-text">
-                    מושך את שערי הסגירה ההיסטוריים של סוף החודש עבור המניות שהוחזקו אז, ואת ערכי קופות הגמל/הכספיות/העו"ש
-                    מפנקסי ההפקדות והעדכונים שלהן.
-                  </span>
+                {/* Derived, not typed: stocks priced from the month's own
+                    historical closes for the lots held then, provident funds
+                    from their recorded values + deposit ledger. Read-only on
+                    purpose - there is nothing here the user could correct
+                    that wouldn't be a correction to the main tables instead. */}
+                <div className="monthly-manual-auto-section">
+                  <h4 className="monthly-manual-auto-title">נתונים שנמשכים אוטומטית מהטבלאות הראשיות</h4>
+                  {!manualAddMonth ? (
+                    <p className="history-empty-note">בחרו חודש כדי לראות את הנתונים שיימשכו אוטומטית.</p>
+                  ) : !manualAddAutoBreakdown ? (
+                    <p className="history-empty-note">
+                      לא נמצאו נתונים היסטוריים לחודש הזה - נסו שוב לאחר שהגרף "ביצועי התיק לאורך זמן" נטען.
+                    </p>
+                  ) : (
+                    AUTO_DERIVED_CATEGORIES.map((catKey) => {
+                      const rows = manualAddAutoBreakdown[catKey] || [];
+                      const catTotal = rows.reduce((sum, item) => sum + (item.value || 0), 0);
+                      return (
+                        <div key={catKey} className="monthly-manual-category">
+                          <div className="monthly-manual-category-header">
+                            <span>
+                              {MONTHLY_CATEGORY_LABELS_HE[catKey]}
+                              <span className="monthly-auto-derived-badge"> · נגזר אוטומטית</span>
+                            </span>
+                            <span>{formatMoneyCell(catTotal)}</span>
+                          </div>
+                          {rows.length === 0 ? (
+                            <div className="monthly-history-item-row monthly-item-placeholder">
+                              לא הוחזקו נכסים בקטגוריה זו בחודש שנבחר
+                            </div>
+                          ) : (
+                            rows.map((item) => (
+                              <div key={item.key} className="monthly-history-item-row">
+                                <span className="monthly-item-label">↳ {item.label}</span>
+                                <span>{formatMoneyCell(item.value)}</span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
-                {autoFillMessage && <p className="history-empty-note">{autoFillMessage}</p>}
 
-                {MONTHLY_CATEGORY_KEYS.map((catKey) => (
-                  <div key={catKey} className="monthly-manual-category">
-                    <div className="monthly-manual-category-header">
-                      <span>{MONTHLY_CATEGORY_LABELS_HE[catKey]}</span>
-                      <button
-                        type="button"
-                        className="monthly-toolbar-btn"
-                        onClick={() => addManualItemRow(catKey)}
-                      >
-                        + הוסף פריט
-                      </button>
-                    </div>
-                    {manualAddItems[catKey].map((item) => (
-                      <div key={item.id} className="monthly-manual-item-row">
-                        <input
-                          type="text"
-                          className="edit-input"
-                          placeholder="שם (למשל TEVA)"
-                          value={item.label}
-                          onChange={(e) => updateManualItemRow(catKey, item.id, 'label', e.target.value)}
-                        />
-                        <input
-                          type="number"
-                          className="edit-input"
-                          placeholder="שווי (₪)"
-                          value={item.value}
-                          step="0.01"
-                          onChange={(e) => updateManualItemRow(catKey, item.id, 'value', e.target.value)}
-                        />
+                {/* Typed: only the accounts with no traded price to look up. */}
+                <div className="monthly-manual-entry-section">
+                  <h4 className="monthly-manual-auto-title">נתונים להזנה ידנית (נכסים נזילים)</h4>
+                  <div className="monthly-toolbar-buttons" style={{ marginBottom: 8 }}>
+                    <button
+                      type="button"
+                      className="monthly-toolbar-btn"
+                      onClick={handleAutoFillManualAdd}
+                      disabled={!manualAddMonth}
+                    >
+                      ⚡ מלא מהפנקסים
+                    </button>
+                    <span className="monthly-status-text">
+                      ממלא את השורות שלמטה מתוך פנקסי ההפקדות והעדכונים של החשבונות - נקודת פתיחה שניתן לתקן.
+                    </span>
+                  </div>
+                  {autoFillMessage && <p className="history-empty-note">{autoFillMessage}</p>}
+
+                  {MANUAL_ENTRY_CATEGORIES.map((catKey) => (
+                    <div key={catKey} className="monthly-manual-category">
+                      <div className="monthly-manual-category-header">
+                        <span>{MONTHLY_CATEGORY_LABELS_HE[catKey]}</span>
                         <button
                           type="button"
-                          className="monthly-toolbar-btn danger"
-                          onClick={() => removeManualItemRow(catKey, item.id)}
+                          className="monthly-toolbar-btn"
+                          onClick={() => addManualItemRow(catKey)}
                         >
-                          הסר
+                          + הוסף פריט
                         </button>
                       </div>
-                    ))}
-                  </div>
-                ))}
+                      {manualAddItems[catKey].map((item) => (
+                        <div key={item.id} className="monthly-manual-item-row">
+                          <input
+                            type="text"
+                            className="edit-input"
+                            placeholder='שם (למשל עו"ש)'
+                            value={item.label}
+                            onChange={(e) => updateManualItemRow(catKey, item.id, 'label', e.target.value)}
+                          />
+                          <input
+                            type="number"
+                            className="edit-input"
+                            placeholder="שווי (₪)"
+                            value={item.value}
+                            step="0.01"
+                            onChange={(e) => updateManualItemRow(catKey, item.id, 'value', e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="monthly-toolbar-btn danger"
+                            onClick={() => removeManualItemRow(catKey, item.id)}
+                          >
+                            הסר
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
 
                 {renderCashFlowInputs(manualAddCashFlows, handleManualAddCashFlowChange, 'manual-add')}
 
@@ -1243,16 +1485,23 @@ function PortfolioAnalysisView({
                           </div>
 
                           {MONTHLY_CATEGORY_KEYS.map((catKey) => {
-                            const items = isEditingThis
-                              ? editDraftBreakdown[catKey]
-                              : normalizeCategoryItems(historySnapshot.breakdown?.[catKey], catKey);
-                            if (!isEditingThis && items.length === 0) return null;
-                            const catTotal = items.reduce((sum, it) => sum + (it.value || 0), 0);
-                            const showPlaceholder = !isEditingThis && isLegacyRollup(items, catKey);
+                            const savedItems = normalizeCategoryItems(historySnapshot.breakdown?.[catKey], catKey);
+                            const draftRows = isEditingThis ? editDraftBreakdown[catKey] : [];
+                            if (!isEditingThis && savedItems.length === 0) return null;
+                            const catTotal = isEditingThis
+                              ? draftCategoryTotal(draftRows)
+                              : savedItems.reduce((sum, it) => sum + (it.value || 0), 0);
+                            const showPlaceholder = !isEditingThis && isLegacyRollup(savedItems, catKey);
+                            const isAutoDerived = AUTO_DERIVED_CATEGORIES.includes(catKey);
                             return (
                               <div key={catKey} className="monthly-history-category">
                                 <div className="monthly-history-category-header">
-                                  <span>{MONTHLY_CATEGORY_LABELS_HE[catKey]}</span>
+                                  <span>
+                                    {MONTHLY_CATEGORY_LABELS_HE[catKey]}
+                                    {isEditingThis && isAutoDerived && (
+                                      <span className="monthly-auto-derived-badge"> · נגזר אוטומטית</span>
+                                    )}
+                                  </span>
                                   <span className="monthly-history-category-actions">
                                     {formatMoneyCell(catTotal)}
                                     {isEditingThis && (
@@ -1274,60 +1523,49 @@ function PortfolioAnalysisView({
                                     אין פירוט פריטים לשמירה זו (נשמרה לפני שנוסף פירוט מלא)
                                   </div>
                                 )}
-                                {(detailedView || isEditingThis) &&
+                                {!isEditingThis &&
+                                  detailedView &&
                                   !showPlaceholder &&
-                                  items.map((item) => {
-                                    const cellKey = `${catKey}-${item.key}`;
-                                    return (
-                                      <div key={item.key} className="monthly-history-item-row">
-                                        {isEditingThis ? (
-                                          <input
-                                            type="text"
-                                            className="edit-input monthly-item-label-input"
-                                            value={item.label}
-                                            placeholder="שם הפריט"
-                                            onChange={(e) =>
-                                              handleEditItemLabelChange(catKey, item.key, e.target.value)
-                                            }
-                                          />
-                                        ) : (
-                                          <span className="monthly-item-label">↳ {item.label}</span>
-                                        )}
-                                        {isEditingThis && editingCell === cellKey ? (
-                                          <input
-                                            type="number"
-                                            className="edit-input"
-                                            value={item.value}
-                                            autoFocus
-                                            step="0.01"
-                                            onChange={(e) =>
-                                              handleEditItemValueChange(catKey, item.key, e.target.value)
-                                            }
-                                            onBlur={() => setEditingCell(null)}
-                                            onKeyDown={(e) => {
-                                              if (e.key === 'Enter') setEditingCell(null);
-                                            }}
-                                          />
-                                        ) : (
-                                          <span
-                                            className={isEditingThis ? 'editable-cell' : ''}
-                                            onClick={() => isEditingThis && setEditingCell(cellKey)}
-                                          >
-                                            {formatMoneyCell(item.value)}
-                                          </span>
-                                        )}
-                                        {isEditingThis && (
-                                          <button
-                                            type="button"
-                                            className="monthly-toolbar-btn danger"
-                                            onClick={() => removeEditItemRow(catKey, item.key)}
-                                          >
-                                            הסר
-                                          </button>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
+                                  savedItems.map((item) => (
+                                    <div key={item.key} className="monthly-history-item-row">
+                                      <span className="monthly-item-label">↳ {item.label}</span>
+                                      <span>{formatMoneyCell(item.value)}</span>
+                                    </div>
+                                  ))}
+                                {/* While editing, both fields are plain always-on
+                                    inputs keyed by the row's own stable rowId. No
+                                    click-to-edit cell to open and close, and nothing
+                                    about a row's identity changes as it's typed into,
+                                    so the inputs are never remounted mid-keystroke. */}
+                                {isEditingThis &&
+                                  draftRows.map((row) => (
+                                    <div key={row.rowId} className="monthly-history-item-row">
+                                      <input
+                                        type="text"
+                                        className="edit-input monthly-item-label-input"
+                                        value={row.label}
+                                        placeholder="שם הפריט"
+                                        aria-label={`שם הפריט ב${MONTHLY_CATEGORY_LABELS_HE[catKey]}`}
+                                        onChange={(e) => handleEditItemLabelChange(catKey, row.rowId, e.target.value)}
+                                      />
+                                      <input
+                                        type="number"
+                                        className="edit-input"
+                                        value={row.valueText}
+                                        step="0.01"
+                                        placeholder="שווי (₪)"
+                                        aria-label={`שווי הפריט ב${MONTHLY_CATEGORY_LABELS_HE[catKey]}`}
+                                        onChange={(e) => handleEditItemValueChange(catKey, row.rowId, e.target.value)}
+                                      />
+                                      <button
+                                        type="button"
+                                        className="monthly-toolbar-btn danger"
+                                        onClick={() => removeEditItemRow(catKey, row.rowId)}
+                                      >
+                                        הסר
+                                      </button>
+                                    </div>
+                                  ))}
                               </div>
                             );
                           })}

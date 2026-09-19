@@ -291,42 +291,92 @@ describe('PortfolioAnalysisView', () => {
         expect(screen.queryByText('➕ הוספה ידנית')).toBeNull();
       });
 
-      test('clicking the button opens the form (month picker + a section per category), clicking again closes it', () => {
+      test('clicking the button opens the form (month picker + the two sections), clicking again closes it', () => {
         render(<PortfolioAnalysisView {...makeProps({ onAddManualMonthlySnapshot: jest.fn() })} />);
         expect(screen.queryByLabelText('חודש')).toBeNull();
 
         fireEvent.click(screen.getByText('➕ הוספה ידנית'));
         expect(screen.getByLabelText('חודש')).toBeInTheDocument();
-        // { selector: 'span' } disambiguates from the new per-category
-        // cash-flow <label> below, which reuses the same category name text
-        expect(within(manualForm()).getByText('בורסה ישראלית', { selector: 'span' })).toBeInTheDocument();
+        // The form is split in two: what the app works out for itself, and
+        // what only the user can know.
+        expect(within(manualForm()).getByText('נתונים שנמשכים אוטומטית מהטבלאות הראשיות')).toBeInTheDocument();
+        expect(within(manualForm()).getByText('נתונים להזנה ידנית (נכסים נזילים)')).toBeInTheDocument();
         expect(within(manualForm()).getByText('עו"ש', { selector: 'span' })).toBeInTheDocument();
 
         fireEvent.click(screen.getByText('➕ הוספה ידנית'));
         expect(screen.queryByLabelText('חודש')).toBeNull();
       });
 
-      test('adding item rows, filling them in, and submitting calls onAddManualMonthlySnapshot with the typed month/total/breakdown, then closes the form', async () => {
+      // The refactor: stocks and provident funds can be worked out exactly
+      // from the main tables, so the backfill form no longer offers a place
+      // to retype them - a second source for one number could only ever
+      // disagree with the first.
+      test('offers NO typed rows for stocks or provident funds - only for the liquid accounts', () => {
+        render(<PortfolioAnalysisView {...makeProps({ onAddManualMonthlySnapshot: jest.fn() })} />);
+        fireEvent.click(screen.getByText('➕ הוספה ידנית'));
+
+        const manualSection = within(manualForm())
+          .getByText('נתונים להזנה ידנית (נכסים נזילים)')
+          .closest('.monthly-manual-entry-section');
+        const typedCategories = Array.from(
+          manualSection.querySelectorAll('.monthly-manual-category-header > span:first-child')
+        ).map((el) => el.textContent);
+
+        expect(typedCategories).toEqual(['קרנות כספיות', 'עו"ש', 'קופת חיסכון בבנק']);
+        expect(typedCategories).not.toContain('בורסה ישראלית');
+        expect(typedCategories).not.toContain('בורסה אמריקאית');
+        expect(typedCategories).not.toContain('קופות גמל');
+      });
+
+      test('the auto-derived section lists the stock and provident-fund categories, read-only', async () => {
+        global.fetch.mockImplementation((url) => {
+          const u = String(url);
+          if (u.includes('israeli-stocks-history')) {
+            return Promise.resolve({
+              ok: true,
+              json: async () => ({ history: { TEVA: [{ date: '2023-01-15', close: 10000 }] } })
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ history: u.includes('exchange-rate') ? [] : {} })
+          });
+        });
+
+        render(
+          <PortfolioAnalysisView
+            {...makeProps({ americanStocks: [], onAddManualMonthlySnapshot: jest.fn() })}
+          />
+        );
+        await waitFor(() => expect(document.getElementById('performanceFrom').value).toBe('2023-01-15'));
+
+        fireEvent.click(screen.getByText('➕ הוספה ידנית'));
+        fireEvent.change(screen.getByLabelText('חודש'), { target: { value: '2024-03' } });
+
+        const autoSection = within(manualForm())
+          .getByText('נתונים שנמשכים אוטומטית מהטבלאות הראשיות')
+          .closest('.monthly-manual-auto-section');
+
+        // 100 shares at a carried-forward 10,000-agorot close = 10,000 ILS -
+        // shown twice (the row and its category total), and as text with no
+        // input anywhere to retype it.
+        expect(within(autoSection).getAllByText('10000.00 ₪').length).toBe(2);
+        expect(autoSection.querySelectorAll('input').length).toBe(0);
+        expect(within(autoSection).getAllByText('· נגזר אוטומטית').length).toBe(3);
+      });
+
+      test('filling in the liquid rows and submitting sends them together with the derived stock/pension rows, then closes the form', async () => {
         const onAddManualMonthlySnapshot = jest.fn().mockResolvedValue(true);
         render(<PortfolioAnalysisView {...makeProps({ onAddManualMonthlySnapshot })} />);
         fireEvent.click(screen.getByText('➕ הוספה ידנית'));
 
         fireEvent.change(screen.getByLabelText('חודש'), { target: { value: '2026-03' } });
 
-        const israeliSection = within(manualForm())
-          .getByText('בורסה ישראלית', { selector: 'span' })
-          .closest('.monthly-manual-category');
-        fireEvent.click(within(israeliSection).getByText('+ הוסף פריט'));
-        fireEvent.change(within(israeliSection).getByPlaceholderText('שם (למשל TEVA)'), {
-          target: { value: 'TEVA' }
-        });
-        fireEvent.change(within(israeliSection).getByPlaceholderText('שווי (₪)'), { target: { value: '15000' } });
-
         const bankSection = within(manualForm())
           .getByText('עו"ש', { selector: 'span' })
           .closest('.monthly-manual-category');
         fireEvent.click(within(bankSection).getByText('+ הוסף פריט'));
-        fireEvent.change(within(bankSection).getByPlaceholderText('שם (למשל TEVA)'), { target: { value: 'עו"ש' } });
+        fireEvent.change(within(bankSection).getByPlaceholderText('שם (למשל עו"ש)'), { target: { value: 'עו"ש' } });
         fireEvent.change(within(bankSection).getByPlaceholderText('שווי (₪)'), { target: { value: '3000' } });
 
         fireEvent.change(document.getElementById('manual-add-cashflow-cashFunds'), { target: { value: '-500' } });
@@ -335,9 +385,16 @@ describe('PortfolioAnalysisView', () => {
         expect(onAddManualMonthlySnapshot).toHaveBeenCalledTimes(1);
         const [month, totalValueILS, breakdown] = onAddManualMonthlySnapshot.mock.calls[0];
         expect(month).toBe('2026-03');
-        expect(totalValueILS).toBe(18000);
-        expect(breakdown.israeli).toEqual([{ key: 'TEVA', label: 'TEVA', value: 15000 }]);
+        expect(totalValueILS).toBe(3000);
+        expect(breakdown.bank).toEqual([{ key: 'עו"ש', label: 'עו"ש', value: 3000 }]);
+        // The derived categories are still present in the saved shape -
+        // they're just filled from the tables, not from the form. No
+        // historical prices resolve in this test, so they come back empty
+        // rather than fabricated.
+        expect(breakdown.israeli).toEqual([]);
         expect(breakdown.american).toEqual([]);
+        expect(breakdown.pension).toEqual([]);
+        // Only the liquid categories can carry a declared flow now.
         expect(breakdown.cashFlows).toEqual({ cashFunds: -500 });
 
         // the await inside handleSubmitManualAdd resolves asynchronously and
@@ -346,25 +403,36 @@ describe('PortfolioAnalysisView', () => {
         await waitFor(() => expect(screen.queryByLabelText('חודש')).toBeNull());
       });
 
+      test('there is no cash-flow field for stocks or provident funds - those flows come from the main tables', () => {
+        render(<PortfolioAnalysisView {...makeProps({ onAddManualMonthlySnapshot: jest.fn() })} />);
+        fireEvent.click(screen.getByText('➕ הוספה ידנית'));
+
+        expect(document.getElementById('manual-add-cashflow-cashFunds')).not.toBeNull();
+        expect(document.getElementById('manual-add-cashflow-bank')).not.toBeNull();
+        expect(document.getElementById('manual-add-cashflow-bankSavings')).not.toBeNull();
+
+        expect(document.getElementById('manual-add-cashflow-israeli')).toBeNull();
+        expect(document.getElementById('manual-add-cashflow-american')).toBeNull();
+        expect(document.getElementById('manual-add-cashflow-pension')).toBeNull();
+      });
+
       test('a row with no value entered yet is dropped, not saved as a fake 0', async () => {
         const onAddManualMonthlySnapshot = jest.fn().mockResolvedValue(true);
         render(<PortfolioAnalysisView {...makeProps({ onAddManualMonthlySnapshot })} />);
         fireEvent.click(screen.getByText('➕ הוספה ידנית'));
         fireEvent.change(screen.getByLabelText('חודש'), { target: { value: '2026-03' } });
 
-        const israeliSection = within(manualForm())
-          .getByText('בורסה ישראלית', { selector: 'span' })
+        const bankSection = within(manualForm())
+          .getByText('עו"ש', { selector: 'span' })
           .closest('.monthly-manual-category');
-        fireEvent.click(within(israeliSection).getByText('+ הוסף פריט'));
-        fireEvent.change(within(israeliSection).getByPlaceholderText('שם (למשל TEVA)'), {
-          target: { value: 'TEVA' }
-        });
+        fireEvent.click(within(bankSection).getByText('+ הוסף פריט'));
+        fireEvent.change(within(bankSection).getByPlaceholderText('שם (למשל עו"ש)'), { target: { value: 'עו"ש' } });
         // value left empty
 
         fireEvent.click(screen.getByText('שמור'));
         const [, totalValueILS, breakdown] = onAddManualMonthlySnapshot.mock.calls[0];
         expect(totalValueILS).toBe(0);
-        expect(breakdown.israeli).toEqual([]);
+        expect(breakdown.bank).toEqual([]);
 
         // let the mocked promise's resolution (and the resulting
         // setShowManualAddForm) settle inside act before the test ends,
@@ -502,20 +570,17 @@ describe('PortfolioAnalysisView', () => {
       expect(monthlyScope().queryByText('ערוך')).toBeNull();
     });
 
-    test('editing the shown month: "ערוך" makes items editable, changing a value and saving calls onUpdateMonthlySnapshot with the updated breakdown/total, then exits edit mode', async () => {
+    test('editing the shown month: "ערוך" turns every row into inputs, and saving sends the updated breakdown/total, then exits edit mode', async () => {
       const onUpdateMonthlySnapshot = jest.fn().mockResolvedValue(true);
       render(<PortfolioAnalysisView {...makeProps({ monthlySnapshots: [july, august], onUpdateMonthlySnapshot })} />);
-      const scope = monthlyScope();
-      fireEvent.click(scope.getByText('פתח פירוט מלא'));
 
       const card = historyCards()[0]; // defaults to august
       fireEvent.click(within(card).getByText('ערוך'));
 
-      // the PLTR value in the august card is now a click-to-edit cell
-      fireEvent.click(within(card).getByText('27000.00 ₪', { selector: '.editable-cell' }));
+      // Rows are plain always-on inputs while editing - no cell to open
+      // first, which is what removed the focus-juggling entirely.
       const input = within(card).getByDisplayValue('27000');
       fireEvent.change(input, { target: { value: '29000' } });
-      fireEvent.blur(input);
 
       fireEvent.change(document.getElementById('edit-cashflow-bank'), { target: { value: '7000' } });
 
@@ -535,6 +600,59 @@ describe('PortfolioAnalysisView', () => {
       expect(within(card).getByText('ערוך')).toBeInTheDocument();
     });
 
+    // THE TYPING BUG. Rows used to be keyed by item.key while renaming a row
+    // rewrote item.key to whatever had been typed so far - so every
+    // keystroke changed the key React identified the row by, React tore the
+    // <input> down and built a new one, and the caret was thrown out of the
+    // field after a single character. These two tests pin both halves: the
+    // element must survive typing, and the typed text must accumulate.
+    test('typing into a row name keeps focus on the same input across keystrokes', () => {
+      render(
+        <PortfolioAnalysisView
+          {...makeProps({ monthlySnapshots: [july, august], onUpdateMonthlySnapshot: jest.fn() })}
+        />
+      );
+      const card = historyCards()[0];
+      fireEvent.click(within(card).getByText('ערוך'));
+
+      const input = within(card).getByDisplayValue('PLTR');
+      input.focus();
+      expect(document.activeElement).toBe(input);
+
+      'PLTR-NEW'.split('').forEach((_, i) => {
+        fireEvent.change(document.activeElement, { target: { value: 'PLTR-NEW'.slice(0, i + 1) } });
+        // Same DOM node throughout: never unmounted and replaced.
+        expect(document.activeElement).toBe(input);
+      });
+
+      expect(input.value).toBe('PLTR-NEW');
+    });
+
+    test('typing into a row value keeps focus, and a half-typed value never poisons the total with NaN', () => {
+      render(
+        <PortfolioAnalysisView
+          {...makeProps({ monthlySnapshots: [july, august], onUpdateMonthlySnapshot: jest.fn() })}
+        />
+      );
+      const card = historyCards()[0];
+      fireEvent.click(within(card).getByText('ערוך'));
+
+      const input = within(card).getByDisplayValue('27000');
+      input.focus();
+
+      // An emptied field and a lone "-" are both states a number input
+      // passes through while being typed into. Parsing on every keystroke
+      // turned them into NaN, which spread to the category subtotal and the
+      // card total.
+      ['', '-', '-3', '-35000'].forEach((value) => {
+        fireEvent.change(document.activeElement, { target: { value } });
+        expect(document.activeElement).toBe(input);
+        expect(within(card).queryByText(/NaN/)).toBeNull();
+      });
+
+      expect(input.value).toBe('-35000');
+    });
+
     // Row MANAGEMENT, not just revaluing: a saved checkpoint may need a row
     // the portfolio no longer has (an account since closed), or be missing
     // one that existed at the time. Editing values alone couldn't express
@@ -550,15 +668,19 @@ describe('PortfolioAnalysisView', () => {
       const addButtons = within(card).getAllByText('+ הוסף שורה');
       expect(addButtons.length).toBe(6);
 
-      // The Israeli category is the first one.
+      // The Israeli category is the first one. A new row starts blank.
       fireEvent.click(addButtons[0]);
 
-      const labelInput = within(card).getByDisplayValue('שורה חדשה 1');
-      fireEvent.change(labelInput, { target: { value: 'ICL' } });
+      const israeliCategory = within(card).getAllByText('בורסה ישראלית')[0].closest('.monthly-history-category');
+      const blankRow = within(israeliCategory)
+        .getAllByPlaceholderText('שם הפריט')
+        .find((el) => el.value === '');
+      fireEvent.change(blankRow, { target: { value: 'ICL' } });
 
-      const valueInput = within(card).getByDisplayValue('0');
-      fireEvent.change(valueInput, { target: { value: '3000' } });
-      fireEvent.blur(valueInput);
+      const blankValue = within(israeliCategory)
+        .getAllByPlaceholderText('שווי (₪)')
+        .find((el) => el.value === '');
+      fireEvent.change(blankValue, { target: { value: '3000' } });
 
       fireEvent.click(within(card).getByText('שמור עריכה'));
 
@@ -618,8 +740,115 @@ describe('PortfolioAnalysisView', () => {
       expect(within(card).getByDisplayValue('TEVA')).toBeInTheDocument();
     });
 
+    test('the categories whose figures are derived are marked as such while editing', () => {
+      render(
+        <PortfolioAnalysisView
+          {...makeProps({ monthlySnapshots: [july, august], onUpdateMonthlySnapshot: jest.fn() })}
+        />
+      );
+      const card = historyCards()[0];
+      fireEvent.click(within(card).getByText('ערוך'));
+      // israeli / american / pension
+      expect(within(card).getAllByText('· נגזר אוטומטית').length).toBe(3);
+    });
+
+    // A month saved before stock/pension flows became derived still carries
+    // the flows that were declared at the time. Opening it to correct an
+    // unrelated figure must not quietly throw them away - the comparison
+    // that month feeds has to keep producing the number it always did.
+    test('editing a legacy month preserves its declared stock/pension flows, which no longer have a field', async () => {
+      const onUpdateMonthlySnapshot = jest.fn().mockResolvedValue(true);
+      const legacyAugust = {
+        ...august,
+        breakdown: { ...august.breakdown, cashFlows: { israeli: 5000, pension: 2000, bank: 1000 } }
+      };
+      render(
+        <PortfolioAnalysisView
+          {...makeProps({ monthlySnapshots: [july, legacyAugust], onUpdateMonthlySnapshot })}
+        />
+      );
+
+      const card = historyCards()[0];
+      fireEvent.click(within(card).getByText('ערוך'));
+
+      // Correct something unrelated.
+      fireEvent.change(within(card).getByDisplayValue('27000'), { target: { value: '28000' } });
+      fireEvent.click(within(card).getByText('שמור עריכה'));
+
+      const [, , breakdown] = onUpdateMonthlySnapshot.mock.calls[0];
+      expect(breakdown.cashFlows).toEqual({ israeli: 5000, pension: 2000, bank: 1000 });
+
+      await waitFor(() => expect(within(card).queryByText('שמור עריכה')).toBeNull());
+    });
+
+    test('a legacy flow on a liquid category is still editable, and the edit wins over the stored value', async () => {
+      const onUpdateMonthlySnapshot = jest.fn().mockResolvedValue(true);
+      const legacyAugust = {
+        ...august,
+        breakdown: { ...august.breakdown, cashFlows: { israeli: 5000, bank: 1000 } }
+      };
+      render(
+        <PortfolioAnalysisView
+          {...makeProps({ monthlySnapshots: [july, legacyAugust], onUpdateMonthlySnapshot })}
+        />
+      );
+
+      fireEvent.click(within(historyCards()[0]).getByText('ערוך'));
+      expect(document.getElementById('edit-cashflow-bank').value).toBe('1000');
+      fireEvent.change(document.getElementById('edit-cashflow-bank'), { target: { value: '4000' } });
+
+      fireEvent.click(within(historyCards()[0]).getByText('שמור עריכה'));
+      const [, , breakdown] = onUpdateMonthlySnapshot.mock.calls[0];
+      expect(breakdown.cashFlows).toEqual({ israeli: 5000, bank: 4000 });
+
+      await waitFor(() => expect(within(historyCards()[0]).queryByText('שמור עריכה')).toBeNull());
+    });
+
+    test('re-saving the current month also preserves its legacy declared flows', () => {
+      const onSaveMonthlySnapshot = jest.fn();
+      const thisMonth = new Date().toISOString().slice(0, 7);
+      render(
+        <PortfolioAnalysisView
+          {...makeProps({
+            onSaveMonthlySnapshot,
+            monthlySnapshots: [
+              {
+                month: thisMonth,
+                totalValueILS: 1000,
+                breakdown: { cashFlows: { american: 7000, bank: 100 } }
+              }
+            ]
+          })}
+        />
+      );
+
+      fireEvent.change(document.getElementById('save-cashflow-bank'), { target: { value: '250' } });
+      fireEvent.click(monthlyScope().getByText('עדכן שמירה חודשית'));
+
+      // The legacy American flow survives; the freshly declared bank figure
+      // replaces the stored one.
+      expect(onSaveMonthlySnapshot).toHaveBeenCalledWith({ american: 7000, bank: 250 });
+    });
+
+    test('the edit form offers a cash-flow field only for the liquid categories', () => {
+      render(
+        <PortfolioAnalysisView
+          {...makeProps({ monthlySnapshots: [july, august], onUpdateMonthlySnapshot: jest.fn() })}
+        />
+      );
+      fireEvent.click(within(historyCards()[0]).getByText('ערוך'));
+
+      expect(document.getElementById('edit-cashflow-bank')).not.toBeNull();
+      expect(document.getElementById('edit-cashflow-cashFunds')).not.toBeNull();
+      expect(document.getElementById('edit-cashflow-bankSavings')).not.toBeNull();
+
+      expect(document.getElementById('edit-cashflow-israeli')).toBeNull();
+      expect(document.getElementById('edit-cashflow-american')).toBeNull();
+      expect(document.getElementById('edit-cashflow-pension')).toBeNull();
+    });
+
     // AUTOMATIC FILL: the monthly tracker stops being a typing exercise.
-    test('"מלא אוטומטית מהטבלאות" is offered in both the edit and the manual-backfill flow', () => {
+    test('an automatic fill is offered in both the edit and the manual-backfill flow', () => {
       render(
         <PortfolioAnalysisView
           {...makeProps({
@@ -636,7 +865,9 @@ describe('PortfolioAnalysisView', () => {
 
       fireEvent.click(within(card).getByText('ביטול'));
       fireEvent.click(monthlyScope().getByText('➕ הוספה ידנית'));
-      expect(monthlyScope().getByText('⚡ מלא אוטומטית מהטבלאות')).toBeInTheDocument();
+      // In the backfill form only the liquid rows are fillable - the rest
+      // are derived and shown read-only, so the button says what it does.
+      expect(monthlyScope().getByText('⚡ מלא מהפנקסים')).toBeInTheDocument();
     });
 
     test('auto-fill says so plainly when the historical prices for that month are not available, instead of writing zeroes over the saved data', () => {
@@ -652,9 +883,8 @@ describe('PortfolioAnalysisView', () => {
       expect(
         within(card).getByText(/לא נמצאו נתונים היסטוריים לחודש הזה/)
       ).toBeInTheDocument();
-      // The saved values are untouched (the row cell, not the category
-      // total that mirrors it while the category has a single row).
-      expect(within(card).getByText('22000.00 ₪', { selector: '.editable-cell' })).toBeInTheDocument();
+      // The saved values are untouched.
+      expect(within(card).getByDisplayValue('22000')).toBeInTheDocument();
     });
 
     test('auto-fill replaces the rows with values derived from the historical closes and the account ledgers', async () => {
@@ -695,8 +925,8 @@ describe('PortfolioAnalysisView', () => {
 
       // 100 shares at a 10000-agorot close = 10,000 ILS, derived rather
       // than typed - replacing the 22,000 that was saved for this month.
-      expect(within(card).getByText('10000.00 ₪', { selector: '.editable-cell' })).toBeInTheDocument();
-      expect(within(card).queryByText('22000.00 ₪', { selector: '.editable-cell' })).toBeNull();
+      expect(within(card).getByDisplayValue('10000')).toBeInTheDocument();
+      expect(within(card).queryByDisplayValue('22000')).toBeNull();
       expect(within(card).getByDisplayValue('TEVA')).toBeInTheDocument();
     });
 
@@ -906,6 +1136,74 @@ describe('PortfolioAnalysisView', () => {
       await waitFor(() =>
         expect(getByText('לא ניתן היה לטעון נתוני מחירים היסטוריים כרגע')).toBeInTheDocument()
       );
+    });
+
+    // THE DATE-PICKER FREEZE. A date input fires onChange on every keystroke
+    // while the year is typed, so "2024" arrives as "0002", "0020", "0202"
+    // and only then "2024". Those intermediate values used to be committed
+    // straight through: a range starting in year 2 is ~105,000 weekly
+    // sample points, each pricing every holding, and the page stopped
+    // responding. Half-typed values are now ignored outright.
+    test('ignores the half-typed year values a date input emits while being typed into', async () => {
+      mockHistoryFetch();
+      const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+
+      const fromInput = container.querySelector('#performanceFrom');
+      const callsBefore = global.fetch.mock.calls.length;
+
+      // Everything a browser emits while "2024-03-01" is being typed.
+      ['0002-03-01', '0020-03-01', '0202-03-01'].forEach((partial) => {
+        fireEvent.change(fromInput, { target: { value: partial } });
+        // Not committed: the input keeps showing the last good range.
+        expect(fromInput.value).toBe('2023-01-15');
+      });
+
+      // And nothing was refetched or recomputed for any of them.
+      expect(global.fetch.mock.calls.length).toBe(callsBefore);
+
+      // The completed date is accepted normally.
+      fireEvent.change(fromInput, { target: { value: '2024-03-01' } });
+      await waitFor(() => expect(fromInput.value).toBe('2024-03-01'));
+    });
+
+    test('ignores a future date, which has no prices to value the portfolio at', async () => {
+      mockHistoryFetch();
+      const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+
+      const toInput = container.querySelector('#performanceTo');
+      const committed = toInput.value;
+      fireEvent.change(toInput, { target: { value: '2099-01-01' } });
+      expect(toInput.value).toBe(committed);
+    });
+
+    test('a start date after the end date collapses to a valid range instead of blanking the section', async () => {
+      mockHistoryFetch();
+      const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+
+      fireEvent.change(container.querySelector('#performanceTo'), { target: { value: '2024-01-01' } });
+      fireEvent.change(container.querySelector('#performanceFrom'), { target: { value: '2025-01-01' } });
+
+      await waitFor(() => {
+        const from = container.querySelector('#performanceFrom').value;
+        const to = container.querySelector('#performanceTo').value;
+        expect(to >= from).toBe(true);
+      });
+    });
+
+    // Requirement: the headline return must exclude money paid in.
+    test('the return since inception is labelled as neutralized, and the raw value change is shown separately', async () => {
+      mockHistoryFetch();
+      render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+
+      await waitFor(() => expect(screen.getByText('תשואה מאז תחילת ההשקעה')).toBeInTheDocument());
+      expect(screen.getByText(/מנוטרל הפקדות ורכישות/)).toBeInTheDocument();
+      // The number people see in their account is still shown - just
+      // labelled for what it is, so the smaller return figure doesn't look
+      // like an error.
+      expect(screen.getByText('שינוי בשווי התיק (כולל הפקדות)')).toBeInTheDocument();
     });
 
     test('the removed metrics are gone: no health score, no max drawdown, no Sharpe ratio', async () => {

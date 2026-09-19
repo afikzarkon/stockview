@@ -8,6 +8,8 @@ import {
   computeAnnualizedReturnPercent,
   computeStatsFromSeries,
   computePortfolioStats,
+  computeTimeWeightedReturnPercent,
+  annualizeReturnPercent,
   TRADING_DAYS_PER_YEAR
 } from './portfolioStats';
 
@@ -301,5 +303,117 @@ describe('computePortfolioStats (saved-snapshot entry point)', () => {
     ]);
     expect(stats.hasHistory).toBe(true);
     expect(stats.totalReturnPercent).toBeCloseTo(10, 5);
+  });
+});
+
+// The requirement: a "return" must reflect what the assets did, not how
+// much money was paid into them.
+describe('computeTimeWeightedReturnPercent', () => {
+  test('a pure deposit produces 0% return, not the apparent growth in value', () => {
+    // 100k -> 150k, but 50k of that was deposited. Nothing was earned.
+    const series = [
+      { date: '2024-01-01', value: 100000 },
+      { date: '2024-02-01', value: 150000 }
+    ];
+    const flows = [{ date: '2024-01-15', amount: 50000 }];
+    expect(computeTimeWeightedReturnPercent(series, flows)).toBeCloseTo(0, 6);
+    // The un-neutralized figure is the misleading one this replaces.
+    expect(computeTotalReturnPercent(series)).toBeCloseTo(50, 6);
+  });
+
+  test('a withdrawal does not read as a loss', () => {
+    const series = [
+      { date: '2024-01-01', value: 100000 },
+      { date: '2024-02-01', value: 80000 }
+    ];
+    const flows = [{ date: '2024-01-15', amount: -20000 }];
+    expect(computeTimeWeightedReturnPercent(series, flows)).toBeCloseTo(0, 6);
+    expect(computeTotalReturnPercent(series)).toBeCloseTo(-20, 6);
+  });
+
+  test('with no cash flows at all it agrees with the plain value change', () => {
+    const series = [
+      { date: '2024-01-01', value: 100 },
+      { date: '2024-02-01', value: 110 },
+      { date: '2024-03-01', value: 121 }
+    ];
+    expect(computeTimeWeightedReturnPercent(series, [])).toBeCloseTo(21, 6);
+    expect(computeTotalReturnPercent(series)).toBeCloseTo(21, 6);
+  });
+
+  test('separates real growth from a contribution made in the same period', () => {
+    // 100k grows 10% to 110k, and 50k is deposited at the very end of the
+    // period (so it earned nothing within it).
+    const series = [
+      { date: '2024-01-01', value: 100000 },
+      { date: '2024-02-01', value: 160000 }
+    ];
+    const flows = [{ date: '2024-02-01', amount: 50000 }];
+    expect(computeTimeWeightedReturnPercent(series, flows)).toBeCloseTo(10, 6);
+  });
+
+  // Chaining is what makes it time-weighted: the size of the contribution
+  // must not change the measured performance.
+  test('the same market performance yields the same return regardless of how much was contributed', () => {
+    const build = (deposit) => [
+      { date: '2024-01-01', value: 10000 },
+      { date: '2024-02-01', value: 11000 + deposit },
+      { date: '2024-03-01', value: (11000 + deposit) * 1.05 }
+    ];
+    const small = computeTimeWeightedReturnPercent(build(1000), [{ date: '2024-02-01', amount: 1000 }]);
+    const large = computeTimeWeightedReturnPercent(build(900000), [{ date: '2024-02-01', amount: 900000 }]);
+    expect(small).toBeCloseTo(large, 6);
+    // 10% then 5% chained.
+    expect(small).toBeCloseTo((1.1 * 1.05 - 1) * 100, 6);
+  });
+
+  test('a portfolio funded from empty reports the growth after funding, not the funding itself', () => {
+    const series = [
+      { date: '2024-01-01', value: 0 },
+      { date: '2024-02-01', value: 10000 },
+      { date: '2024-03-01', value: 11000 }
+    ];
+    const flows = [{ date: '2024-01-15', amount: 10000 }];
+    expect(computeTimeWeightedReturnPercent(series, flows)).toBeCloseTo(10, 6);
+  });
+
+  test('needs at least two points to mean anything', () => {
+    expect(computeTimeWeightedReturnPercent([{ date: '2024-01-01', value: 100 }], [])).toBeNull();
+    expect(computeTimeWeightedReturnPercent([], [])).toBeNull();
+    expect(computeTimeWeightedReturnPercent(null, [])).toBeNull();
+  });
+});
+
+describe('computeStatsFromSeries with cash flows', () => {
+  const series = [
+    { date: '2024-01-01', value: 100000 },
+    { date: '2024-07-01', value: 150000 }
+  ];
+  const flows = [{ date: '2024-03-01', amount: 50000 }];
+
+  test('reports the neutralized figure as the headline return, and keeps the raw one alongside it', () => {
+    const stats = computeStatsFromSeries(series, flows);
+    expect(stats.totalReturnPercent).toBeCloseTo(stats.timeWeightedReturnPercent, 10);
+    expect(stats.totalReturnPercent).toBeLessThan(10);
+    expect(stats.naiveReturnPercent).toBeCloseTo(50, 6);
+    expect(stats.netCashFlow).toBe(50000);
+    expect(stats.isCashFlowNeutralized).toBe(true);
+  });
+
+  test('annualizes the neutralized figure, not the raw value change', () => {
+    const stats = computeStatsFromSeries(series, flows);
+    const expected = annualizeReturnPercent(series, stats.totalReturnPercent);
+    expect(stats.annualizedReturnPercent).toBeCloseTo(expected, 10);
+    expect(stats.annualizedReturnPercent).not.toBeCloseTo(
+      annualizeReturnPercent(series, stats.naiveReturnPercent),
+      3
+    );
+  });
+
+  test('without cash flows the two figures agree and nothing claims to be neutralized', () => {
+    const stats = computeStatsFromSeries(series, []);
+    expect(stats.totalReturnPercent).toBeCloseTo(50, 6);
+    expect(stats.naiveReturnPercent).toBeCloseTo(50, 6);
+    expect(stats.netCashFlow).toBe(0);
   });
 });

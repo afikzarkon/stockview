@@ -18,7 +18,6 @@
 // ledgerAccountHistory.js and bankSavingsFund.js. They're opt-in per call:
 // pass them and they're included, leave them out and the series covers the
 // traded holdings only.
-import { alignBenchmarkClosesToDates } from './benchmarkComparison';
 import { valueOfLedgerAccountAtDate, valueOfLedgerAccountsAtDate } from './ledgerAccountHistory';
 import { computeBankSavingsFundValue } from './bankSavingsFund';
 
@@ -37,13 +36,57 @@ function quantityAsOfDate(lots, date) {
     .reduce((sum, lot) => sum + (lot.quantity || 0), 0);
 }
 
-// closes: [{date, close}] sorted or unsorted (alignBenchmarkClosesToDates
-// sorts internally) - returns the carried-forward close for `date`, or
-// null if there's no close on or before it.
-function closeOnOrBefore(date, closes) {
+// Sorted-once index per close series, so a lookup is a binary search
+// instead of a fresh copy-and-sort of the whole series.
+//
+// This used to delegate to alignBenchmarkClosesToDates(), which sorts a
+// copy of the array it's given on every call. That function is built for
+// "align a whole list of dates in one pass", and used that way the sort is
+// paid once. Calling it with a single date - as this did, once per holding
+// per sampled date - made it O(n log n) PER LOOKUP. With three years of
+// TASE history (~750 closes), ten holdings and a multi-year chart, that is
+// hundreds of thousands of array sorts on the main thread, which is what
+// made the date picker freeze the page (measured: ~7.4s per 100k lookups,
+// and a half-typed year produced ~1M of them).
+//
+// Keyed by the array itself, so a series fetched once is indexed once and
+// every later lookup against it is free - and the entry disappears with
+// the array, no cache invalidation to get wrong.
+const closeIndexCache = new WeakMap();
+
+function getCloseIndex(closes) {
   if (!Array.isArray(closes) || closes.length === 0) return null;
-  const [aligned] = alignBenchmarkClosesToDates([date], closes);
-  return aligned;
+  const cached = closeIndexCache.get(closes);
+  if (cached) return cached;
+
+  const sorted = [...closes]
+    .filter((point) => point && point.date != null && Number.isFinite(Number(point.close)))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const index = { dates: sorted.map((p) => p.date), values: sorted.map((p) => Number(p.close)) };
+  closeIndexCache.set(closes, index);
+  return index;
+}
+
+// The most recent close on or before `date` (carrying the last trading
+// day's close forward over weekends/holidays), or null if there's none.
+function closeOnOrBefore(date, closes) {
+  const index = getCloseIndex(closes);
+  if (!index || index.dates.length === 0) return null;
+
+  // Rightmost entry whose date is <= the requested one.
+  let lo = 0;
+  let hi = index.dates.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (index.dates[mid] <= date) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found === -1 ? null : index.values[found];
 }
 
 // priceData shape:
@@ -116,27 +159,61 @@ export const computePortfolioValueAtDate = (
   return { date, valueILS: hasAnyValue ? totalILS : null, isPartial };
 };
 
-// Samples weekly points across [fromDate, toDate] (inclusive of both
-// endpoints) rather than one point per calendar day - bounds how many
-// carry-forward lookups a multi-year range does for a chart with far
-// fewer visually distinct pixels than that many days anyway (prices only
-// change on ~250 trading days/year regardless of how finely it's sampled).
-export const computeHistoricalPortfolioSeries = (fromDate, toDate, holdings, priceData) => {
-  if (!fromDate || !toDate || fromDate > toDate) return [];
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
+// Hard ceiling on how many points a series may contain, no matter how long
+// the requested range is.
+//
+// Weekly sampling alone is NOT a bound - it's a bound only if the range is
+// short. An <input type="date"> fires onChange on every keystroke while the
+// year is being typed, so asking for "2023" walks through 0002, 0020 and
+// 0202 first, and a range starting in year 2 is ~105,000 weeks. Each of
+// those points prices every holding, so a single keystroke could schedule
+// over a million price lookups synchronously on the main thread - the page
+// didn't slow down, it stopped responding. (Both halves of that are fixed:
+// this cap, and the binary-searched close index above.)
+//
+// 400 points is comfortably more than a chart a few hundred pixels wide can
+// distinguish, and covers ~8 years at weekly resolution before the step
+// starts widening at all.
+const MAX_SERIES_POINTS = 400;
+
+// Sampling dates across [fromDate, toDate], inclusive of both endpoints.
+// Weekly while that fits inside MAX_SERIES_POINTS, then progressively
+// coarser so a very long range costs the same as a short one instead of
+// scaling without limit. Exported for tests; the series builder below is
+// the normal entry point.
+export const buildSampleDates = (fromDate, toDate) => {
+  const start = new Date(`${fromDate}T00:00:00Z`);
+  const end = new Date(`${toDate}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+
+  const span = end.getTime() - start.getTime();
+  // Widen the step if weekly sampling would exceed the cap. Math, not a
+  // loop with a break: the step is chosen up front so the walk below can
+  // never run long regardless of the span it's given.
+  const stepMs = Math.max(WEEK_MS, Math.ceil(span / (MAX_SERIES_POINTS - 1) / DAY_MS) * DAY_MS);
 
   const dates = [];
-  let cursor = new Date(`${fromDate}T00:00:00Z`);
-  const end = new Date(`${toDate}T00:00:00Z`);
-  if (Number.isNaN(cursor.getTime()) || Number.isNaN(end.getTime())) return [];
-
-  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-  while (cursor.getTime() <= end.getTime()) {
-    dates.push(cursor.toISOString().slice(0, 10));
-    cursor = new Date(cursor.getTime() + WEEK_MS);
+  for (let t = start.getTime(); t <= end.getTime(); t += stepMs) {
+    dates.push(new Date(t).toISOString().slice(0, 10));
   }
+  // The exact end date always gets its own point - it's the one the
+  // "value at the end of the period" figure is read from.
   if (dates[dates.length - 1] !== toDate) dates.push(toDate);
+  return dates;
+};
 
-  return dates.map((date) => computePortfolioValueAtDate(date, holdings, priceData));
+// Samples points across [fromDate, toDate] (inclusive of both endpoints)
+// rather than one point per calendar day - a chart has far fewer visually
+// distinct pixels than that many days anyway, and prices only change on
+// ~250 trading days a year regardless of how finely it's sampled.
+export const computeHistoricalPortfolioSeries = (fromDate, toDate, holdings, priceData) => {
+  if (!fromDate || !toDate || fromDate > toDate) return [];
+  return buildSampleDates(fromDate, toDate).map((date) =>
+    computePortfolioValueAtDate(date, holdings, priceData)
+  );
 };
 
 // The itemized "what was each holding/account worth on date X" breakdown,
