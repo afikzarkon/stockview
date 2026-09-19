@@ -48,7 +48,14 @@ function HomeView({
   finishInlineEdit,
   handleKeyDown,
   handleDelete,
-  toggleGroup
+  toggleGroup,
+  // Background price-refresh progress (see usePriceRefresh.js). The tables
+  // render immediately from the prices saved with the portfolio; these tell
+  // the user whether newer ones are still being fetched, so a stale number
+  // is never silently presented as live.
+  pricesRefreshing = false,
+  pricesLastRefreshAt = null,
+  hasLoadedLivePrices = false
 }) {
   const [exportError, setExportError] = useState('');
   const hasAnyData =
@@ -115,6 +122,18 @@ function HomeView({
           {saveError ? (
             <span className="user-email" style={{ fontSize: 12, color: '#b00020' }}>
               {saveError}
+            </span>
+          ) : null}
+          {hasAnyData ? (
+            <span className={`price-refresh-status ${pricesRefreshing ? 'is-refreshing' : ''}`}>
+              <span className="price-refresh-dot" />
+              {pricesRefreshing
+                ? hasLoadedLivePrices
+                  ? 'מעדכן מחירים…'
+                  : 'טוען מחירים עדכניים…'
+                : pricesLastRefreshAt
+                ? `מחירים עודכנו ב-${pricesLastRefreshAt.toLocaleTimeString('he-IL')}`
+                : 'מוצגים מחירים אחרונים שנשמרו'}
             </span>
           ) : null}
         </div>
@@ -224,6 +243,7 @@ function HomeView({
             handleDelete={handleDelete}
             toggleGroup={toggleGroup}
             editingField={editingField}
+            pricesPending={!hasLoadedLivePrices}
           />
 
           <AmericanStocksTable
@@ -246,6 +266,7 @@ function HomeView({
             handleDelete={handleDelete}
             toggleGroup={toggleGroup}
             editingField={editingField}
+            pricesPending={!hasLoadedLivePrices}
           />
 
           <FinancialAccountsTables

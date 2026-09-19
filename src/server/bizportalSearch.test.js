@@ -33,10 +33,11 @@ const REAL_TEVA_RESPONSE = [
   }
 ];
 
-// Captured live from the real endpoint (query "קסם S&P 500") - covers both
-// the ETF shape that should now be included and the mutual-fund shape
-// ("קרנות נאמנות") that must still be excluded, since it shares the same
-// underlying index/name text as its ETF sibling.
+// Captured live from the real endpoint (query "קסם S&P 500") - covers the
+// two fund shapes a user can actually hold: an exchange-traded fund
+// ("קרנות סל") and its index-tracking mutual-fund sibling ("קרנות נאמנות").
+// Both must come back: excluding mutual funds was what made index trackers
+// unsearchable (a query for "מחקה" returns nothing else at all).
 const REAL_ETF_RESPONSE = [
   {
     PaperId: '1146471',
@@ -76,7 +77,9 @@ describe('searchIsraeliSecuritiesByName', () => {
 
     const results = await searchIsraeliSecuritiesByName('טבע');
 
-    expect(results).toEqual([{ securityId: '629014', officialName: 'טבע', symbol: 'TEVA' }]);
+    expect(results).toEqual([
+      { securityId: '629014', officialName: 'טבע', symbol: 'TEVA', kind: 'stock', isFund: false }
+    ]);
     expect(mockAxios.get).toHaveBeenCalledTimes(1);
     expect(mockAxios.post).toHaveBeenCalledWith(
       expect.stringContaining('papers_auto_suggest.ashx?QueryString='),
@@ -104,7 +107,9 @@ describe('searchIsraeliSecuritiesByName', () => {
 
     const results = await searchIsraeliSecuritiesByName('טבע');
 
-    expect(results).toEqual([{ securityId: '629014', officialName: 'טבע', symbol: 'TEVA' }]);
+    expect(results).toEqual([
+      { securityId: '629014', officialName: 'טבע', symbol: 'TEVA', kind: 'stock', isFund: false }
+    ]);
     expect(mockAxios.get).toHaveBeenCalledTimes(2);
     expect(mockAxios.post).toHaveBeenCalledTimes(2);
     expect(mockAxios.post.mock.calls[1][2].headers.Cookie).toBe('BizCookieName=fresh');
@@ -127,14 +132,52 @@ describe('searchIsraeliSecuritiesByName', () => {
     expect(results).toEqual([]);
   });
 
-  test('includes a TASE-listed ETF ("קרנות סל") but excludes its mutual-fund sibling ("קרנות נאמנות")', async () => {
+  test('includes both a TASE-listed ETF ("קרנות סל") and an index-tracking mutual fund ("קרנות נאמנות")', async () => {
     mockAxios.get.mockResolvedValue({ headers: { 'set-cookie': ['BizCookieName=abc123; Path=/'] } });
     mockAxios.post.mockResolvedValue({ data: REAL_ETF_RESPONSE });
 
     const results = await searchIsraeliSecuritiesByName('קסם S&P 500');
 
     expect(results).toEqual([
-      { securityId: '1146471', officialName: 'קסם S&P 500 ETF', symbol: 'KSM ETF (4D) S&P 500' }
+      {
+        securityId: '1146471',
+        officialName: 'קסם S&P 500 ETF',
+        symbol: 'KSM ETF (4D) S&P 500',
+        kind: 'etf',
+        isFund: true
+      },
+      {
+        securityId: '5124482',
+        officialName: 'קסם S&P 500 KTF',
+        symbol: 'KSM KTF (4D) S&P 500',
+        kind: 'mutualFund',
+        isFund: true
+      }
     ]);
+  });
+
+  test('still excludes index series and foreign-listed entries, which are not holdable securities here', async () => {
+    mockAxios.get.mockResolvedValue({ headers: { 'set-cookie': ['BizCookieName=abc123; Path=/'] } });
+    mockAxios.post.mockResolvedValue({
+      data: [
+        {
+          PaperId: '11111025',
+          PaperName: 'S&P 100',
+          PaperSymbol: 'OEX',
+          PaperType: 'מדדי חו"ל',
+          IS_foreign: '0'
+        },
+        {
+          PaperId: '123456',
+          PaperName: 'חברה זרה',
+          PaperSymbol: 'FRGN',
+          PaperType: 'מניות',
+          IS_foreign: '1'
+        }
+      ]
+    });
+
+    const results = await searchIsraeliSecuritiesByName('S&P');
+    expect(results).toEqual([]);
   });
 });

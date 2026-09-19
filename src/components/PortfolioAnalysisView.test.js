@@ -89,8 +89,10 @@ describe('PortfolioAnalysisView', () => {
     const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
     const groupLabels = Array.from(container.querySelectorAll('.sw-sidebar-group-label')).map((el) => el.textContent);
     expect(groupLabels).toEqual(['סקירה כללית', 'הרכב התיק', 'מניות אמריקאיות', 'כלים', 'דוחות']);
-    // 15 sections total (17 before, minus correlation and news which were removed)
-    expect(container.querySelectorAll('.sw-sidebar-item').length).toBe(15);
+    // 14 sections: 15 before, minus the portfolio health score, which was
+    // removed from the analysis module entirely.
+    expect(container.querySelectorAll('.sw-sidebar-item').length).toBe(14);
+    expect(screen.queryByText('ציון בריאות תיק')).toBeNull();
   });
 
   test('clicking a sidebar item scrolls the corresponding section into view', () => {
@@ -125,13 +127,12 @@ describe('PortfolioAnalysisView', () => {
     const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
     const titles = Array.from(container.querySelectorAll('.section-title')).map((el) => el.textContent);
     expect(titles).toEqual([
-      'ציון בריאות תיק',
       'תקציר ניתוח',
       'ביצועי התיק לאורך זמן',
       'מעקב חודשי',
       'גרף עוגה - פיזור התיק',
       'פיזור לפי מניות',
-      'פיזור לפי תאריכי קנייה',
+      'פיזור לפי תאריכי קנייה והפקדה',
       'פיזור לפי סקטור',
       'מעקב דיבידנדים (מניות אמריקאיות)',
       'לוח רבעונים (מניות אמריקאיות)',
@@ -534,6 +535,171 @@ describe('PortfolioAnalysisView', () => {
       expect(within(card).getByText('ערוך')).toBeInTheDocument();
     });
 
+    // Row MANAGEMENT, not just revaluing: a saved checkpoint may need a row
+    // the portfolio no longer has (an account since closed), or be missing
+    // one that existed at the time. Editing values alone couldn't express
+    // either.
+    test('editing a month can ADD a row to any category, and the new row is included in the saved breakdown/total', async () => {
+      const onUpdateMonthlySnapshot = jest.fn().mockResolvedValue(true);
+      render(<PortfolioAnalysisView {...makeProps({ monthlySnapshots: [july, august], onUpdateMonthlySnapshot })} />);
+
+      const card = historyCards()[0]; // august
+      fireEvent.click(within(card).getByText('ערוך'));
+
+      // One "+ הוסף שורה" button per category, in the category headers.
+      const addButtons = within(card).getAllByText('+ הוסף שורה');
+      expect(addButtons.length).toBe(6);
+
+      // The Israeli category is the first one.
+      fireEvent.click(addButtons[0]);
+
+      const labelInput = within(card).getByDisplayValue('שורה חדשה 1');
+      fireEvent.change(labelInput, { target: { value: 'ICL' } });
+
+      const valueInput = within(card).getByDisplayValue('0');
+      fireEvent.change(valueInput, { target: { value: '3000' } });
+      fireEvent.blur(valueInput);
+
+      fireEvent.click(within(card).getByText('שמור עריכה'));
+
+      const [, totalValueILS, breakdown] = onUpdateMonthlySnapshot.mock.calls[0];
+      expect(breakdown.israeli).toEqual([
+        { key: 'TEVA', label: 'TEVA', value: 22000 },
+        { key: 'ICL', label: 'ICL', value: 3000 }
+      ]);
+      expect(totalValueILS).toBe(22000 + 3000 + 27000 + 44000 + 5000 + 12000);
+      await waitFor(() => expect(within(card).queryByText('שמור עריכה')).toBeNull());
+    });
+
+    test('editing a month can REMOVE a row, and the total drops by exactly that row', async () => {
+      const onUpdateMonthlySnapshot = jest.fn().mockResolvedValue(true);
+      render(<PortfolioAnalysisView {...makeProps({ monthlySnapshots: [july, august], onUpdateMonthlySnapshot })} />);
+
+      const card = historyCards()[0];
+      fireEvent.click(within(card).getByText('ערוך'));
+
+      // Remove the cash-fund row (קרן X, 5000).
+      const cashRow = within(card).getByDisplayValue('קרן X').closest('.monthly-history-item-row');
+      fireEvent.click(within(cashRow).getByText('הסר'));
+
+      fireEvent.click(within(card).getByText('שמור עריכה'));
+
+      const [, totalValueILS, breakdown] = onUpdateMonthlySnapshot.mock.calls[0];
+      expect(breakdown.cashFunds).toEqual([]);
+      expect(totalValueILS).toBe(22000 + 27000 + 44000 + 12000);
+      await waitFor(() => expect(within(card).queryByText('שמור עריכה')).toBeNull());
+    });
+
+    test('renaming a row re-keys it, so it still matches the same holding when two months are compared', async () => {
+      const onUpdateMonthlySnapshot = jest.fn().mockResolvedValue(true);
+      render(<PortfolioAnalysisView {...makeProps({ monthlySnapshots: [july, august], onUpdateMonthlySnapshot })} />);
+
+      const card = historyCards()[0];
+      fireEvent.click(within(card).getByText('ערוך'));
+      fireEvent.change(within(card).getByDisplayValue('קופה א'), { target: { value: 'קופת גמל מור' } });
+      fireEvent.click(within(card).getByText('שמור עריכה'));
+
+      const [, , breakdown] = onUpdateMonthlySnapshot.mock.calls[0];
+      expect(breakdown.pension).toEqual([{ key: 'קופת גמל מור', label: 'קופת גמל מור', value: 44000 }]);
+      await waitFor(() => expect(within(card).queryByText('שמור עריכה')).toBeNull());
+    });
+
+    // Rows must be visible while editing regardless of the detail toggle -
+    // otherwise there is nothing to add to or remove from.
+    test('rows are shown while editing even when the detail view is collapsed', () => {
+      const onUpdateMonthlySnapshot = jest.fn();
+      render(<PortfolioAnalysisView {...makeProps({ monthlySnapshots: [july, august], onUpdateMonthlySnapshot })} />);
+
+      const card = historyCards()[0];
+      // Detail view is off by default.
+      expect(within(card).queryByText('↳ TEVA')).toBeNull();
+
+      fireEvent.click(within(card).getByText('ערוך'));
+      expect(within(card).getByDisplayValue('TEVA')).toBeInTheDocument();
+    });
+
+    // AUTOMATIC FILL: the monthly tracker stops being a typing exercise.
+    test('"מלא אוטומטית מהטבלאות" is offered in both the edit and the manual-backfill flow', () => {
+      render(
+        <PortfolioAnalysisView
+          {...makeProps({
+            monthlySnapshots: [july, august],
+            onUpdateMonthlySnapshot: jest.fn(),
+            onAddManualMonthlySnapshot: jest.fn()
+          })}
+        />
+      );
+
+      const card = historyCards()[0];
+      fireEvent.click(within(card).getByText('ערוך'));
+      expect(within(card).getByText('⚡ מלא אוטומטית מהטבלאות')).toBeInTheDocument();
+
+      fireEvent.click(within(card).getByText('ביטול'));
+      fireEvent.click(monthlyScope().getByText('➕ הוספה ידנית'));
+      expect(monthlyScope().getByText('⚡ מלא אוטומטית מהטבלאות')).toBeInTheDocument();
+    });
+
+    test('auto-fill says so plainly when the historical prices for that month are not available, instead of writing zeroes over the saved data', () => {
+      const onUpdateMonthlySnapshot = jest.fn();
+      render(<PortfolioAnalysisView {...makeProps({ monthlySnapshots: [july, august], onUpdateMonthlySnapshot })} />);
+
+      const card = historyCards()[0];
+      fireEvent.click(within(card).getByText('ערוך'));
+      // global.fetch rejects in this suite's default set-up, so no
+      // historical data is available.
+      fireEvent.click(within(card).getByText('⚡ מלא אוטומטית מהטבלאות'));
+
+      expect(
+        within(card).getByText(/לא נמצאו נתונים היסטוריים לחודש הזה/)
+      ).toBeInTheDocument();
+      // The saved values are untouched (the row cell, not the category
+      // total that mirrors it while the category has a single row).
+      expect(within(card).getByText('22000.00 ₪', { selector: '.editable-cell' })).toBeInTheDocument();
+    });
+
+    test('auto-fill replaces the rows with values derived from the historical closes and the account ledgers', async () => {
+      global.fetch.mockImplementation((url) => {
+        const u = String(url);
+        if (u.includes('israeli-stocks-history')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ history: { TEVA: [{ date: '2023-01-15', close: 10000 }] } })
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ history: u.includes('exchange-rate') ? [] : {} })
+        });
+      });
+
+      const onUpdateMonthlySnapshot = jest.fn().mockResolvedValue(true);
+      render(
+        <PortfolioAnalysisView
+          {...makeProps({
+            americanStocks: [],
+            monthlySnapshots: [july, august],
+            onUpdateMonthlySnapshot
+          })}
+        />
+      );
+
+      // Wait for the performance range to load its historical prices - the
+      // auto-fill reads from the same fetched data.
+      await waitFor(() =>
+        expect(document.getElementById('performanceFrom').value).toBe('2023-01-15')
+      );
+
+      const card = historyCards()[0];
+      fireEvent.click(within(card).getByText('ערוך'));
+      fireEvent.click(within(card).getByText('⚡ מלא אוטומטית מהטבלאות'));
+
+      // 100 shares at a 10000-agorot close = 10,000 ILS, derived rather
+      // than typed - replacing the 22,000 that was saved for this month.
+      expect(within(card).getByText('10000.00 ₪', { selector: '.editable-cell' })).toBeInTheDocument();
+      expect(within(card).queryByText('22000.00 ₪', { selector: '.editable-cell' })).toBeNull();
+      expect(within(card).getByDisplayValue('TEVA')).toBeInTheDocument();
+    });
+
     test('editing the shown month: "ביטול" discards changes without calling onUpdateMonthlySnapshot', () => {
       const onUpdateMonthlySnapshot = jest.fn();
       render(<PortfolioAnalysisView {...makeProps({ monthlySnapshots: [july, august], onUpdateMonthlySnapshot })} />);
@@ -671,8 +837,12 @@ describe('PortfolioAnalysisView', () => {
     });
   });
 
-  describe('custom date-range performance check', () => {
-    test('shows nothing extra until both dates are picked, then computes the change from real historical closes', async () => {
+  // Performance over time is now computed on the fly from real historical
+  // closing prices for whatever the portfolio held on each date, instead of
+  // being read back from saved daily snapshots. The section therefore works
+  // with `snapshots: []`, which is what every fixture here passes.
+  describe('performance over time (computed from historical closes)', () => {
+    const mockHistoryFetch = () => {
       global.fetch.mockImplementation((url) => {
         const u = String(url);
         if (u.includes('israeli-stocks-history')) {
@@ -681,7 +851,8 @@ describe('PortfolioAnalysisView', () => {
             json: async () => ({
               history: {
                 TEVA: [
-                  { date: '2024-01-01', close: 10000 },
+                  { date: '2023-01-15', close: 10000 },
+                  { date: '2024-01-01', close: 11000 },
                   { date: '2024-06-01', close: 12000 }
                 ]
               }
@@ -689,29 +860,100 @@ describe('PortfolioAnalysisView', () => {
           });
         }
         if (u.includes('american-stocks-history') || u.includes('exchange-rate-history')) {
-          return Promise.resolve({ ok: true, json: async () => ({ history: u.includes('exchange-rate') ? [] : {} }) });
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ history: u.includes('exchange-rate') ? [] : {} })
+          });
         }
         return Promise.resolve({ ok: true, json: async () => ({}) });
       });
+    };
 
-      const { container, getByText, queryByText } = render(
-        <PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />
+    test('defaults the range to the portfolio inception date, with no snapshots saved at all', async () => {
+      mockHistoryFetch();
+      const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+
+      // The earliest purchase date across the holdings (TEVA, 2023-01-15).
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/israeli-stocks-history'),
+        expect.objectContaining({ method: 'POST' })
       );
-      expect(queryByText('שינוי בטווח שנבחר')).toBeNull();
+    });
 
-      fireEvent.change(container.querySelector('#customRangeFrom'), { target: { value: '2024-01-01' } });
-      fireEvent.change(container.querySelector('#customRangeTo'), { target: { value: '2024-06-01' } });
+    test('computes the return since inception from the historical closes', async () => {
+      mockHistoryFetch();
+      const { getByText } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      await waitFor(() => expect(getByText('תשואה מאז תחילת ההשקעה')).toBeInTheDocument());
+      // The old label measured from the first saved snapshot instead.
+      expect(screen.queryByText('תשואה מאז תחילת המעקב')).toBeNull();
+    });
 
-      await waitFor(() => expect(getByText('שינוי בטווח שנבחר')).toBeInTheDocument());
-      // (12000/10000 - 1) * 100 = 20%
-      expect(getByText('20.0%')).toBeInTheDocument();
+    test('narrowing the range re-fetches and recomputes, rather than reading a stored figure', async () => {
+      mockHistoryFetch();
+      const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+
+      const callsBefore = global.fetch.mock.calls.length;
+      fireEvent.change(container.querySelector('#performanceFrom'), { target: { value: '2024-01-01' } });
+
+      await waitFor(() => expect(global.fetch.mock.calls.length).toBeGreaterThan(callsBefore));
+      expect(container.querySelector('#performanceFrom').value).toBe('2024-01-01');
     });
 
     test('surfaces an error message instead of a fake/blank result when the underlying fetch fails', async () => {
-      const { container, getByText } = render(<PortfolioAnalysisView {...makeProps()} />);
-      fireEvent.change(container.querySelector('#customRangeFrom'), { target: { value: '2024-01-01' } });
-      fireEvent.change(container.querySelector('#customRangeTo'), { target: { value: '2024-06-01' } });
-      await waitFor(() => expect(getByText('לא ניתן היה לטעון נתוני מחירים היסטוריים כרגע')).toBeInTheDocument());
+      const { getByText } = render(<PortfolioAnalysisView {...makeProps()} />);
+      await waitFor(() =>
+        expect(getByText('לא ניתן היה לטעון נתוני מחירים היסטוריים כרגע')).toBeInTheDocument()
+      );
+    });
+
+    test('the removed metrics are gone: no health score, no max drawdown, no Sharpe ratio', async () => {
+      mockHistoryFetch();
+      render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      await waitFor(() => expect(screen.getByText('תשואה מאז תחילת ההשקעה')).toBeInTheDocument());
+
+      expect(screen.queryByText('ציון בריאות תיק')).toBeNull();
+      expect(screen.queryByText('ירידה מקסימלית (Drawdown)')).toBeNull();
+      expect(screen.queryByText('Sharpe Ratio (משוער)')).toBeNull();
+      // Annualized volatility stays - it was audited, not removed.
+      expect(screen.getByText('תנודתיות שנתית (משוערת)')).toBeInTheDocument();
+    });
+  });
+
+  // Requirement: provident-fund deposits belong in the purchase-date
+  // breakdown, at the date each deposit was actually made - not lumped onto
+  // whatever date the fund's value happened to last be updated.
+  describe('breakdown by purchase/deposit date', () => {
+    test('places each provident-fund deposit in the month it was made, alongside the stock purchases', () => {
+      const pensionWithLedger = [
+        {
+          fundName: 'קופת גמל',
+          currentValue: 5000,
+          currentValueDate: '2024-06-01',
+          deposits: [
+            { date: '2023-03-10', amount: 1000 },
+            { date: '2023-09-10', amount: 2000 }
+          ]
+        }
+      ];
+      const analysisWithPension = calculatePortfolioAnalysis(
+        israeliStocks,
+        [],
+        pensionWithLedger,
+        [],
+        [],
+        []
+      );
+      const months = analysisWithPension.monthlyDistribution.map((m) => m.month);
+
+      expect(months).toContain('2023-03');
+      expect(months).toContain('2023-09');
+      // Not collapsed onto the fund's last-updated month.
+      expect(months).not.toContain('2024-06');
+
+      const march = analysisWithPension.monthlyDistribution.find((m) => m.month === '2023-03');
+      expect(march.value).toBe(1000);
     });
   });
 });

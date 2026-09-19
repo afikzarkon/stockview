@@ -12,8 +12,22 @@ const { fetchTaseQuoteFromApi } = require('./taseQuoteApi');
 const { fetchTaseQuoteFromEod } = require('./taseHistoryApi');
 const { getYahooPayload, fetchYahooHistoricalRateForDate } = require('./yahooQuotes');
 const { searchIsraeliSecuritiesByName } = require('./bizportalSearch');
+const { fetchTaseSecurityMeta, isSecurityIdQuery } = require('./taseSecurityLookup');
 
 const taseInFlight = new Map();
+
+// How many symbols one batched quote request may ask for. Matches the cap
+// the other batch routes already use (sectorRoutes.js,
+// historicalPricesRoutes.js) - comfortably above a realistic portfolio,
+// low enough to bound the fan-out one request can trigger.
+const MAX_SYMBOLS_PER_BATCH = 60;
+
+// Resolved security metadata (name/type/branch) changes essentially never -
+// a security's classification is not a price. Cached for a day so the
+// "resolve this id" call the add-stock form makes is free after the first.
+const SECURITY_META_TTL_MS = 24 * 60 * 60 * 1000;
+const securityMetaCache = new Map(); // securityId -> { data, ts }
+const securityMetaInFlight = new Map();
 
 function errMessage(err) {
   if (!err) return 'unknown error';
@@ -41,8 +55,65 @@ function errMessage(err) {
 const TASE_SOURCES = [
   { name: 'tase-api', fn: fetchTaseQuoteFromApi, retryOnce: false },
   { name: 'tase-eod', fn: fetchTaseQuoteFromEod, retryOnce: false },
-  { name: 'puppeteer', fn: scrapeTaseQuote, retryOnce: true }
+  { name: 'puppeteer', fn: scrapeTaseQuote, retryOnce: true, expensive: true }
 ];
+
+// Circuit breaker for the Puppeteer source.
+//
+// It is by far the most expensive entry in the chain - launching/driving a
+// headless browser costs seconds and hundreds of MB, and it's tried twice
+// (retryOnce) before giving up. When it's broken it is usually broken for
+// every symbol at once and for a sustained stretch: no Chrome binary
+// installed, not enough memory on the host, or TASE serving a bot-block
+// page. Paying that cost per symbol, per poll, for something that is
+// currently failing every single time is the worst case the "make the app
+// fast" work has to eliminate.
+//
+// So: after PUPPETEER_FAILURE_THRESHOLD consecutive failures the source is
+// skipped entirely for PUPPETEER_COOLDOWN_MS, then allowed one probe. A
+// single success resets it. The two JSON APIs ahead of it are unaffected,
+// and a stale cached quote still covers the gap (see getTaseQuoteSwr).
+const PUPPETEER_FAILURE_THRESHOLD = 3;
+const PUPPETEER_COOLDOWN_MS = 10 * 60 * 1000;
+const TASE_DISABLE_PUPPETEER = process.env.TASE_DISABLE_PUPPETEER === '1';
+let puppeteerConsecutiveFailures = 0;
+let puppeteerCooldownUntil = 0;
+
+function isPuppeteerAvailable() {
+  if (TASE_DISABLE_PUPPETEER) return false;
+  return Date.now() >= puppeteerCooldownUntil;
+}
+
+function recordPuppeteerOutcome(succeeded) {
+  if (succeeded) {
+    puppeteerConsecutiveFailures = 0;
+    puppeteerCooldownUntil = 0;
+    return;
+  }
+  puppeteerConsecutiveFailures += 1;
+  if (puppeteerConsecutiveFailures >= PUPPETEER_FAILURE_THRESHOLD) {
+    puppeteerCooldownUntil = Date.now() + PUPPETEER_COOLDOWN_MS;
+    puppeteerConsecutiveFailures = 0;
+    console.warn('[tase] puppeteer source tripped its circuit breaker; skipping it for a while', {
+      cooldownMs: PUPPETEER_COOLDOWN_MS
+    });
+  }
+}
+
+// Exposed for tests - resets the breaker between cases so one test's
+// simulated failures can't leak into the next.
+function resetPuppeteerBreaker() {
+  puppeteerConsecutiveFailures = 0;
+  puppeteerCooldownUntil = 0;
+}
+
+// Exposed for tests, for the same reason: the day-long metadata cache is
+// module-level, so without this one test's resolved security would still be
+// served to the next.
+function resetSecurityMetaCache() {
+  securityMetaCache.clear();
+  securityMetaInFlight.clear();
+}
 
 async function attemptTaseSource(source, stockId) {
   const result = await source.fn(stockId);
@@ -74,6 +145,10 @@ async function runTaseSource(source, stockId) {
 async function fetchTaseQuote(stockId, req) {
   const errors = {};
   for (const source of TASE_SOURCES) {
+    if (source.expensive && !isPuppeteerAvailable()) {
+      errors[source.name] = 'skipped (circuit breaker open)';
+      continue;
+    }
     try {
       const { payload, result } = await runTaseSource(source, stockId);
       // Logged on every success too (not just failures) - a quote can look
@@ -87,9 +162,11 @@ async function fetchTaseQuote(stockId, req) {
         payload,
         priceMatch: result._debugPriceMatch
       });
+      if (source.expensive) recordPuppeteerOutcome(true);
       writeCachedTaseQuote(stockId, payload);
       return payload;
     } catch (err) {
+      if (source.expensive) recordPuppeteerOutcome(false);
       errors[source.name] = errMessage(err);
       console.warn(`[tase] ${source.name} failed`, {
         stockId,
@@ -117,6 +194,139 @@ async function fetchTaseQuote(stockId, req) {
   return { currentPrice: null, changePercent: null };
 }
 
+// Kicks off (or joins) a refresh for one security id, returning the
+// promise. Deduplicated via taseInFlight so N concurrent callers for the
+// same id share a single upstream chain run.
+function refreshTaseQuote(stockId, req) {
+  const existing = taseInFlight.get(stockId);
+  if (existing) return existing;
+
+  const promise = fetchTaseQuote(stockId, req).finally(() => {
+    taseInFlight.delete(stockId);
+  });
+  taseInFlight.set(stockId, promise);
+  return promise;
+}
+
+// Stale-while-revalidate: the heart of the "the UI must render immediately"
+// requirement.
+//
+// The old flow was strictly blocking - a cache miss (or a 60s-expired
+// entry) made the HTTP response wait for the full source chain: a TASE API
+// call, then an EOD API call, then, if both failed, a Puppeteer launch +
+// page render + a retry of the same. With one request per holding that is
+// exactly where the reported 30-60s first paint came from: every symbol's
+// response was gated on the slowest source that eventually answered for it.
+//
+// Now a request only ever BLOCKS when there is genuinely nothing to serve -
+// the very first time a given security is ever asked for. Once any value
+// exists for that id, an expired entry is returned immediately and the
+// refresh runs in the background, so the client renders a real (at most one
+// interval old) price now and picks up the fresh one on its next poll.
+// Errors in the background refresh are swallowed deliberately: the client
+// already has a usable answer, and fetchTaseQuote logs the details.
+async function getTaseQuoteSwr(stockId, req) {
+  const fresh = readCachedTaseQuote(stockId);
+  if (fresh) return fresh;
+
+  const stale = readStaleTaseQuote(stockId);
+  if (stale) {
+    refreshTaseQuote(stockId, req).catch(() => {});
+    return stale;
+  }
+
+  try {
+    return await refreshTaseQuote(stockId, req);
+  } catch (err) {
+    console.error('[tase] quote request failed with no cached value to fall back on', {
+      stockId,
+      error: errMessage(err)
+    });
+    return { currentPrice: null, changePercent: null };
+  }
+}
+
+// Cached metadata lookup for one security id (see taseSecurityLookup.js).
+async function getSecurityMeta(securityId) {
+  const cached = securityMetaCache.get(securityId);
+  if (cached && Date.now() - cached.ts < SECURITY_META_TTL_MS) return cached.data;
+
+  const existing = securityMetaInFlight.get(securityId);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    try {
+      const data = await fetchTaseSecurityMeta(securityId);
+      securityMetaCache.set(securityId, { data, ts: Date.now() });
+      return data;
+    } catch (err) {
+      console.warn('[tase] security metadata lookup failed', { securityId, error: errMessage(err) });
+      return null;
+    } finally {
+      securityMetaInFlight.delete(securityId);
+    }
+  })();
+  securityMetaInFlight.set(securityId, promise);
+  return promise;
+}
+
+// Israeli/TASE security search that answers BOTH kinds of query a user
+// actually types:
+//
+//   a security number (e.g. 1159250) -> resolved directly against the
+//   exchange's own securitydata API, which answers for every instrument
+//   class including ETFs, foreign-listed tracking funds and index
+//   trackers. This is the case that was simply broken: Bizportal's
+//   name-autocomplete returns an empty array for a numeric query (verified
+//   live against 1159250), so searching by security number could never
+//   find anything, and the ETFs that aren't in Bizportal's name index at
+//   all (again 1159250, "איישרס.חוץ P 500&S") were unreachable by any
+//   query text whatsoever.
+//
+//   a name -> Bizportal's autocomplete as before, now including mutual
+//   funds/index trackers (see bizportalSearch.js).
+//
+// A numeric query still also runs the name search, because some ids are
+// legitimately typed as part of a name query and Bizportal occasionally
+// matches a symbol containing digits - the direct hit is simply placed
+// first. Results are deduplicated by security id.
+async function searchIsraeliSecurities(query) {
+  const trimmed = String(query || '').trim();
+  if (!trimmed) return [];
+
+  const byIdPromise = isSecurityIdQuery(trimmed) ? getSecurityMeta(trimmed) : Promise.resolve(null);
+  const byNamePromise = searchIsraeliSecuritiesByName(trimmed).catch((err) => {
+    console.warn('[israeli-stock-search] name search failed', { query: trimmed, error: errMessage(err) });
+    return [];
+  });
+
+  const [byId, byName] = await Promise.all([byIdPromise, byNamePromise]);
+
+  const results = [];
+  const seen = new Set();
+  const push = (entry) => {
+    if (!entry || !entry.securityId || seen.has(entry.securityId)) return;
+    seen.add(entry.securityId);
+    results.push(entry);
+  };
+
+  if (byId) {
+    push({
+      securityId: byId.securityId,
+      officialName: byId.officialName,
+      symbol: byId.symbol,
+      kind: byId.isFund ? 'fund' : 'stock',
+      isFund: byId.isFund,
+      securityType: byId.securityType,
+      branch: byId.branch,
+      isForeignETF: byId.isForeignETF,
+      underlyingAsset: byId.underlyingAsset
+    });
+  }
+  byName.forEach(push);
+  return results;
+}
+
 function mountQuotesRoutes(app) {
   app.get('/api/israeli-stock/:id', async (req, res) => {
     const stockId = req.params.id;
@@ -124,36 +334,49 @@ function mountQuotesRoutes(app) {
       console.warn('[tase] invalid stock id', { stockId });
       return res.status(400).json({ error: 'invalid stock id' });
     }
+    return res.json(await getTaseQuoteSwr(stockId, req));
+  });
 
-    const cached = readCachedTaseQuote(stockId);
-    if (cached) {
-      return res.json(cached);
-    }
+  // Batched form of the route above: one HTTP request for the whole
+  // Israeli side of a portfolio instead of one per holding.
+  //
+  // Browsers cap concurrent connections to a single origin at ~6, so 20
+  // holdings previously meant four serialized rounds of requests before the
+  // last price could even start loading - on top of whatever each one
+  // waited for upstream. Batching collapses that to a single round trip,
+  // and the per-id work inside still runs concurrently and still shares the
+  // same cache + in-flight dedup as the single-id route.
+  app.post('/api/israeli-stocks', async (req, res) => {
+    const raw = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
+    const ids = [...new Set(raw.map((id) => String(id || '').trim()).filter((id) => /^\d+$/.test(id)))].slice(
+      0,
+      MAX_SYMBOLS_PER_BATCH
+    );
+    if (ids.length === 0) return res.json({ quotes: {} });
 
-    const existingInFlight = taseInFlight.get(stockId);
-    if (existingInFlight) {
-      try {
-        const sharedResult = await existingInFlight;
-        return res.json(sharedResult);
-      } catch (err) {
-        console.error('[tase] shared in-flight request failed', {
-          stockId,
-          error: errMessage(err)
-        });
-        const stale = readStaleTaseQuote(stockId);
-        if (stale) return res.json(stale);
-        return res.json({ currentPrice: null, changePercent: null });
-      }
-    }
+    const payloads = await Promise.all(ids.map((id) => getTaseQuoteSwr(id, req)));
+    const quotes = {};
+    ids.forEach((id, i) => {
+      quotes[id] = payloads[i];
+    });
+    return res.json({ quotes });
+  });
 
-    const quotePromise = fetchTaseQuote(stockId, req);
-    taseInFlight.set(stockId, quotePromise);
-    try {
-      const payload = await quotePromise;
-      return res.json(payload);
-    } finally {
-      taseInFlight.delete(stockId);
+  // Identity/classification for one TASE security (see
+  // taseSecurityLookup.js) - what the add-stock form calls after the user
+  // picks a search result, so the holding is stored with its official name,
+  // its instrument type and the exchange's own branch string, instead of a
+  // bare number the UI can only ever display as a number.
+  app.get('/api/israeli-security/:id', async (req, res) => {
+    const securityId = req.params.id;
+    if (!/^\d+$/.test(securityId)) {
+      return res.status(400).json({ error: 'invalid security id' });
     }
+    const meta = await getSecurityMeta(securityId);
+    if (!meta) {
+      return res.status(404).json({ error: 'לא נמצא נייר ערך עם מספר זה' });
+    }
+    return res.json(meta);
   });
 
   app.get('/api/american-stock/:symbol', async (req, res) => {
@@ -167,6 +390,39 @@ function mountQuotesRoutes(app) {
     } catch (err) {
       return res.json({ currentPrice: null, changePercent: 0 });
     }
+  });
+
+  // Batched American quotes, for the same reason as /api/israeli-stocks
+  // above. getYahooPayload already has its own cache + in-flight dedup, so
+  // this only removes the per-symbol HTTP round trip from the browser.
+  // Promise.allSettled, not all: one delisted/unknown ticker must not blank
+  // out every other holding's price.
+  app.post('/api/american-stocks', async (req, res) => {
+    const raw = Array.isArray(req.body && req.body.symbols) ? req.body.symbols : [];
+    const symbols = [...new Set(raw.map((sym) => String(sym || '').trim()).filter(Boolean))].slice(
+      0,
+      MAX_SYMBOLS_PER_BATCH
+    );
+    if (symbols.length === 0) return res.json({ quotes: {}, exchangeRate: null });
+
+    // The USD/ILS rate every American holding needs to convert to ILS is
+    // fetched alongside the quotes rather than as a separate request the
+    // client has to make itself.
+    const [rateResult, ...quoteResults] = await Promise.allSettled([
+      getYahooPayload('USDILS=X'),
+      ...symbols.map((sym) => getYahooPayload(sym))
+    ]);
+
+    const quotes = {};
+    symbols.forEach((sym, i) => {
+      const result = quoteResults[i];
+      quotes[sym] =
+        result.status === 'fulfilled' ? result.value : { currentPrice: null, changePercent: 0 };
+    });
+    const exchangeRate =
+      rateResult.status === 'fulfilled' && rateResult.value ? rateResult.value.currentPrice : null;
+
+    return res.json({ quotes, exchangeRate });
   });
 
   app.get('/api/exchange-rate', async (req, res) => {
@@ -204,7 +460,7 @@ function mountQuotesRoutes(app) {
       return res.json({ results: [] });
     }
     try {
-      const results = await searchIsraeliSecuritiesByName(query);
+      const results = await searchIsraeliSecurities(query);
       return res.json({ results });
     } catch (err) {
       console.warn('[israeli-stock-search] failed', { query, error: errMessage(err) });
@@ -213,4 +469,9 @@ function mountQuotesRoutes(app) {
   });
 }
 
-module.exports = { mountQuotesRoutes };
+module.exports = {
+  mountQuotesRoutes,
+  searchIsraeliSecurities,
+  resetPuppeteerBreaker,
+  resetSecurityMetaCache
+};

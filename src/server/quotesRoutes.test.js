@@ -26,15 +26,22 @@ jest.mock('./yahooQuotes', () => ({
 jest.mock('./bizportalSearch', () => ({
   searchIsraeliSecuritiesByName: jest.fn()
 }));
+jest.mock('./taseSecurityLookup', () => ({
+  fetchTaseSecurityMeta: jest.fn(),
+  // Not mocked away - the real predicate is what decides whether a query
+  // is a security number, and that decision is the behavior under test.
+  isSecurityIdQuery: (q) => /^\d{3,9}$/.test(String(q || '').trim())
+}));
 
 const http = require('http');
 const express = require('express');
-const { mountQuotesRoutes } = require('./quotesRoutes');
+const { mountQuotesRoutes, resetPuppeteerBreaker, resetSecurityMetaCache } = require('./quotesRoutes');
 const taseScraper = require('./taseScraper');
 const taseQuoteApi = require('./taseQuoteApi');
 const taseHistoryApi = require('./taseHistoryApi');
 const yahooQuotes = require('./yahooQuotes');
 const bizportalSearch = require('./bizportalSearch');
+const taseSecurityLookup = require('./taseSecurityLookup');
 
 // Jest's node test environment doesn't expose global fetch, so use Node's
 // built-in http module for these requests instead of adding a dependency.
@@ -56,6 +63,31 @@ function get(url) {
   });
 }
 
+function post(url, payload) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(payload);
+    const req = http.request(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) }
+      },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => {
+          let parsed = null;
+          try { parsed = JSON.parse(body); } catch { parsed = null; }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      }
+    );
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}
+
 describe('quotesRoutes', () => {
   let app;
   let server;
@@ -63,6 +95,7 @@ describe('quotesRoutes', () => {
 
   beforeAll((done) => {
     app = express();
+    app.use(express.json());
     mountQuotesRoutes(app);
     server = app.listen(0, () => {
       baseUrl = `http://localhost:${server.address().port}`;
@@ -92,6 +125,14 @@ describe('quotesRoutes', () => {
     yahooQuotes.getYahooPayload.mockRejectedValue(new Error('network unavailable in test'));
     yahooQuotes.fetchYahooHistoricalRateForDate.mockRejectedValue(new Error('network unavailable in test'));
     bizportalSearch.searchIsraeliSecuritiesByName.mockRejectedValue(new Error('network unavailable in test'));
+    taseSecurityLookup.fetchTaseSecurityMeta.mockRejectedValue(new Error('network unavailable in test'));
+    // The Puppeteer source's circuit breaker is module-level state that
+    // survives between tests, and most tests here deliberately make every
+    // source fail - without this, the accumulated failures would trip the
+    // breaker and the later tests would find the scraper skipped rather
+    // than called.
+    resetPuppeteerBreaker();
+    resetSecurityMetaCache();
   });
 
   test('GET /api/israeli-stock/:id rejects a non-numeric id with 400', async () => {
@@ -119,7 +160,25 @@ describe('quotesRoutes', () => {
     expect(taseScraper.scrapeTaseQuote).toHaveBeenCalledWith('629014');
   });
 
-  test('GET /api/israeli-stock/:id serves a stale cached quote if scraping fails but a stale value exists', async () => {
+  // Stale-while-revalidate: an expired cache entry is served IMMEDIATELY,
+  // and the refresh happens behind the response. This is what stops a
+  // portfolio's first paint from waiting on the source chain per holding -
+  // previously a cache miss blocked the response on a TASE API call, then
+  // an EOD call, then a Puppeteer launch and a retry of it.
+  test('GET /api/israeli-stock/:id serves a stale cached quote right away and refreshes in the background', async () => {
+    taseScraper.readStaleTaseQuote.mockReturnValue({ currentPrice: 3500, changePercent: 1.1 });
+    taseQuoteApi.fetchTaseQuoteFromApi.mockResolvedValue({ currentPrice: 3600, changePercent: 1.4 });
+
+    const res = await get(`${baseUrl}/api/israeli-stock/5678`);
+
+    // The response is the stale value, not the fresh one - it did not wait.
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ currentPrice: 3500, changePercent: 1.1 });
+    // ...but a refresh was kicked off, so the next poll gets the new price.
+    expect(taseQuoteApi.fetchTaseQuoteFromApi).toHaveBeenCalledWith('5678');
+  });
+
+  test('GET /api/israeli-stock/:id still falls back to the stale value when every source fails', async () => {
     taseScraper.readStaleTaseQuote.mockReturnValue({ currentPrice: 3500, changePercent: 1.1 });
     const res = await get(`${baseUrl}/api/israeli-stock/5678`);
     expect(res.status).toBe(200);
@@ -268,5 +327,158 @@ describe('quotesRoutes', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ results: [{ securityId: '629014', officialName: 'טבע', symbol: 'TEVA' }] });
     expect(bizportalSearch.searchIsraeliSecuritiesByName).toHaveBeenCalledWith('טבע');
+  });
+
+  // THE ETF SEARCH BUG. Bizportal's name-autocomplete returns an empty
+  // array for a numeric query (verified live against 1159250), so searching
+  // by security number could never find anything - and foreign-listed
+  // tracking funds like 1159250 aren't in its name index either, making
+  // them unreachable by any query text at all. Resolving a numeric query
+  // directly against the exchange's own securitydata API is what fixes both.
+  test('GET /api/israeli-stock-search resolves a security NUMBER directly, even when the name search finds nothing', async () => {
+    bizportalSearch.searchIsraeliSecuritiesByName.mockResolvedValue([]);
+    taseSecurityLookup.fetchTaseSecurityMeta.mockResolvedValue({
+      securityId: '1159250',
+      officialName: 'איישרס.חוץ P 500&S',
+      symbol: 'אש.סז702',
+      securityType: 'קרן חוץ נסחרת',
+      securitySubType: 'קרן חוץ נסחרת מניות',
+      branch: 'מכשירים פיננסים-קרן חוץ נסחרת-קרן חוץ נסחרת',
+      isFund: true,
+      isForeignETF: true,
+      underlyingAsset: 'S&P 500 - NTR'
+    });
+
+    const res = await get(`${baseUrl}/api/israeli-stock-search?q=1159250`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.results[0]).toMatchObject({
+      securityId: '1159250',
+      officialName: 'איישרס.חוץ P 500&S',
+      isFund: true,
+      isForeignETF: true
+    });
+    expect(taseSecurityLookup.fetchTaseSecurityMeta).toHaveBeenCalledWith('1159250');
+  });
+
+  test('GET /api/israeli-stock-search puts the direct security-number hit first and drops its duplicate from the name results', async () => {
+    taseSecurityLookup.fetchTaseSecurityMeta.mockResolvedValue({
+      securityId: '629014',
+      officialName: 'טבע',
+      symbol: 'טבע',
+      securityType: ' מניות',
+      isFund: false,
+      isForeignETF: false
+    });
+    bizportalSearch.searchIsraeliSecuritiesByName.mockResolvedValue([
+      { securityId: '629014', officialName: 'טבע (מ-Bizportal)', symbol: 'TEVA', isFund: false },
+      { securityId: '1145713', officialName: 'קסם Russell 2000 ETF', symbol: 'KSM', isFund: true }
+    ]);
+
+    const res = await get(`${baseUrl}/api/israeli-stock-search?q=629014`);
+
+    expect(res.body.results.map((r) => r.securityId)).toEqual(['629014', '1145713']);
+    expect(res.body.results[0].officialName).toBe('טבע');
+  });
+
+  test('GET /api/israeli-stock-search does not attempt a security-id lookup for a name query', async () => {
+    bizportalSearch.searchIsraeliSecuritiesByName.mockResolvedValue([]);
+    await get(`${baseUrl}/api/israeli-stock-search?q=${encodeURIComponent('טבע')}`);
+    expect(taseSecurityLookup.fetchTaseSecurityMeta).not.toHaveBeenCalled();
+  });
+
+  test('GET /api/israeli-stock-search still returns name results when the id lookup fails', async () => {
+    taseSecurityLookup.fetchTaseSecurityMeta.mockRejectedValue(new Error('tase down'));
+    bizportalSearch.searchIsraeliSecuritiesByName.mockResolvedValue([
+      { securityId: '1145713', officialName: 'קסם Russell 2000 ETF', symbol: 'KSM', isFund: true }
+    ]);
+
+    const res = await get(`${baseUrl}/api/israeli-stock-search?q=1145713`);
+    expect(res.status).toBe(200);
+    expect(res.body.results.map((r) => r.securityId)).toEqual(['1145713']);
+  });
+
+  test('GET /api/israeli-security/:id returns the security metadata used for automatic classification', async () => {
+    taseSecurityLookup.fetchTaseSecurityMeta.mockResolvedValue({
+      securityId: '629014',
+      officialName: 'טבע',
+      branch: 'הייטק-ביומד-פארמה',
+      isFund: false,
+      isForeignETF: false
+    });
+    const res = await get(`${baseUrl}/api/israeli-security/629014`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ officialName: 'טבע', branch: 'הייטק-ביומד-פארמה' });
+  });
+
+  test('GET /api/israeli-security/:id rejects a non-numeric id with 400 and 404s an unknown one', async () => {
+    const bad = await get(`${baseUrl}/api/israeli-security/abc`);
+    expect(bad.status).toBe(400);
+
+    taseSecurityLookup.fetchTaseSecurityMeta.mockResolvedValue(null);
+    const missing = await get(`${baseUrl}/api/israeli-security/1`);
+    expect(missing.status).toBe(404);
+  });
+
+  // Batched quotes: one request for the whole portfolio instead of one per
+  // holding. Browsers only open ~6 connections per origin, so 20 holdings
+  // previously meant four serialized rounds of requests.
+  test('POST /api/israeli-stocks returns a quote per id in a single request', async () => {
+    taseScraper.readCachedTaseQuote.mockImplementation((id) =>
+      id === '629014' ? { currentPrice: 11960, changePercent: 1.36 } : { currentPrice: 249160, changePercent: 0.14 }
+    );
+
+    const res = await post(`${baseUrl}/api/israeli-stocks`, { ids: ['629014', '1159250'] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.quotes).toEqual({
+      629014: { currentPrice: 11960, changePercent: 1.36 },
+      1159250: { currentPrice: 249160, changePercent: 0.14 }
+    });
+  });
+
+  test('POST /api/israeli-stocks ignores non-numeric ids, dedupes, and returns {} for an empty list', async () => {
+    taseScraper.readCachedTaseQuote.mockReturnValue({ currentPrice: 100, changePercent: 0 });
+
+    const res = await post(`${baseUrl}/api/israeli-stocks`, { ids: ['629014', '629014', 'nope', ''] });
+    expect(Object.keys(res.body.quotes)).toEqual(['629014']);
+
+    const empty = await post(`${baseUrl}/api/israeli-stocks`, { ids: [] });
+    expect(empty.body).toEqual({ quotes: {} });
+  });
+
+  test('POST /api/american-stocks returns every symbol plus the USD/ILS rate on one response', async () => {
+    yahooQuotes.getYahooPayload.mockImplementation((symbol) => {
+      if (symbol === 'USDILS=X') return Promise.resolve({ currentPrice: 3.71, changePercent: -0.1 });
+      if (symbol === 'AAPL') return Promise.resolve({ currentPrice: 190.5, changePercent: 0.8 });
+      return Promise.reject(new Error('unknown symbol'));
+    });
+
+    const res = await post(`${baseUrl}/api/american-stocks`, { symbols: ['AAPL', 'BADTICKER'] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.exchangeRate).toBe(3.71);
+    expect(res.body.quotes.AAPL).toEqual({ currentPrice: 190.5, changePercent: 0.8 });
+    // One failing ticker must not blank out the rest of the portfolio.
+    expect(res.body.quotes.BADTICKER).toEqual({ currentPrice: null, changePercent: 0 });
+  });
+
+  // The Puppeteer source is the expensive one - a browser launch per symbol
+  // per poll, tried twice. When it's broken it's usually broken for every
+  // symbol at once, so it gets skipped for a while instead of being paid
+  // for repeatedly.
+  test('the Puppeteer source is skipped after repeated failures, while the JSON APIs keep being tried', async () => {
+    await get(`${baseUrl}/api/israeli-stock/1001`);
+    await get(`${baseUrl}/api/israeli-stock/1002`);
+    await get(`${baseUrl}/api/israeli-stock/1003`);
+
+    const callsBefore = taseScraper.scrapeTaseQuote.mock.calls.length;
+    const apiCallsBefore = taseQuoteApi.fetchTaseQuoteFromApi.mock.calls.length;
+
+    await get(`${baseUrl}/api/israeli-stock/1004`);
+
+    expect(taseScraper.scrapeTaseQuote.mock.calls.length).toBe(callsBefore);
+    expect(taseQuoteApi.fetchTaseQuoteFromApi.mock.calls.length).toBe(apiCallsBefore + 1);
   });
 });

@@ -4,7 +4,12 @@ import { formatPriceWithSign, normalizeIsraeliStocksFromStorage } from './utils/
 import { calculatePortfolioSummary } from './utils/portfolioSummary';
 import { applyLedgerValueEditPayload } from './utils/portfolioMath';
 import { calculatePortfolioAnalysis } from './utils/portfolioAnalysis';
-import { fetchCurrentPrice, fetchIsraeliStockPrice, fetchHistoricalExchangeRate } from './api/stockPrices';
+import {
+  fetchCurrentPrice,
+  fetchIsraeliStockPrice,
+  fetchHistoricalExchangeRate,
+  fetchIsraeliSecurityMeta
+} from './api/stockPrices';
 import { apiUrl } from './apiBase';
 import { useAuth } from './hooks/useAuth';
 import { usePortfolioData } from './hooks/usePortfolioData';
@@ -110,7 +115,16 @@ function App() {
   const [formData, setFormData] = useState({
     itemType: 'stock',
     stockName: '',
+    // Resolved from the TASE security lookup when a holding is picked in
+    // the search box (see handleSelectIsraeliStock) - the official name
+    // plus the classification fields that make the foreign-asset/sector
+    // columns automatic. Israeli holdings only; blank for everything else.
     officialName: '',
+    securityType: '',
+    securitySubType: '',
+    branch: '',
+    isFund: false,
+    isForeignETF: false,
     securityId: '',
     purchaseDate: '',
     purchasePrice: '',
@@ -146,7 +160,15 @@ function App() {
   // completes (see usePriceRefresh.js) - gates useAutoSnapshot below so it
   // never captures a value from a stale/incomplete initial render.
   const [firstPriceCycleComplete, setFirstPriceCycleComplete] = useState(false);
-  usePriceRefresh({
+  // Non-blocking by design: this never gates a render. The tables draw
+  // immediately from the prices persisted with the portfolio, and these
+  // flags only drive a progress indicator while fresher prices arrive in
+  // the background (see usePriceRefresh.js).
+  const {
+    refreshing: pricesRefreshing,
+    lastRefreshAt: pricesLastRefreshAt,
+    hasLoadedLivePrices
+  } = usePriceRefresh({
     israeliStocks,
     americanStocks,
     setIsraeliStocks,
@@ -190,7 +212,7 @@ function App() {
 
   const {
     snapshots,
-    snapshotsLoading,
+
     saveSnapshotNow,
     saveError: snapshotSaveError,
     lastSavedAt: lastSnapshotSavedAt
@@ -368,7 +390,11 @@ function App() {
       // already resolved via the search box below it (see
       // handleSelectIsraeliStock) - the two would otherwise silently drift
       // out of sync (an id that no longer matches the displayed name).
-      ...(name === 'stockName' ? { officialName: '' } : {})
+      // A manual edit of the raw id invalidates the whole resolved
+      // identity, classification included - not just the name.
+      ...(name === 'stockName'
+        ? { officialName: '', securityType: '', securitySubType: '', branch: '', isFund: false, isForeignETF: false }
+        : {})
     }));
   };
 
@@ -379,12 +405,42 @@ function App() {
   // and the newly-resolved official company name in one update, instead of
   // two separate handleInputChange calls that could otherwise render a
   // stock with only one of the two set if something went wrong in between.
-  const handleSelectIsraeliStock = (result) => {
+  // Also pulls the security's full classification metadata from the
+  // exchange (instrument type, branch, foreign-ETF flag) and parks it on
+  // formData, so the holding is stored already classified. That is what
+  // makes the "נכס זר?" column unnecessary and the sector column automatic
+  // (see utils/israeliEtfClassifier.js): the answers come from the
+  // exchange's own description of the security instead of from the user.
+  // Best-effort - a failed lookup just leaves the holding with the name and
+  // id, which still classifies by name alone.
+  const handleSelectIsraeliStock = async (result) => {
     setFormData(prev => ({
       ...prev,
       stockName: result.securityId,
-      officialName: result.officialName
+      officialName: result.officialName,
+      securityType: result.securityType || '',
+      branch: result.branch || '',
+      isFund: result.isFund === true,
+      isForeignETF: result.isForeignETF === true
     }));
+
+    const meta = await fetchIsraeliSecurityMeta(result.securityId);
+    if (!meta) return;
+    setFormData(prev =>
+      // Guard against a slow lookup landing after the user has already
+      // moved on to a different security.
+      prev.stockName !== result.securityId
+        ? prev
+        : {
+            ...prev,
+            officialName: meta.officialName || prev.officialName,
+            securityType: meta.securityType || '',
+            securitySubType: meta.securitySubType || '',
+            branch: meta.branch || '',
+            isFund: meta.isFund === true,
+            isForeignETF: meta.isForeignETF === true
+          }
+    );
   };
 
   // Triggers fillHistoricalExchangeRate whenever the combination that
@@ -424,6 +480,9 @@ function App() {
     // קבלת מחיר נוכחי ואחוז שינוי יומי מ-API
     let currentPrice = 0;
     let dailyChangePercent = 0;
+    // Classification metadata resolved from the exchange for an Israeli
+    // holding whose id was typed rather than picked from the search box.
+    let israeliMeta = null;
     
     if (formData.exchange === 'american') {
       const priceData = await fetchCurrentPrice(formData.stockName.trim());
@@ -433,12 +492,22 @@ function App() {
       }
     } else if (formData.exchange === 'israeli') {
       const stockId = formData.stockName.trim();
-      const priceData = await fetchIsraeliStockPrice(stockId);
+      // Price and classification metadata are independent lookups, so they
+      // run concurrently rather than one after the other.
+      const [priceData, meta] = await Promise.all([
+        fetchIsraeliStockPrice(stockId),
+        // Only needed when the id was typed directly instead of picked from
+        // the search box (which already resolved it, see
+        // handleSelectIsraeliStock) - this is the path that used to leave a
+        // holding with nothing but a number.
+        formData.officialName ? Promise.resolve(null) : fetchIsraeliSecurityMeta(stockId)
+      ]);
       if (priceData && priceData.currentPrice !== null) {
         const normalizedPrice = priceData.currentPrice / 100; // המרה מאגורות לשקלים
         currentPrice = normalizedPrice;
         dailyChangePercent = priceData.changePercent || 0;
       }
+      if (meta) israeliMeta = meta;
       // אם לא מתקבל מחיר, המחיר נשאר 0 (כפי שהוגדר בתחילת הפונקציה)
     }
     
@@ -451,13 +520,32 @@ function App() {
         // via the search box in StockFormView - '' for anything picked
         // via the raw-id fallback path, same as legacy holdings that
         // predate this field, so display code must treat it as optional.
-        officialName: formData.exchange === 'israeli' ? (formData.officialName || '') : '',
+        officialName:
+          formData.exchange === 'israeli'
+            ? formData.officialName || (israeliMeta && israeliMeta.officialName) || ''
+            : '',
         purchaseDate: formData.purchaseDate,
         purchasePrice: parseFloat(formData.purchasePrice),
         quantity: parseInt(formData.quantity),
         exchangeRate: formData.exchange === 'american' ? parseFloat(formData.exchangeRate) : null,
         currentPrice: currentPrice,
-        dailyChangePercent: dailyChangePercent
+        dailyChangePercent: dailyChangePercent,
+        // Classification fields, Israeli holdings only - what makes the
+        // foreign-asset and sector columns automatic (see
+        // utils/israeliEtfClassifier.js). All optional: a holding saved
+        // before this existed simply classifies by name alone, which is
+        // why nothing downstream may assume they're present.
+        ...(formData.exchange === 'israeli'
+          ? {
+              securityType: formData.securityType || (israeliMeta && israeliMeta.securityType) || '',
+              securitySubType:
+                formData.securitySubType || (israeliMeta && israeliMeta.securitySubType) || '',
+              branch: formData.branch || (israeliMeta && israeliMeta.branch) || '',
+              isFund: formData.isFund === true || Boolean(israeliMeta && israeliMeta.isFund),
+              isForeignETF:
+                formData.isForeignETF === true || Boolean(israeliMeta && israeliMeta.isForeignETF)
+            }
+          : {})
       };
       console.log('💾 שומר מנייה/כספית חדשה:', stockData);
       if (formData.exchange === 'israeli') {
@@ -612,6 +700,11 @@ function App() {
       itemType: 'stock',
       stockName: '',
       officialName: '',
+      securityType: '',
+      securitySubType: '',
+      branch: '',
+      isFund: false,
+      isForeignETF: false,
       securityId: '',
       purchaseDate: '',
       purchasePrice: '',
@@ -729,6 +822,11 @@ function App() {
     setFormData({
       stockName: '',
       officialName: '',
+      securityType: '',
+      securitySubType: '',
+      branch: '',
+      isFund: false,
+      isForeignETF: false,
       securityId: '',
       purchasePrice: '',
       initialInvestment: '',
@@ -753,6 +851,11 @@ function App() {
     setFormData({
       stockName: '',
       officialName: '',
+      securityType: '',
+      securitySubType: '',
+      branch: '',
+      isFund: false,
+      isForeignETF: false,
       securityId: '',
       purchasePrice: '',
       initialInvestment: '',
@@ -943,11 +1046,11 @@ function App() {
           analysis={analysis}
           formatPriceWithSign={formatPriceWithSign}
           onBack={() => handleNavigate('home')}
-          snapshots={snapshots}
-          snapshotsLoading={snapshotsLoading}
           americanStocks={americanStocks}
           israeliStocks={israeliStocks}
           pensionFunds={pensionFunds}
+          cashFunds={cashFunds}
+          bankBalances={bankBalances}
           bankSavingsFunds={bankSavingsFunds}
           cpi={cpi}
           rebalanceTargets={rebalanceTargets}
@@ -1043,6 +1146,9 @@ function App() {
         handleKeyDown={handleKeyDown}
         handleDelete={handleDelete}
         toggleGroup={toggleGroup}
+        pricesRefreshing={pricesRefreshing}
+        pricesLastRefreshAt={pricesLastRefreshAt}
+        hasLoadedLivePrices={hasLoadedLivePrices}
       />
     </>
   );

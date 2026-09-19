@@ -144,16 +144,79 @@ describe('cpiRoutes', () => {
   });
 
   test('POST /api/cpi/months returns a map of month -> index value for multiple months', async () => {
-    axios.get.mockImplementation((url, config) => {
-      const period = config.params.startPeriod; // "01-2023" or "06-2023" (mm-yyyy, per CBS API)
-      const points = {
-        '01-2023': { year: 2023, month: 1, value: 110 },
-        '06-2023': { year: 2023, month: 6, value: 115.4 }
-      };
-      return Promise.resolve(cbsResponse([points[period]]));
-    });
+    axios.get.mockResolvedValue(
+      cbsResponse([
+        { year: 2023, month: 1, value: 110 },
+        { year: 2023, month: 6, value: 115.4 }
+      ])
+    );
     const res = await post(`${baseUrl}/api/cpi/months`, { months: ['2023-01', '2023-06'] });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ '2023-01': 110, '2023-06': 115.4 });
+  });
+
+  // This is the performance fix: the route used to issue one CBS request
+  // per requested month, sequentially, each with a 10s timeout - so a
+  // portfolio spanning ~20 distinct purchase months could hold the whole
+  // CPI response (and every index-linked figure that depends on it) for
+  // tens of seconds on a cold cache.
+  test('POST /api/cpi/months makes ONE upstream request spanning the whole range, not one per month', async () => {
+    axios.get.mockResolvedValue(
+      cbsResponse([
+        { year: 2023, month: 1, value: 110 },
+        { year: 2023, month: 2, value: 111 },
+        { year: 2023, month: 3, value: 112 },
+        { year: 2023, month: 4, value: 113 },
+        { year: 2023, month: 5, value: 114 },
+        { year: 2023, month: 6, value: 115.4 }
+      ])
+    );
+
+    const res = await post(`${baseUrl}/api/cpi/months`, {
+      months: ['2023-01', '2023-03', '2023-06']
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ '2023-01': 110, '2023-03': 112, '2023-06': 115.4 });
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(axios.get.mock.calls[0][1].params.startPeriod).toBe('01-2023');
+    expect(axios.get.mock.calls[0][1].params.endPeriod).toBe('06-2023');
+  });
+
+  test('POST /api/cpi/months caches every month in the fetched range, so a later overlapping batch needs no request', async () => {
+    axios.get.mockResolvedValue(
+      cbsResponse([
+        { year: 2023, month: 1, value: 110 },
+        { year: 2023, month: 2, value: 111 },
+        { year: 2023, month: 3, value: 112 }
+      ])
+    );
+
+    await post(`${baseUrl}/api/cpi/months`, { months: ['2023-01', '2023-03'] });
+    expect(axios.get).toHaveBeenCalledTimes(1);
+
+    // '2023-02' was never asked for, but it came back inside the range and
+    // was cached, so this batch resolves entirely from memory.
+    const res = await post(`${baseUrl}/api/cpi/months`, { months: ['2023-02', '2023-03'] });
+    expect(res.body).toEqual({ '2023-02': 111, '2023-03': 112 });
+    expect(axios.get).toHaveBeenCalledTimes(1);
+  });
+
+  test('POST /api/cpi/months serves whatever is cached instead of failing the batch when CBS is unreachable', async () => {
+    axios.get.mockResolvedValueOnce(cbsResponse([{ year: 2023, month: 1, value: 110 }]));
+    await post(`${baseUrl}/api/cpi/months`, { months: ['2023-01'] });
+
+    axios.get.mockRejectedValue(new Error('network down'));
+    const res = await post(`${baseUrl}/api/cpi/months`, { months: ['2023-01', '2024-05'] });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ '2023-01': 110 });
+  });
+
+  test('POST /api/cpi/months ignores malformed month keys without making a request', async () => {
+    const res = await post(`${baseUrl}/api/cpi/months`, { months: ['2023', 'nope', ''] });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({});
+    expect(axios.get).not.toHaveBeenCalled();
   });
 });

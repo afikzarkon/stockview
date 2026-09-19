@@ -11,7 +11,16 @@
 // additions), so "as of date X" can only ever include lots that existed
 // by then. A lot added after date X simply isn't counted yet, which is
 // the correct behavior, not a limitation to work around.
+//
+// Non-traded accounts (provident funds, money-market funds, current
+// accounts, bank savings funds) have no historical close to look up, so
+// they are reconstructed from their own ledgers instead - see
+// ledgerAccountHistory.js and bankSavingsFund.js. They're opt-in per call:
+// pass them and they're included, leave them out and the series covers the
+// traded holdings only.
 import { alignBenchmarkClosesToDates } from './benchmarkComparison';
+import { valueOfLedgerAccountAtDate, valueOfLedgerAccountsAtDate } from './ledgerAccountHistory';
+import { computeBankSavingsFundValue } from './bankSavingsFund';
 
 function groupBySymbol(lots) {
   return lots.reduce((acc, lot) => {
@@ -41,7 +50,18 @@ function closeOnOrBefore(date, closes) {
 //   taseHistoricalCloses: { [securityId]: [{date, close}] } - close in agorot
 //   yahooHistoricalCloses: { [symbol]: [{date, close}] } - close in USD
 //   fxHistoricalCloses: [{date, close}] - USD/ILS rate
-export const computePortfolioValueAtDate = (date, { israeliStocks = [], americanStocks = [] } = {}, priceData = {}) => {
+export const computePortfolioValueAtDate = (
+  date,
+  {
+    israeliStocks = [],
+    americanStocks = [],
+    pensionFunds = [],
+    cashFunds = [],
+    bankBalances = [],
+    bankSavingsFunds = []
+  } = {},
+  priceData = {}
+) => {
   const { taseHistoricalCloses = {}, yahooHistoricalCloses = {}, fxHistoricalCloses = [] } = priceData;
 
   let totalILS = 0;
@@ -76,6 +96,23 @@ export const computePortfolioValueAtDate = (date, { israeliStocks = [], american
     hasAnyValue = true;
   });
 
+  // Non-traded accounts, reconstructed from their own ledgers rather than
+  // from market prices. A category that's empty (or simply not passed)
+  // contributes nothing and never marks the point partial - "no provident
+  // fund" is not missing data.
+  const ledgerValue =
+    valueOfLedgerAccountsAtDate(pensionFunds, date) +
+    valueOfLedgerAccountsAtDate(cashFunds, date) +
+    valueOfLedgerAccountsAtDate(bankBalances, date);
+  const bankSavingsValue = (bankSavingsFunds || []).reduce(
+    (sum, fund) => sum + (computeBankSavingsFundValue(fund, date) || 0),
+    0
+  );
+  if (ledgerValue !== 0 || bankSavingsValue !== 0) {
+    totalILS += ledgerValue + bankSavingsValue;
+    hasAnyValue = true;
+  }
+
   return { date, valueILS: hasAnyValue ? totalILS : null, isPartial };
 };
 
@@ -101,3 +138,92 @@ export const computeHistoricalPortfolioSeries = (fromDate, toDate, holdings, pri
 
   return dates.map((date) => computePortfolioValueAtDate(date, holdings, priceData));
 };
+
+// The itemized "what was each holding/account worth on date X" breakdown,
+// in exactly the shape a monthly checkpoint stores (see
+// monthlySnapshotBreakdown.js: one { key, label, value } entry per holding,
+// grouped by the same category keys).
+//
+// This is what lets the monthly tracker fill itself in: pick a month, and
+// every row is computed from the historical closes for that date and from
+// the deposit/value ledgers the user already maintains in the main tables -
+// no retyping of figures the app can work out for itself.
+//
+// Stock rows are keyed by the same name the live breakdown uses
+// (stockName), so a generated month lines up row-for-row with a month
+// captured live and the two compare item by item.
+export const computeHistoricalBreakdownAtDate = (date, holdings = {}, priceData = {}) => {
+  const {
+    israeliStocks = [],
+    americanStocks = [],
+    pensionFunds = [],
+    cashFunds = [],
+    bankBalances = [],
+    bankSavingsFunds = []
+  } = holdings;
+  const { taseHistoricalCloses = {}, yahooHistoricalCloses = {}, fxHistoricalCloses = [] } = priceData;
+
+  const israeli = [];
+  Object.entries(groupBySymbol(israeliStocks)).forEach(([symbol, lots]) => {
+    const quantity = quantityAsOfDate(lots, date);
+    if (quantity <= 0) return;
+    const priceAgorot = closeOnOrBefore(date, taseHistoricalCloses[symbol]);
+    if (priceAgorot === null) return;
+    const label = lots.find((lot) => lot.officialName)?.officialName;
+    israeli.push({
+      key: symbol,
+      label: label ? `${label} (${symbol})` : symbol,
+      value: quantity * (priceAgorot / 100)
+    });
+  });
+
+  const american = [];
+  const americanBySymbol = groupBySymbol(americanStocks);
+  const fxRate = Object.keys(americanBySymbol).length ? closeOnOrBefore(date, fxHistoricalCloses) : null;
+  Object.entries(americanBySymbol).forEach(([symbol, lots]) => {
+    const quantity = quantityAsOfDate(lots, date);
+    if (quantity <= 0) return;
+    const priceUSD = closeOnOrBefore(date, yahooHistoricalCloses[symbol]);
+    if (priceUSD === null || fxRate === null) return;
+    american.push({ key: symbol, label: symbol, value: quantity * priceUSD * fxRate });
+  });
+
+  // Accounts that didn't exist yet on the requested date reconstruct to 0
+  // and are left out entirely, rather than showing as a zero row.
+  const ledgerItems = (accounts, fallbackLabel, keyPrefix) =>
+    (accounts || [])
+      .map((account, index) => ({
+        key: account.fundName || `${keyPrefix}-${index + 1}`,
+        label:
+          account.fundName ||
+          ((accounts || []).length > 1 ? `${fallbackLabel} #${index + 1}` : fallbackLabel),
+        value: valueOfLedgerAccountAtDate(account, date)
+      }))
+      .filter((item) => item.value !== 0);
+
+  const bankSavings = (bankSavingsFunds || [])
+    .map((fund, index) => ({
+      key: fund.fundName || `bank-savings-${index + 1}`,
+      label: fund.fundName || 'קופת חיסכון בבנק',
+      value: computeBankSavingsFundValue(fund, date) || 0
+    }))
+    .filter((item) => item.value !== 0);
+
+  return {
+    israeli,
+    american,
+    pension: ledgerItems(pensionFunds, 'קופת גמל', 'pension'),
+    cashFunds: ledgerItems(cashFunds, 'קרן כספית', 'cash'),
+    bank: ledgerItems(bankBalances, 'עו"ש', 'bank'),
+    bankSavings
+  };
+};
+
+// Sum of every item in a breakdown produced above - the totalValueILS a
+// monthly checkpoint is saved with.
+export const sumHistoricalBreakdown = (breakdown) =>
+  Object.values(breakdown || {}).reduce(
+    (sum, items) =>
+      sum + (Array.isArray(items) ? items.reduce((s, item) => s + (item.value || 0), 0) : 0),
+    0
+  );

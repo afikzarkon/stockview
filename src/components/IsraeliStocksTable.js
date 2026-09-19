@@ -1,52 +1,42 @@
 import React from 'react';
 import EditableCell from './EditableCell';
+import PendingPriceValue from './PendingPriceValue';
 import { profitClass, formatDailyChangePercent } from '../utils/formatters';
 import { calculateStockRealGainTax, monthKeyFromDate } from '../utils/cpiTax';
-import { KNOWN_SECTOR_KEYS, sectorLabelHe, UNCLASSIFIED_SECTOR_KEY } from '../utils/sectorLabels';
+import { sectorLabelHe } from '../utils/sectorLabels';
+import { effectiveExchangeForIsraeliStock, resolveIsraeliSector } from '../utils/israeliEtfClassifier';
+import { sectorFromTaseBranch } from '../utils/israeliSectorMapping';
 
-// "נכס זר?" + "סקטור" - both presentation-layer classification fields
-// (see israeliEtfClassifier.js / sectorAnalysis.js), not price/quantity
-// data, so they're plain controlled inputs rather than going through the
-// click-to-edit EditableCell pattern the rest of this row uses - there's
-// no ambiguity about "is this being edited right now" to track for a
-// checkbox/select that commits on every change.
-function IsraeliClassificationFields({ stock, isEditMode, handleInlineEdit }) {
-  const isForeignAsset = stock.isForeignAsset; // null/undefined = auto-detect by name
+// The name cell's content: the security's name AND its security id
+// ("מספר נייר"), which is what identifies it on the exchange and what every
+// price/history lookup in this app is keyed by. It used to fall back to
+// showing only the bare number whenever no name had been resolved, which
+// made a row unreadable; a row with only an id now says so explicitly.
+export function israeliStockNameLabel(stock) {
+  const securityId = String(stock.stockName || '').trim();
+  const name = String(stock.officialName || '').trim();
+  if (!name) return `נייר ${securityId}`;
+  return `${name} (${securityId})`;
+}
+
+// "סקטור" - resolved automatically (fund/ETF vs. the exchange's own branch
+// classification for a share, see israeliEtfClassifier.js's
+// resolveIsraeliSector), so it's plain text rather than an input.
+//
+// The "נכס זר?" dropdown that used to sit beside it is gone: whether a
+// holding is foreign exposure is now derived from its name and the
+// exchange's instrument type (a name containing "חוץ" is a foreign
+// tracking fund by the exchange's own naming), not something to ask the
+// user to classify by hand. The badge below shows what was derived, so the
+// classification driving the pie chart is still visible rather than hidden.
+function IsraeliClassificationFields({ stock }) {
+  const sectorKey = resolveIsraeliSector(stock, sectorFromTaseBranch);
+  const isForeign = effectiveExchangeForIsraeliStock(stock) === 'american';
   return (
-    <>
-      <td>
-        <select
-          value={isForeignAsset === true ? 'foreign' : isForeignAsset === false ? 'domestic' : 'auto'}
-          disabled={!isEditMode}
-          onChange={(e) => {
-            const v = e.target.value;
-            const newValue = v === 'foreign' ? true : v === 'domestic' ? false : null;
-            handleInlineEdit(stock.id, 'isForeignAsset', newValue, 'israeli');
-          }}
-        >
-          <option value="auto">אוטומטי (לפי שם)</option>
-          <option value="foreign">נכס זר</option>
-          <option value="domestic">נכס מקומי</option>
-        </select>
-      </td>
-      <td>
-        <select
-          value={stock.sector || UNCLASSIFIED_SECTOR_KEY}
-          disabled={!isEditMode}
-          onChange={(e) => {
-            const v = e.target.value;
-            handleInlineEdit(stock.id, 'sector', v === UNCLASSIFIED_SECTOR_KEY ? '' : v, 'israeli');
-          }}
-        >
-          <option value={UNCLASSIFIED_SECTOR_KEY}>לא סווג</option>
-          {KNOWN_SECTOR_KEYS.map((key) => (
-            <option key={key} value={key}>
-              {sectorLabelHe(key)}
-            </option>
-          ))}
-        </select>
-      </td>
-    </>
+    <td title={stock.branch || undefined}>
+      {sectorLabelHe(sectorKey)}
+      {isForeign && <span className="israeli-foreign-badge"> · נכס חוץ</span>}
+    </td>
   );
 }
 
@@ -68,7 +58,7 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         handleInlineEdit={handleInlineEdit}
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
-        displayValue={stock.officialName ? `${stock.officialName} (${stock.stockName})` : stock.stockName}
+        displayValue={israeliStockNameLabel(stock)}
         style={nameCellStyle}
       />
       <EditableCell
@@ -117,16 +107,14 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         handleKeyDown={handleKeyDown}
         displayValue={stock.quantity}
       />
-      {showAdditionalData && (
-        <IsraeliClassificationFields stock={stock} isEditMode={isEditMode} handleInlineEdit={handleInlineEdit} />
-      )}
+      {showAdditionalData && <IsraeliClassificationFields stock={stock} />}
     </>
   );
 }
 
 // Renders the computed (non-editable) figures for one Israeli stock row —
 // used for both the single-stock row and each expanded detail row.
-function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPercentage, TAX_RATE, cpi, showAdditionalData, formatPrice, formatPriceWithSign, isEditMode, handleDelete }) {
+function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPercentage, TAX_RATE, cpi, showAdditionalData, formatPrice, formatPriceWithSign, isEditMode, handleDelete, pricesPending }) {
   const displayCurrentPrice = normalizeIsraeliPrice(stock.currentPrice);
   const totalPurchase = (stock.purchasePrice || 0) * (stock.quantity || 0);
   const totalCurrentValue = (displayCurrentPrice || 0) * (stock.quantity || 0);
@@ -163,8 +151,12 @@ function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPer
   return (
     <>
       <td>{formatPrice(totalPurchase)}</td>
-      <td>{formatPrice(displayCurrentPrice)}</td>
-      <td>{formatPrice(totalCurrentValue)}</td>
+      <td>
+        <PendingPriceValue value={displayCurrentPrice} pending={pricesPending} format={formatPrice} />
+      </td>
+      <td>
+        <PendingPriceValue value={totalCurrentValue} pending={pricesPending} format={formatPrice} />
+      </td>
       <td className={profitClass(profit)}>{formatPriceWithSign(profit)}</td>
       {showAdditionalData && <td>{indexAtPurchase != null ? indexAtPurchase : '-'}</td>}
       {showAdditionalData && <td>{currentIndex != null ? currentIndex : '-'}</td>}
@@ -208,7 +200,12 @@ function IsraeliStocksTable({
   formatPriceWithSign,
   handleDelete,
   toggleGroup,
-  editingField
+  editingField,
+  // True until the first live price cycle completes - drives the skeleton
+  // placeholders on cells that have no price to show yet (see
+  // PendingPriceValue.js). Nothing here waits on it; the table renders
+  // immediately either way.
+  pricesPending = false
 }) {
   return (
     <>
@@ -223,7 +220,6 @@ function IsraeliStocksTable({
                   <th>תאריך קנייה</th>
                   <th>מחיר קנייה (₪)</th>
                   <th>כמות</th>
-                  {showAdditionalData && <th>נכס זר?</th>}
                   {showAdditionalData && <th>סקטור</th>}
                   <th>סה"כ קנייה בש"ח</th>
                   <th>מחיר נוכחי (₪)</th>
@@ -265,7 +261,8 @@ function IsraeliStocksTable({
                     formatPrice,
                     formatPriceWithSign,
                     isEditMode,
-                    handleDelete
+                    handleDelete,
+                    pricesPending
                   };
 
                   if (stocks.length === 1) {
@@ -292,16 +289,27 @@ function IsraeliStocksTable({
                           >
                             {isExpanded ? '▼' : '▶'}
                           </button>
-                          {stocks[0].officialName ? `${stocks[0].officialName} (${stockName})` : stockName}
+                          {israeliStockNameLabel(stocks[0])}
                         </td>
                         <td>פתח קיבוץ</td>
                         <td>פתח קיבוץ</td>
                         <td>{summary.totalQuantity}</td>
-                        {showAdditionalData && <td>פתח קיבוץ</td>}
-                        {showAdditionalData && <td>פתח קיבוץ</td>}
+                        {showAdditionalData && <IsraeliClassificationFields stock={stocks[0]} />}
                         <td>{formatPrice(summary.totalPurchaseValue)}</td>
-                        <td>{formatPrice(summary.averageCurrentPrice)}</td>
-                        <td>{formatPrice(summary.totalCurrentValue)}</td>
+                        <td>
+                          <PendingPriceValue
+                            value={summary.averageCurrentPrice}
+                            pending={pricesPending}
+                            format={formatPrice}
+                          />
+                        </td>
+                        <td>
+                          <PendingPriceValue
+                            value={summary.totalCurrentValue}
+                            pending={pricesPending}
+                            format={formatPrice}
+                          />
+                        </td>
                         <td className={profitClass(summary.totalProfit)}>{formatPriceWithSign(summary.totalProfit)}</td>
                         {showAdditionalData && (
                           <td colSpan={2} style={{ color: 'var(--sw-text-secondary)', fontSize: '0.85em' }}>ראה פירוט לכל שורה (מחיצים שונים)</td>

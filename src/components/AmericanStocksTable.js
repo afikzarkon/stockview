@@ -1,5 +1,6 @@
 import React from 'react';
 import EditableCell from './EditableCell';
+import PendingPriceValue from './PendingPriceValue';
 import { profitClass, formatDailyChangePercent } from '../utils/formatters';
 
 // Renders the name/date/price/quantity editable fields for one American
@@ -88,7 +89,8 @@ function AmericanSingleStockComputedCells({
   handleInlineEdit,
   finishInlineEdit,
   handleKeyDown,
-  handleDelete
+  handleDelete,
+  pricesPending
 }) {
   const {
     totalPurchaseUSD,
@@ -129,9 +131,30 @@ function AmericanSingleStockComputedCells({
         />
       )}
       <td>{formatPrice(currentExchangeRate)}</td>
-      <td>{formatPriceWithSign(stock.currentPrice)} $</td>
-      <td>{formatPriceWithSign(totalCurrentValueUSD)} $</td>
-      <td>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>
+      <td>
+        <PendingPriceValue
+          value={stock.currentPrice}
+          pending={pricesPending}
+          format={formatPriceWithSign}
+          suffix=" $"
+        />
+      </td>
+      <td>
+        <PendingPriceValue
+          value={totalCurrentValueUSD}
+          pending={pricesPending}
+          format={formatPriceWithSign}
+          suffix=" $"
+        />
+      </td>
+      <td>
+        <PendingPriceValue
+          value={totalCurrentValueILS}
+          pending={pricesPending}
+          format={formatPriceWithSign}
+          suffix=" ₪"
+        />
+      </td>
       <td className={profitClass(profitUSD)}>{formatPriceWithSign(profitUSD)} $</td>
       <td className={profitClass(profitILS)}>{formatPriceWithSign(profitILS)} ₪</td>
       <td className={profitClass(profitPercentage)}>{profitPercentage}%</td>
@@ -172,7 +195,12 @@ function AmericanStocksTable({
   formatPriceWithSign,
   handleDelete,
   toggleGroup,
-  editingField
+  editingField,
+  // True until the first live price cycle completes - drives the skeleton
+  // placeholders on cells with no price to show yet (see
+  // PendingPriceValue.js). Nothing here waits on it; the table renders
+  // immediately either way.
+  pricesPending = false
 }) {
   return (
     <>
@@ -233,7 +261,8 @@ function AmericanStocksTable({
                     handleInlineEdit,
                     finishInlineEdit,
                     handleKeyDown,
-                    handleDelete
+                    handleDelete,
+                    pricesPending
                   };
 
                   if (stocks.length === 1) {

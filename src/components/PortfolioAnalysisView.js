@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   PieChart,
   Pie,
@@ -12,18 +12,12 @@ import {
   Tooltip,
   Legend
 } from 'recharts';
-import { computePortfolioStats } from '../utils/portfolioStats';
+import { buildSeriesFromHistoricalValues, computeStatsFromSeries } from '../utils/portfolioStats';
 import { buildComparisonSeries } from '../utils/benchmarkComparison';
 import { computeSectorDistribution } from '../utils/sectorAnalysis';
 import { sectorLabelHe } from '../utils/sectorLabels';
 import { computeReceivedDividends, buildUpcomingDividendCalendar } from '../utils/dividendAnalysis';
 import { buildUpcomingEarningsCalendar } from '../utils/earningsCalendar';
-import { isValidTargetAllocation, computeRebalancingPlan } from '../utils/rebalancing';
-import {
-  computePortfolioHealthScore,
-  healthScoreLabelHe,
-  HEALTH_SCORE_SUBSCORE_LABELS_HE
-} from '../utils/portfolioHealthScore';
 import {
   recommendationLabelHe,
   recommendationSentiment,
@@ -65,7 +59,6 @@ const NAV_GROUPS = [
   {
     label: 'סקירה כללית',
     items: [
-      { key: 'health', label: 'ציון בריאות תיק' },
       { key: 'summary', label: 'תקציר ניתוח' },
       { key: 'performance', label: 'ביצועי התיק לאורך זמן' },
       { key: 'monthly', label: 'מעקב חודשי' },
@@ -136,11 +129,19 @@ function PortfolioAnalysisView({
   analysis,
   formatPriceWithSign,
   onBack,
-  snapshots = [],
-  snapshotsLoading = false,
+  // Daily value snapshots are no longer what performance is computed from
+  // (see the dynamic series below) - they're kept as a prop because the
+  // benchmark comparison and the auto-snapshot mechanism still revolve
+  // around them, and removing them from the API would be a larger change
+  // than this section needs.
   americanStocks = [],
   israeliStocks = [],
   pensionFunds = [],
+  // Needed by the dynamic performance series so the curve covers the whole
+  // portfolio, not only the traded holdings (see
+  // utils/historicalPortfolioValue.js).
+  cashFunds = [],
+  bankBalances = [],
   bankSavingsFunds = [],
   cpi = null,
   rebalanceTargets = null,
@@ -163,24 +164,66 @@ function PortfolioAnalysisView({
   addingManual = false,
   addManualError = ''
 }) {
-  const stats = useMemo(() => computePortfolioStats(snapshots), [snapshots]);
+  // PERFORMANCE OVER TIME - computed on the fly, not read back from saved
+  // snapshots.
+  //
+  // The whole section is driven by one date range, defaulting to the
+  // portfolio's own inception (the earliest purchase/deposit date anywhere
+  // in it) through today. For every sampled date in that range the
+  // portfolio is valued from real historical closing prices for exactly
+  // the holdings it contained on that date, plus the ledger-reconstructed
+  // value of the non-traded accounts (see
+  // utils/historicalPortfolioValue.js). Narrowing the range re-computes
+  // it; nothing is stored, so there is no saved figure that can go stale
+  // or disagree with the holdings.
+  //
+  // "תשואה מאז תחילת ההשקעה" and the annualized-volatility estimate below
+  // are both read off this same series, which is what makes them
+  // consistent with each other and with the chart.
+  const portfolioInceptionDate = useMemo(() => {
+    const dates = [
+      ...israeliStocks.map((s) => s.purchaseDate),
+      ...americanStocks.map((s) => s.purchaseDate),
+      ...pensionFunds.flatMap((f) => (Array.isArray(f.deposits) ? f.deposits : []).map((d) => d.date)),
+      ...bankSavingsFunds.flatMap((f) => (Array.isArray(f.deposits) ? f.deposits : []).map((d) => d.date))
+    ].filter((d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d));
+    if (dates.length === 0) return '';
+    return dates.sort()[0].slice(0, 10);
+  }, [israeliStocks, americanStocks, pensionFunds, bankSavingsFunds]);
 
-  // Custom date-range performance check - independent of the saved-
-  // snapshot equity curve above, computed from real historical closing
-  // prices instead (see utils/historicalPortfolioValue.js). Both dates
-  // must be picked before anything is fetched/computed.
-  const [customRangeFrom, setCustomRangeFrom] = useState('');
-  const [customRangeTo, setCustomRangeTo] = useState('');
+  const todayDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  // '' means "use the default" - so the range keeps tracking inception and
+  // today as holdings are added, until the user explicitly narrows it.
+  const [performanceFrom, setPerformanceFrom] = useState('');
+  const [performanceTo, setPerformanceTo] = useState('');
+  const effectivePerformanceFrom = performanceFrom || portfolioInceptionDate;
+  const effectivePerformanceTo = performanceTo || todayDate;
+
   const {
-    series: customRangeSeries,
-    loading: customRangeLoading,
-    error: customRangeError
+    series: performanceSeries,
+    loading: performanceLoading,
+    error: performanceError,
+    breakdownAtDate: historicalBreakdownAtDate
   } = useHistoricalPortfolioValue({
-    fromDate: customRangeFrom,
-    toDate: customRangeTo,
+    fromDate: effectivePerformanceFrom,
+    toDate: effectivePerformanceTo,
     israeliStocks,
-    americanStocks
+    americanStocks,
+    pensionFunds,
+    cashFunds,
+    bankBalances,
+    bankSavingsFunds
   });
+
+  const stats = useMemo(
+    () => computeStatsFromSeries(buildSeriesFromHistoricalValues(performanceSeries)),
+    [performanceSeries]
+  );
+  const performanceHasPartialPoints = useMemo(
+    () => performanceSeries.some((p) => p.isPartial),
+    [performanceSeries]
+  );
 
   const harvesting = useMemo(
     () => computeTaxLossHarvestingOpportunities(israeliStocks, americanStocks, pensionFunds, cpi, bankSavingsFunds),
@@ -284,25 +327,11 @@ function PortfolioAnalysisView({
   const upcomingDividends = useMemo(() => buildUpcomingDividendCalendar(dividendsBySymbol), [dividendsBySymbol]);
   const upcomingEarnings = useMemo(() => buildUpcomingEarningsCalendar(dividendsBySymbol), [dividendsBySymbol]);
 
-  // Uses the persisted rebalanceTargets prop (not RebalancingSection's own
-  // in-progress edit draft, which this component has no access to) - the
-  // health score reflects saved targets, not an unsaved edit.
-  const rebalancingPlan = useMemo(() => {
-    if (!rebalanceTargets || !isValidTargetAllocation(rebalanceTargets)) return null;
-    return computeRebalancingPlan(analysis.exchangeDistribution, rebalanceTargets);
-  }, [rebalanceTargets, analysis.exchangeDistribution]);
-
-  const healthScore = useMemo(
-    () =>
-      computePortfolioHealthScore({
-        concentrationTop3Percent: analysis.summaryMetrics.concentrationTop3Percent,
-        topSectorPercent: sectorDistribution.hasData ? sectorDistribution.topSectorPercent : null,
-        volatilityPercent: stats.hasHistory ? stats.volatilityPercent : null,
-        maxDrawdownPercent: stats.hasHistory ? stats.maxDrawdownPercent : null,
-        allocationMaxAbsDiffPercent: rebalancingPlan ? rebalancingPlan.maxAbsDiffPercent : null
-      }),
-    [analysis.summaryMetrics.concentrationTop3Percent, sectorDistribution, stats, rebalancingPlan]
-  );
+  // The rebalancing PLAN used to be computed here purely to feed the
+  // portfolio health score's allocation-drift sub-score. With the health
+  // score removed, the only thing that needs a plan is RebalancingSection
+  // below, which computes its own from the targets it's given (including
+  // an in-progress edit draft this component can't see anyway).
 
   const [benchmarkKey, setBenchmarkKey] = useState('sp500');
   const {
@@ -406,6 +435,100 @@ function PortfolioAnalysisView({
     }));
   };
 
+  // Renaming a row also re-keys it. `key` is what a month's rows are
+  // matched on when two months are compared item-by-item, so a row whose
+  // label no longer matches its key would silently stop lining up with the
+  // same holding in the other month.
+  const handleEditItemLabelChange = (categoryKey, itemKey, rawLabel) => {
+    setEditDraftBreakdown((prev) => ({
+      ...prev,
+      [categoryKey]: prev[categoryKey].map((item) =>
+        item.key === itemKey ? { ...item, key: rawLabel, label: rawLabel } : item
+      )
+    }));
+    // The open value-cell is tracked by "category-itemKey", so re-keying the
+    // row would otherwise silently close an input the user is part-way
+    // through filling in.
+    setEditingCell((prev) => (prev === `${categoryKey}-${itemKey}` ? `${categoryKey}-${rawLabel}` : prev));
+  };
+
+  // Free row management inside a saved month: a checkpoint may need a row
+  // the portfolio no longer has (an account since closed), or be missing
+  // one that existed at the time. Editing values alone couldn't express
+  // either.
+  const newDraftRowIdRef = useRef(0);
+  const addEditItemRow = (categoryKey) => {
+    newDraftRowIdRef.current += 1;
+    const placeholderKey = `שורה חדשה ${newDraftRowIdRef.current}`;
+    setEditDraftBreakdown((prev) => ({
+      ...prev,
+      [categoryKey]: [...prev[categoryKey], { key: placeholderKey, label: placeholderKey, value: 0 }]
+    }));
+    setEditingCell(`${categoryKey}-${placeholderKey}`);
+  };
+
+  const removeEditItemRow = (categoryKey, itemKey) => {
+    setEditDraftBreakdown((prev) => ({
+      ...prev,
+      [categoryKey]: prev[categoryKey].filter((item) => item.key !== itemKey)
+    }));
+  };
+
+  // The last calendar day of a month, never later than today - the date a
+  // month's checkpoint is valued at. A month still in progress is valued as
+  // of today rather than at a future date with no prices.
+  const monthEndDate = useCallback(
+    (monthKey) => {
+      if (!/^\d{4}-\d{2}$/.test(String(monthKey || ''))) return null;
+      const [year, month] = monthKey.split('-').map(Number);
+      const lastDay = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+      return lastDay > todayDate ? todayDate : lastDay;
+    },
+    [todayDate]
+  );
+
+  // AUTOMATIC FILL - the point of the monthly tracker no longer being a
+  // typing exercise.
+  //
+  // Every row is derived from data the user already maintains in the main
+  // tables: stocks from the real historical closing price on that month's
+  // last trading day for the lots actually held then, and provident funds /
+  // money-market funds / current accounts from their own value+deposit
+  // ledgers (see utils/historicalPortfolioValue.js's
+  // computeHistoricalBreakdownAtDate). Nothing here is typed in by hand.
+  //
+  // It returns null when the historical prices for that date haven't been
+  // fetched yet, so the caller can say so instead of writing a row of
+  // zeroes over the user's data.
+  const buildAutoBreakdownForMonth = useCallback(
+    (monthKey) => {
+      const date = monthEndDate(monthKey);
+      if (!date) return null;
+      const breakdown = historicalBreakdownAtDate(date);
+      const isEmpty = MONTHLY_CATEGORY_KEYS.every((key) => (breakdown[key] || []).length === 0);
+      return isEmpty ? null : breakdown;
+    },
+    [historicalBreakdownAtDate, monthEndDate]
+  );
+
+  const [autoFillMessage, setAutoFillMessage] = useState('');
+
+  const handleAutoFillEditedMonth = () => {
+    const breakdown = buildAutoBreakdownForMonth(editingMonth);
+    if (!breakdown) {
+      setAutoFillMessage('לא נמצאו נתונים היסטוריים לחודש הזה - נסו שוב לאחר שהגרף "ביצועי התיק לאורך זמן" נטען.');
+      return;
+    }
+    setAutoFillMessage('');
+    setEditDraftBreakdown(
+      MONTHLY_CATEGORY_KEYS.reduce((acc, key) => {
+        acc[key] = (breakdown[key] || []).map((item) => ({ ...item }));
+        return acc;
+      }, {})
+    );
+    setEditingCell(null);
+  };
+
   const handleEditCashFlowChange = (categoryKey, rawValue) => {
     setEditDraftCashFlows((prev) => ({ ...prev, [categoryKey]: rawValue }));
   };
@@ -486,6 +609,27 @@ function PortfolioAnalysisView({
       ...prev,
       [catKey]: prev[catKey].map((it) => (it.id === id ? { ...it, [field]: value } : it))
     }));
+  };
+
+  // Same automatic fill as the edit flow, for backfilling a past month:
+  // pick the month, press the button, and every row is derived from the
+  // historical closes and the account ledgers rather than typed in.
+  const handleAutoFillManualAdd = () => {
+    const breakdown = buildAutoBreakdownForMonth(manualAddMonth);
+    if (!breakdown) {
+      setAutoFillMessage('לא נמצאו נתונים היסטוריים לחודש הזה - נסו שוב לאחר שהגרף "ביצועי התיק לאורך זמן" נטען.');
+      return;
+    }
+    setAutoFillMessage('');
+    setManualAddItems(
+      MONTHLY_CATEGORY_KEYS.reduce((acc, key) => {
+        acc[key] = (breakdown[key] || []).map((item) => {
+          manualAddIdRef.current += 1;
+          return { id: manualAddIdRef.current, label: item.label, value: String(item.value) };
+        });
+        return acc;
+      }, {})
+    );
   };
 
   const manualAddMonthAlreadySaved = !!manualAddMonth && monthlySnapshots.some((s) => s.month === manualAddMonth);
@@ -585,41 +729,6 @@ function PortfolioAnalysisView({
             </nav>
 
             <div className="sw-main">
-          <div className="analysis-section" ref={(el) => (sectionRefs.current.health = el)}>
-            <h2 className="section-title">ציון בריאות תיק</h2>
-            {healthScore.overallScore === null ? (
-              <p className="history-empty-note">
-                עדיין אין מספיק נתונים לחשב ציון - נדרשת היסטוריית שווי תיק, נתוני מניות אמריקאיות, או יעדי איזון
-                שמורים.
-              </p>
-            ) : (
-              <div className="distribution-grid">
-                <div className="distribution-card">
-                  <h3>ציון כולל</h3>
-                  <div
-                    className={`distribution-value ${
-                      healthScore.overallScore >= 60
-                        ? 'profit-positive'
-                        : healthScore.overallScore >= 40
-                        ? ''
-                        : 'profit-negative'
-                    }`}
-                  >
-                    {healthScore.overallScore}/100
-                  </div>
-                  <div className="distribution-percentage">{healthScoreLabelHe(healthScore.overallScore)}</div>
-                </div>
-                {Object.entries(healthScore.breakdown).map(([key, value]) => (
-                  <div className="distribution-card" key={key}>
-                    <h3>{HEALTH_SCORE_SUBSCORE_LABELS_HE[key]}</h3>
-                    <div className="distribution-value">{value !== null ? value : '—'}</div>
-                    <div className="distribution-percentage">{value !== null ? healthScoreLabelHe(value) : 'אין נתונים'}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
           <div className="analysis-section" ref={(el) => (sectionRefs.current.summary = el)}>
             <h2 className="section-title">תקציר ניתוח</h2>
             <div className="distribution-grid">
@@ -656,11 +765,61 @@ function PortfolioAnalysisView({
 
           <div className="analysis-section" ref={(el) => (sectionRefs.current.performance = el)}>
             <h2 className="section-title">ביצועי התיק לאורך זמן</h2>
-            {!stats.hasHistory ? (
+            <p className="section-subtitle">
+              מחושב בזמן אמת משערי הסגירה ההיסטוריים בפועל (בורסת תל אביב, וול סטריט ושער הדולר), לפי ההחזקות שהיו בתיק
+              בכל תאריך - ולא מתוך שמירות שנשמרו מראש. שינוי בתאריך קנייה או בכמות משתקף בגרף מיידית.
+            </p>
+
+            <div
+              className="date-range-controls"
+              style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 12 }}
+            >
+              <div className="form-group">
+                <label htmlFor="performanceFrom">מתאריך</label>
+                <input
+                  type="date"
+                  id="performanceFrom"
+                  max={effectivePerformanceTo}
+                  value={effectivePerformanceFrom}
+                  onChange={(e) => setPerformanceFrom(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="performanceTo">עד תאריך</label>
+                <input
+                  type="date"
+                  id="performanceTo"
+                  min={effectivePerformanceFrom}
+                  max={todayDate}
+                  value={effectivePerformanceTo}
+                  onChange={(e) => setPerformanceTo(e.target.value)}
+                />
+              </div>
+              {(performanceFrom || performanceTo) && (
+                <button
+                  type="button"
+                  className="monthly-toolbar-btn"
+                  onClick={() => {
+                    setPerformanceFrom('');
+                    setPerformanceTo('');
+                  }}
+                >
+                  חזרה לכל התקופה
+                </button>
+              )}
+            </div>
+
+            {!portfolioInceptionDate ? (
               <div className="history-empty-note">
-                {snapshotsLoading
-                  ? 'טוען היסטוריית שווי תיק…'
-                  : 'עדיין אין מספיק נקודות מדידה כדי להציג מגמה. האפליקציה שומרת את שווי התיק אוטומטית בכל יום שבו אתם נכנסים - חזרו לכאן בעוד כמה ימים כדי לראות גרף, ירידה מקסימלית (drawdown) ותנודתיות אמיתית.'}
+                עדיין אין החזקות עם תאריך קנייה/הפקדה בתיק, ולכן אין ממה לחשב ביצועים לאורך זמן.
+              </div>
+            ) : performanceLoading && !stats.hasHistory ? (
+              <div className="history-empty-note">מחשב את שווי התיק לאורך התקופה משערי סגירה היסטוריים…</div>
+            ) : performanceError ? (
+              <div className="history-empty-note">{performanceError}</div>
+            ) : !stats.hasHistory ? (
+              <div className="history-empty-note">
+                לא נמצאו מספיק שערי סגירה היסטוריים בטווח הזה כדי לחשב ביצועים. נסו טווח תאריכים רחב יותר.
               </div>
             ) : (
               <>
@@ -684,8 +843,12 @@ function PortfolioAnalysisView({
                 </div>
                 <div className="distribution-grid" style={{ marginTop: 16 }}>
                   <div className="distribution-card">
-                    <h3>תשואה מאז תחילת המעקב</h3>
-                    <div className={`distribution-value ${stats.totalReturnPercent >= 0 ? 'profit-positive' : 'profit-negative'}`}>
+                    <h3>תשואה מאז תחילת ההשקעה</h3>
+                    <div
+                      className={`distribution-value ${
+                        stats.totalReturnPercent >= 0 ? 'profit-positive' : 'profit-negative'
+                      }`}
+                    >
                       {stats.totalReturnPercent != null ? `${stats.totalReturnPercent.toFixed(1)}%` : '—'}
                     </div>
                     <div className="distribution-percentage">
@@ -693,123 +856,54 @@ function PortfolioAnalysisView({
                     </div>
                   </div>
                   <div className="distribution-card">
-                    <h3>ירידה מקסימלית (Drawdown)</h3>
-                    <div className="distribution-value profit-negative">
-                      -{stats.maxDrawdownPercent.toFixed(1)}%
+                    <h3>תשואה שנתית ממוצעת</h3>
+                    <div
+                      className={`distribution-value ${
+                        (stats.annualizedReturnPercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'
+                      }`}
+                    >
+                      {stats.annualizedReturnPercent != null
+                        ? `${stats.annualizedReturnPercent.toFixed(1)}%`
+                        : 'התקופה קצרה מדי'}
                     </div>
-                    <div className="distribution-percentage">
-                      {stats.drawdownPeakDate && stats.drawdownTroughDate
-                        ? `${formatDate(stats.drawdownPeakDate)} ← ${formatDate(stats.drawdownTroughDate)}`
-                        : 'אין ירידה עדיין'}
+                    <div className="distribution-percentage">תשואה שנתית מתואמת (CAGR) לאורך התקופה שנבחרה</div>
+                  </div>
+                  <div className="distribution-card">
+                    <h3>שווי בתחילת התקופה</h3>
+                    <div className="distribution-value">
+                      {formatPriceWithSign(stats.series[0].value)} ₪
                     </div>
+                    <div className="distribution-percentage">{formatDate(stats.firstDate)}</div>
+                  </div>
+                  <div className="distribution-card">
+                    <h3>שווי בסוף התקופה</h3>
+                    <div className="distribution-value">
+                      {formatPriceWithSign(stats.series[stats.series.length - 1].value)} ₪
+                    </div>
+                    <div className="distribution-percentage">{formatDate(stats.lastDate)}</div>
                   </div>
                   <div className="distribution-card">
                     <h3>תנודתיות שנתית (משוערת)</h3>
                     <div className="distribution-value">
-                      {stats.volatilityPercent != null ? `${stats.volatilityPercent.toFixed(1)}%` : 'עוד לא מספיק נתונים'}
+                      {stats.volatilityPercent != null
+                        ? `${stats.volatilityPercent.toFixed(1)}%`
+                        : 'עוד לא מספיק נתונים'}
                     </div>
-                    <div className="distribution-percentage">סטיית תקן שנתית של תשואות התיק</div>
-                  </div>
-                  <div className="distribution-card">
-                    <h3>Sharpe Ratio (משוער)</h3>
-                    <div className="distribution-value">
-                      {stats.sharpeRatio != null ? stats.sharpeRatio.toFixed(2) : 'עוד לא מספיק נתונים'}
+                    <div className="distribution-percentage">
+                      סטיית תקן שנתית של תשואות התיק, מחושבת משערי סגירה היסטוריים
                     </div>
-                    <div className="distribution-percentage">תשואה עודפת ביחס לתנודתיות (ריבית חסרת סיכון = 0%)</div>
                   </div>
                 </div>
+                {performanceHasPartialPoints && (
+                  <p className="history-empty-note" style={{ marginTop: 8 }}>
+                    שימו לב: בחלק מהתאריכים בטווח לא נמצא מחיר היסטורי לכל ההחזקות - התוצאה באותם תאריכים חלקית.
+                  </p>
+                )}
+                {performanceLoading && (
+                  <p className="history-empty-note" style={{ marginTop: 8 }}>מעדכן נתוני מחירים היסטוריים…</p>
+                )}
               </>
             )}
-
-            {/* בלתי-תלוי בשמירות שקטות - מבוסס אך ורק על שערי סגירה
-                היסטוריים אמיתיים (ראו utils/historicalPortfolioValue.js),
-                ולכן זמין גם אם עדיין אין מספיק שמירות לגרף שמעל. */}
-            <div className="custom-range-section" style={{ marginTop: 24 }}>
-              <h3>בדיקת תשואה לטווח תאריכים מותאם אישית</h3>
-              <div className="date-range-controls" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <div className="form-group">
-                  <label htmlFor="customRangeFrom">מתאריך</label>
-                  <input
-                    type="date"
-                    id="customRangeFrom"
-                    value={customRangeFrom}
-                    onChange={(e) => setCustomRangeFrom(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="customRangeTo">עד תאריך</label>
-                  <input
-                    type="date"
-                    id="customRangeTo"
-                    value={customRangeTo}
-                    onChange={(e) => setCustomRangeTo(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {customRangeFrom && customRangeTo && (
-                <>
-                  {customRangeLoading && <p className="history-empty-note">מחשב שווי תיק היסטורי…</p>}
-                  {!customRangeLoading && customRangeError && <p className="history-empty-note">{customRangeError}</p>}
-                  {!customRangeLoading && !customRangeError && (() => {
-                    const validPoints = customRangeSeries.filter((p) => p.valueILS != null);
-                    if (validPoints.length < 2) {
-                      return (
-                        <p className="history-empty-note">
-                          אין מספיק נתוני מחיר היסטוריים בטווח הזה כדי לחשב תשואה (ייתכן שהתיק לא כלל אחזקות בכל התאריכים בטווח).
-                        </p>
-                      );
-                    }
-                    const first = validPoints[0];
-                    const last = validPoints[validPoints.length - 1];
-                    const changePercent = first.valueILS > 0 ? ((last.valueILS / first.valueILS) - 1) * 100 : null;
-                    const anyPartial = customRangeSeries.some((p) => p.isPartial);
-                    return (
-                      <>
-                        <div className="distribution-grid" style={{ marginTop: 12 }}>
-                          <div className="distribution-card">
-                            <h3>שווי בתחילת הטווח</h3>
-                            <div className="distribution-value">{formatPriceWithSign(first.valueILS)} ₪</div>
-                            <div className="distribution-percentage">{formatDate(first.date)}</div>
-                          </div>
-                          <div className="distribution-card">
-                            <h3>שווי בסוף הטווח</h3>
-                            <div className="distribution-value">{formatPriceWithSign(last.valueILS)} ₪</div>
-                            <div className="distribution-percentage">{formatDate(last.date)}</div>
-                          </div>
-                          <div className="distribution-card">
-                            <h3>שינוי בטווח שנבחר</h3>
-                            <div className={`distribution-value ${changePercent >= 0 ? 'profit-positive' : 'profit-negative'}`}>
-                              {changePercent != null ? `${changePercent.toFixed(1)}%` : '—'}
-                            </div>
-                            <div className="distribution-percentage">מבוסס על שערי סגירה היסטוריים בפועל</div>
-                          </div>
-                        </div>
-                        {anyPartial && (
-                          <p className="history-empty-note" style={{ marginTop: 8 }}>
-                            שימו לב: בחלק מהתאריכים בטווח לא נמצא מחיר היסטורי לכל ההחזקות - התוצאה עשויה להיות חלקית.
-                          </p>
-                        )}
-                        <div className="equity-chart-container" style={{ marginTop: 16 }}>
-                          <ResponsiveContainer width="100%" height={220}>
-                            <LineChart data={validPoints} margin={{ top: 10, right: 24, left: 8, bottom: 0 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(102,126,234,0.15)" />
-                              <XAxis dataKey="date" tickFormatter={(d) => formatDate(d)} tick={{ fontSize: 12 }} />
-                              <YAxis tickFormatter={(v) => `${Math.round(v / 1000)}k`} tick={{ fontSize: 12 }} width={50} />
-                              <Tooltip
-                                labelFormatter={(d) => formatDate(d)}
-                                formatter={(value) => [`${formatPriceWithSign(value)} ₪`, 'שווי תיק (משוער)']}
-                              />
-                              <Line type="monotone" dataKey="valueILS" stroke="#16a34a" strokeWidth={2.5} dot={false} />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </>
-              )}
-            </div>
           </div>
 
           <div className="analysis-section" ref={(el) => (sectionRefs.current.monthly = el)}>
@@ -868,6 +962,22 @@ function PortfolioAnalysisView({
                     כבר קיימת שמירה לחודש זה - ניתן לערוך אותה למטה בהיסטוריית השמירות
                   </p>
                 )}
+
+                <div className="monthly-toolbar-buttons" style={{ marginBottom: 8 }}>
+                  <button
+                    type="button"
+                    className="monthly-toolbar-btn"
+                    onClick={handleAutoFillManualAdd}
+                    disabled={!manualAddMonth}
+                  >
+                    ⚡ מלא אוטומטית מהטבלאות
+                  </button>
+                  <span className="monthly-status-text">
+                    מושך את שערי הסגירה ההיסטוריים של סוף החודש עבור המניות שהוחזקו אז, ואת ערכי קופות הגמל/הכספיות/העו"ש
+                    מפנקסי ההפקדות והעדכונים שלהן.
+                  </span>
+                </div>
+                {autoFillMessage && <p className="history-empty-note">{autoFillMessage}</p>}
 
                 {MONTHLY_CATEGORY_KEYS.map((catKey) => (
                   <div key={catKey} className="monthly-manual-category">
@@ -1090,6 +1200,13 @@ function PortfolioAnalysisView({
                                   <button
                                     type="button"
                                     className="monthly-toolbar-btn"
+                                    onClick={handleAutoFillEditedMonth}
+                                  >
+                                    ⚡ מלא אוטומטית מהטבלאות
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="monthly-toolbar-btn"
                                     onClick={handleSaveEditedMonth}
                                     disabled={updatingMonth === historySnapshot.month}
                                   >
@@ -1136,20 +1253,46 @@ function PortfolioAnalysisView({
                               <div key={catKey} className="monthly-history-category">
                                 <div className="monthly-history-category-header">
                                   <span>{MONTHLY_CATEGORY_LABELS_HE[catKey]}</span>
-                                  <span>{formatMoneyCell(catTotal)}</span>
+                                  <span className="monthly-history-category-actions">
+                                    {formatMoneyCell(catTotal)}
+                                    {isEditingThis && (
+                                      <button
+                                        type="button"
+                                        className="monthly-toolbar-btn"
+                                        onClick={() => addEditItemRow(catKey)}
+                                      >
+                                        + הוסף שורה
+                                      </button>
+                                    )}
+                                  </span>
                                 </div>
-                                {detailedView && showPlaceholder && (
+                                {/* Rows are always shown while editing, whatever the
+                                    detail toggle says - otherwise there would be
+                                    nothing to add a row to or remove one from. */}
+                                {(detailedView || isEditingThis) && showPlaceholder && (
                                   <div className="monthly-history-item-row monthly-item-placeholder">
                                     אין פירוט פריטים לשמירה זו (נשמרה לפני שנוסף פירוט מלא)
                                   </div>
                                 )}
-                                {detailedView &&
+                                {(detailedView || isEditingThis) &&
                                   !showPlaceholder &&
                                   items.map((item) => {
                                     const cellKey = `${catKey}-${item.key}`;
                                     return (
                                       <div key={item.key} className="monthly-history-item-row">
-                                        <span className="monthly-item-label">↳ {item.label}</span>
+                                        {isEditingThis ? (
+                                          <input
+                                            type="text"
+                                            className="edit-input monthly-item-label-input"
+                                            value={item.label}
+                                            placeholder="שם הפריט"
+                                            onChange={(e) =>
+                                              handleEditItemLabelChange(catKey, item.key, e.target.value)
+                                            }
+                                          />
+                                        ) : (
+                                          <span className="monthly-item-label">↳ {item.label}</span>
+                                        )}
                                         {isEditingThis && editingCell === cellKey ? (
                                           <input
                                             type="number"
@@ -1173,12 +1316,24 @@ function PortfolioAnalysisView({
                                             {formatMoneyCell(item.value)}
                                           </span>
                                         )}
+                                        {isEditingThis && (
+                                          <button
+                                            type="button"
+                                            className="monthly-toolbar-btn danger"
+                                            onClick={() => removeEditItemRow(catKey, item.key)}
+                                          >
+                                            הסר
+                                          </button>
+                                        )}
                                       </div>
                                     );
                                   })}
                               </div>
                             );
                           })}
+                          {isEditingThis && autoFillMessage && (
+                            <p className="history-empty-note">{autoFillMessage}</p>
+                          )}
                           {isEditingThis && renderCashFlowInputs(editDraftCashFlows, handleEditCashFlowChange, 'edit')}
                         </div>
                       </div>
@@ -1393,7 +1548,7 @@ function PortfolioAnalysisView({
                 <tbody>
                   {analysis.stockDistribution.map((stock, index) => (
                     <tr key={index}>
-                      <td>{stock.name}</td>
+                      <td>{stock.displayName || stock.name}</td>
                       <td>{stock.exchange === 'israeli' ? 'ישראלית' : 'אמריקאית'}</td>
                       <td>{formatPriceWithSign(stock.value)} ₪</td>
                       <td>{stock.percentage.toFixed(1)}%</td>
@@ -1415,7 +1570,11 @@ function PortfolioAnalysisView({
           </div>
 
           <div className="analysis-section" ref={(el) => (sectionRefs.current.byDate = el)}>
-            <h2 className="section-title">פיזור לפי תאריכי קנייה</h2>
+            <h2 className="section-title">פיזור לפי תאריכי קנייה והפקדה</h2>
+            <p className="section-subtitle">
+              כולל גם הפקדות לקופות גמל, לקופות חיסכון ולקרנות כספיות - כל הפקדה משויכת לחודש שבו בוצעה בפועל, לצד
+              רכישות המניות.
+            </p>
             <div className="date-distribution-grid">
               <div className="date-distribution-card">
                 <h3>פיזור חודשי</h3>
@@ -1424,7 +1583,7 @@ function PortfolioAnalysisView({
                     <div key={index} className="date-item">
                       <span className="date-label">{formatMonthLabel(item.month)}</span>
                       <span className="date-value">{formatPriceWithSign(item.value)} ₪</span>
-                      <span className="date-count">({item.count} מניות)</span>
+                      <span className="date-count">({item.count} רכישות/הפקדות)</span>
                     </div>
                   ))}
                 </div>
@@ -1436,7 +1595,7 @@ function PortfolioAnalysisView({
                     <div key={index} className="date-item">
                       <span className="date-label">{item.year}</span>
                       <span className="date-value">{formatPriceWithSign(item.value)} ₪</span>
-                      <span className="date-count">({item.count} מניות)</span>
+                      <span className="date-count">({item.count} רכישות/הפקדות)</span>
                     </div>
                   ))}
                 </div>
@@ -1735,7 +1894,7 @@ function PortfolioAnalysisView({
                   ) : (
                     analysis.reports.topPerformers.map((stock, index) => (
                       <div key={index} className="report-item">
-                        <span className="report-name">{stock.name}</span>
+                        <span className="report-name">{stock.displayName || stock.name}</span>
                         <span className="report-profit profit-positive">
                           {formatPriceWithSign(stock.profit)} ₪
                         </span>
@@ -1754,7 +1913,7 @@ function PortfolioAnalysisView({
                   ) : (
                     analysis.reports.worstPerformers.map((stock, index) => (
                       <div key={index} className="report-item">
-                        <span className="report-name">{stock.name}</span>
+                        <span className="report-name">{stock.displayName || stock.name}</span>
                         <span className="report-profit profit-negative">
                           {formatPriceWithSign(stock.profit)} ₪
                         </span>
@@ -1768,7 +1927,7 @@ function PortfolioAnalysisView({
                 <div className="report-list">
                   {analysis.reports.largestPositions.map((stock, index) => (
                     <div key={index} className="report-item">
-                      <span className="report-name">{stock.name}</span>
+                      <span className="report-name">{stock.displayName || stock.name}</span>
                       <span className="report-value">
                         {formatPriceWithSign(stock.value)} ₪
                       </span>
