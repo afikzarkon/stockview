@@ -1,22 +1,65 @@
 import React from 'react';
 import EditableCell from './EditableCell';
 import PendingPriceValue from './PendingPriceValue';
+import ValuePill from './ValuePill';
+import AssetCell from './AssetCell';
 import { profitClass, formatDailyChangePercent } from '../utils/formatters';
 import { calculateStockRealGainTax, monthKeyFromDate } from '../utils/cpiTax';
 import { sectorLabelHe } from '../utils/sectorLabels';
 import { effectiveExchangeForIsraeliStock, resolveIsraeliSector } from '../utils/israeliEtfClassifier';
 import { sectorFromTaseBranch } from '../utils/israeliSectorMapping';
 
-// The name cell's content: the security's name AND its security id
-// ("מספר נייר"), which is what identifies it on the exchange and what every
-// price/history lookup in this app is keyed by. It used to fall back to
-// showing only the bare number whenever no name had been resolved, which
-// made a row unreadable; a row with only an id now says so explicitly.
-export function israeliStockNameLabel(stock) {
+// The column headers, named once and used for BOTH the <th> row and each
+// cell's data-label. Mobile turns every row into a card whose values each
+// need their own label; sourcing them from the same object is what stops a
+// renamed header from leaving a card labelled with the old name.
+const COL = {
+  name: 'שם מנייה',
+  date: 'תאריך קנייה',
+  buyPrice: 'מחיר קנייה (₪)',
+  quantity: 'כמות',
+  sector: 'סקטור',
+  totalBuy: 'סה"כ קנייה בש"ח',
+  currentPrice: 'מחיר נוכחי (₪)',
+  totalValue: 'סה"כ שווי היום (₪)',
+  profit: 'סה"כ רווח/הפסד בש"ח',
+  indexAtBuy: 'מדד ביום הקנייה',
+  indexToday: 'מדד היום (הידוע)',
+  tax: 'מס רווח הון (₪)',
+  afterTax: 'רווח לאחר מס (₪)',
+  inflationary: 'רווח אינפלציוני (₪)',
+  realGain: 'רווח ריאלי (₪)',
+  profitPercent: 'אחוז רווח/הפסד',
+  dailyPercent: 'אחוז שינוי יומי',
+  dailyProfit: 'רווח/הפסד יומי בש"ח',
+  actions: 'פעולות'
+};
+
+// The security's name AND its security id ("מספר נייר"), which is what
+// identifies it on the exchange and what every price/history lookup in
+// this app is keyed by.
+//
+// Returned as parts rather than one string so the cell can set them on two
+// lines - the name reading normally, the number in mono beneath it (see
+// AssetCell). A holding whose name was never resolved has only the number,
+// which on its own reads as nothing, so it is labelled.
+export function israeliStockNameParts(stock) {
   const securityId = String(stock.stockName || '').trim();
   const name = String(stock.officialName || '').trim();
-  if (!name) return `נייר ${securityId}`;
-  return `${name} (${securityId})`;
+  if (!name) return { name: `נייר ${securityId}`, securityId: null };
+  return { name, securityId };
+}
+
+// The same identity as a single string, for the places that need plain
+// text rather than markup (title attributes, exports).
+export function israeliStockNameLabel(stock) {
+  const { name, securityId } = israeliStockNameParts(stock);
+  return securityId ? `${name} (${securityId})` : name;
+}
+
+function IsraeliAssetCell({ stock, prefix = null }) {
+  const { name, securityId } = israeliStockNameParts(stock);
+  return <AssetCell name={name} securityId={securityId} prefix={prefix} />;
 }
 
 // "סקטור" - resolved automatically (fund/ETF vs. the exchange's own branch
@@ -33,7 +76,7 @@ function IsraeliClassificationFields({ stock }) {
   const sectorKey = resolveIsraeliSector(stock, sectorFromTaseBranch);
   const isForeign = effectiveExchangeForIsraeliStock(stock) === 'american';
   return (
-    <td title={stock.branch || undefined}>
+    <td title={stock.branch || undefined} data-label={COL.sector}>
       {sectorLabelHe(sectorKey)}
       {isForeign && <span className="israeli-foreign-badge"> · נכס חוץ</span>}
     </td>
@@ -58,8 +101,9 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         handleInlineEdit={handleInlineEdit}
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
-        displayValue={israeliStockNameLabel(stock)}
+        displayValue={<IsraeliAssetCell stock={stock} />}
         style={nameCellStyle}
+        label={COL.name}
       />
       <EditableCell
         id={stock.id}
@@ -74,6 +118,7 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
         displayValue={formatDate(stock.purchaseDate)}
+        label={COL.date}
       />
       <EditableCell
         id={stock.id}
@@ -90,6 +135,7 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
         displayValue={formatPrice(stock.purchasePrice)}
+        label={COL.buyPrice}
       />
       <EditableCell
         id={stock.id}
@@ -106,6 +152,7 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
         displayValue={stock.quantity}
+        label={COL.quantity}
       />
       {showAdditionalData && <IsraeliClassificationFields stock={stock} />}
     </>
@@ -150,27 +197,33 @@ function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPer
 
   return (
     <>
-      <td>{formatPrice(totalPurchase)}</td>
-      <td>
+      <td data-label={COL.totalBuy}>{formatPrice(totalPurchase)}</td>
+      <td data-label={COL.currentPrice}>
         <PendingPriceValue value={displayCurrentPrice} pending={pricesPending} format={formatPrice} />
       </td>
-      <td>
+      <td data-label={COL.totalValue}>
         <PendingPriceValue value={totalCurrentValue} pending={pricesPending} format={formatPrice} />
       </td>
-      <td className={profitClass(profit)}>{formatPriceWithSign(profit)}</td>
-      {showAdditionalData && <td>{indexAtPurchase != null ? indexAtPurchase : '-'}</td>}
-      {showAdditionalData && <td>{currentIndex != null ? currentIndex : '-'}</td>}
-      {showAdditionalData && <td className="profit-negative">{formatPriceWithSign(-capitalGainsTaxILS)}</td>}
-      {showAdditionalData && <td className={profitClass(afterTaxProfitILS)}>{formatPriceWithSign(afterTaxProfitILS)}</td>}
-      {showAdditionalData && <td className={profitClass(inflationaryGain)}>{formatPriceWithSign(inflationaryGain)}</td>}
-      {showAdditionalData && <td className={profitClass(realGain)}>{formatPriceWithSign(realGain)}</td>}
-      <td className={profitClass(profit)}>{profitPercentage}%</td>
-      <td className={profitClass(stock.dailyChangePercent)}>{formatDailyChangePercent(stock.dailyChangePercent)}%</td>
-      <td className={profitClass(stock.dailyChangePercent)}>
+      <td className={profitClass(profit)} data-label={COL.profit}>{formatPriceWithSign(profit)}</td>
+      {showAdditionalData && <td data-label={COL.indexAtBuy}>{indexAtPurchase != null ? indexAtPurchase : '-'}</td>}
+      {showAdditionalData && <td data-label={COL.indexToday}>{currentIndex != null ? currentIndex : '-'}</td>}
+      {showAdditionalData && <td className="profit-negative" data-label={COL.tax}>{formatPriceWithSign(-capitalGainsTaxILS)}</td>}
+      {showAdditionalData && <td className={profitClass(afterTaxProfitILS)} data-label={COL.afterTax}>{formatPriceWithSign(afterTaxProfitILS)}</td>}
+      {showAdditionalData && <td className={profitClass(inflationaryGain)} data-label={COL.inflationary}>{formatPriceWithSign(inflationaryGain)}</td>}
+      {showAdditionalData && <td className={profitClass(realGain)} data-label={COL.realGain}>{formatPriceWithSign(realGain)}</td>}
+      <td data-label={COL.profitPercent}>
+        <ValuePill value={profit}>{profitPercentage}%</ValuePill>
+      </td>
+      <td data-label={COL.dailyPercent}>
+        <ValuePill value={stock.dailyChangePercent}>
+          {formatDailyChangePercent(stock.dailyChangePercent)}%
+        </ValuePill>
+      </td>
+      <td className={profitClass(stock.dailyChangePercent)} data-label={COL.dailyProfit}>
         {formatPriceWithSign(((stock.dailyChangePercent || 0) / 100) * totalCurrentValue)} ₪
       </td>
       {isEditMode && (
-        <td>
+        <td data-label={COL.actions}>
           <button onClick={() => handleDelete(stock.id, 'israeli')} className="delete-button">
             מחק
           </button>
@@ -216,25 +269,25 @@ function IsraeliStocksTable({
             <table className="stocks-table">
               <thead>
                 <tr>
-                  <th>שם מנייה</th>
-                  <th>תאריך קנייה</th>
-                  <th>מחיר קנייה (₪)</th>
-                  <th>כמות</th>
-                  {showAdditionalData && <th>סקטור</th>}
-                  <th>סה"כ קנייה בש"ח</th>
-                  <th>מחיר נוכחי (₪)</th>
-                  <th>סה"כ שווי היום (₪)</th>
-                  <th>סה"כ רווח/הפסד בש"ח</th>
-                  {showAdditionalData && <th>מדד ביום הקנייה</th>}
-                  {showAdditionalData && <th>מדד היום (הידוע)</th>}
-                  {showAdditionalData && <th>מס רווח הון (₪)</th>}
-                  {showAdditionalData && <th>רווח לאחר מס (₪)</th>}
-                  {showAdditionalData && <th>רווח אינפלציוני (₪)</th>}
-                  {showAdditionalData && <th>רווח ריאלי (₪)</th>}
-                  <th>אחוז רווח/הפסד</th>
-                  <th>אחוז שינוי יומי</th>
-                  <th>רווח/הפסד יומי בש"ח</th>
-                  {isEditMode && <th>פעולות</th>}
+                  <th>{COL.name}</th>
+                  <th>{COL.date}</th>
+                  <th>{COL.buyPrice}</th>
+                  <th>{COL.quantity}</th>
+                  {showAdditionalData && <th>{COL.sector}</th>}
+                  <th>{COL.totalBuy}</th>
+                  <th>{COL.currentPrice}</th>
+                  <th>{COL.totalValue}</th>
+                  <th>{COL.profit}</th>
+                  {showAdditionalData && <th>{COL.indexAtBuy}</th>}
+                  {showAdditionalData && <th>{COL.indexToday}</th>}
+                  {showAdditionalData && <th>{COL.tax}</th>}
+                  {showAdditionalData && <th>{COL.afterTax}</th>}
+                  {showAdditionalData && <th>{COL.inflationary}</th>}
+                  {showAdditionalData && <th>{COL.realGain}</th>}
+                  <th>{COL.profitPercent}</th>
+                  <th>{COL.dailyPercent}</th>
+                  <th>{COL.dailyProfit}</th>
+                  {isEditMode && <th>{COL.actions}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -289,7 +342,7 @@ function IsraeliStocksTable({
                           >
                             {isExpanded ? '▼' : '▶'}
                           </button>
-                          {israeliStockNameLabel(stocks[0])}
+                          <IsraeliAssetCell stock={stocks[0]} />
                         </td>
                         <td>פתח קיבוץ</td>
                         <td>פתח קיבוץ</td>
@@ -350,9 +403,13 @@ function IsraeliStocksTable({
                             </>
                           );
                         })()}
-                        <td className={profitClass(summary.totalProfit)}>{summary.profitPercentage}%</td>
-                        <td className={profitClass(stocks[0].dailyChangePercent)}>
-                          {formatDailyChangePercent(stocks[0].dailyChangePercent)}%
+                        <td>
+                          <ValuePill value={summary.totalProfit}>{summary.profitPercentage}%</ValuePill>
+                        </td>
+                        <td>
+                          <ValuePill value={stocks[0].dailyChangePercent}>
+                            {formatDailyChangePercent(stocks[0].dailyChangePercent)}%
+                          </ValuePill>
                         </td>
                         <td className={profitClass(stocks[0].dailyChangePercent)}>
                           {formatPriceWithSign(((stocks[0].dailyChangePercent || 0) / 100) * summary.totalCurrentValue)} ₪

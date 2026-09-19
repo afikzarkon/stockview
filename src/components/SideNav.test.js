@@ -1,0 +1,106 @@
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import SideNav from './SideNav';
+import AppShell from './AppShell';
+
+const noop = () => {};
+
+function makeProps(overrides = {}) {
+  return {
+    activePage: 'home',
+    onNavigate: noop,
+    user: { email: 'test@example.com' },
+    onLogout: noop,
+    theme: 'dark',
+    onToggleTheme: noop,
+    ...overrides
+  };
+}
+
+describe('SideNav', () => {
+  test('renders every destination and marks the active one', () => {
+    const { container } = render(<SideNav {...makeProps({ activePage: 'research' })} />);
+    expect(screen.getByText('בית')).toBeInTheDocument();
+    expect(screen.getByText('ניתוח תיק')).toBeInTheDocument();
+    expect(screen.getByText('חקר מניות')).toBeInTheDocument();
+    expect(container.querySelectorAll('.side-nav-link.active').length).toBe(1);
+  });
+
+  // The highlight is invisible to a screen reader, so the current page has
+  // to be stated rather than only styled.
+  test('announces the current page to assistive tech, not only by styling', () => {
+    render(<SideNav {...makeProps({ activePage: 'analysis' })} />);
+    const current = screen.getByRole('button', { current: 'page' });
+    expect(current).toHaveTextContent('ניתוח תיק');
+  });
+
+  test('clicking a destination navigates to it', () => {
+    const onNavigate = jest.fn();
+    render(<SideNav {...makeProps({ onNavigate })} />);
+
+    fireEvent.click(screen.getByText('ניתוח תיק'));
+    expect(onNavigate).toHaveBeenCalledWith('analysis');
+    fireEvent.click(screen.getByText('חקר מניות'));
+    expect(onNavigate).toHaveBeenCalledWith('research');
+    fireEvent.click(screen.getByText('בית'));
+    expect(onNavigate).toHaveBeenCalledWith('home');
+  });
+
+  test('shows the signed-in user and logs out', () => {
+    const onLogout = jest.fn();
+    render(<SideNav {...makeProps({ onLogout })} />);
+    expect(screen.getByText('test@example.com')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('התנתקות'));
+    expect(onLogout).toHaveBeenCalled();
+  });
+
+  test('omits the user block entirely when nobody is signed in', () => {
+    render(<SideNav {...makeProps({ user: null })} />);
+    expect(screen.queryByText('test@example.com')).toBeNull();
+    expect(screen.queryByText('התנתקות')).toBeNull();
+  });
+
+  test('carries the theme toggle', () => {
+    const onToggleTheme = jest.fn();
+    render(<SideNav {...makeProps({ onToggleTheme })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'עבור למצב בהיר' }));
+    expect(onToggleTheme).toHaveBeenCalled();
+  });
+
+  test('is a landmark, so it can be skipped to and skipped over', () => {
+    render(<SideNav {...makeProps()} />);
+    expect(screen.getByRole('navigation', { name: 'ניווט ראשי' })).toBeInTheDocument();
+  });
+
+  // Icons are decorative next to their own visible labels; announcing them
+  // would just repeat the label.
+  test('hides the decorative icons from assistive tech', () => {
+    const { container } = render(<SideNav {...makeProps()} />);
+    const icons = container.querySelectorAll('.side-nav-icon');
+    expect(icons.length).toBe(3);
+    icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
+  });
+});
+
+describe('AppShell', () => {
+  test('mounts the navigation once alongside the page content', () => {
+    render(
+      <AppShell {...makeProps()}>
+        <p>תוכן הדף</p>
+      </AppShell>
+    );
+    expect(screen.getAllByRole('navigation').length).toBe(1);
+    expect(screen.getByText('תוכן הדף')).toBeInTheDocument();
+  });
+
+  test('puts the page content in a main landmark, separate from the nav', () => {
+    const { container } = render(
+      <AppShell {...makeProps()}>
+        <p>תוכן הדף</p>
+      </AppShell>
+    );
+    const main = screen.getByRole('main');
+    expect(within(main).getByText('תוכן הדף')).toBeInTheDocument();
+    expect(within(main).queryByText('בית')).toBeNull();
+    expect(container.querySelector('.app-shell')).not.toBeNull();
+  });
+});

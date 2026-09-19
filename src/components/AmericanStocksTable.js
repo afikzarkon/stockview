@@ -1,6 +1,8 @@
 import React from 'react';
 import EditableCell from './EditableCell';
 import PendingPriceValue from './PendingPriceValue';
+import ValuePill from './ValuePill';
+import AssetCell from './AssetCell';
 import { profitClass, formatDailyChangePercent } from '../utils/formatters';
 
 // Renders the name/date/price/quantity editable fields for one American
@@ -20,7 +22,7 @@ function AmericanEditableFields({ stock, editingField, isEditMode, handleCellCli
         handleInlineEdit={handleInlineEdit}
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
-        displayValue={stock.stockName}
+        displayValue={<AssetCell name={stock.stockName} />}
         style={nameCellStyle}
       />
       <EditableCell
@@ -157,8 +159,14 @@ function AmericanSingleStockComputedCells({
       </td>
       <td className={profitClass(profitUSD)}>{formatPriceWithSign(profitUSD)} $</td>
       <td className={profitClass(profitILS)}>{formatPriceWithSign(profitILS)} ₪</td>
-      <td className={profitClass(profitPercentage)}>{profitPercentage}%</td>
-      <td className={profitClass(stock.dailyChangePercent)}>{formatDailyChangePercent(stock.dailyChangePercent)}%</td>
+      <td>
+        <ValuePill value={profitPercentage}>{profitPercentage}%</ValuePill>
+      </td>
+      <td>
+        <ValuePill value={stock.dailyChangePercent}>
+          {formatDailyChangePercent(stock.dailyChangePercent)}%
+        </ValuePill>
+      </td>
       <td className={profitClass(stock.dailyChangePercent)}>
         {formatPriceWithSign(((stock.dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $
       </td>
@@ -310,7 +318,7 @@ function AmericanStocksTable({
                           <button onClick={() => toggleGroup(stockName, 'american')} className="expand-button" style={{ marginRight: '8px', background: 'none', border: 'none', cursor: 'pointer' }}>
                             {isExpanded ? '▼' : '▶'}
                           </button>
-                          {stockName}
+                          <AssetCell name={stockName} />
                         </td>
                         <td>{isExpanded ? '' : 'פתח קיבוץ'}</td>
                         <td>{isExpanded ? '' : 'פתח קיבוץ'}</td>
@@ -324,9 +332,13 @@ function AmericanStocksTable({
                         <td>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>
                         <td className={profitClass(totalProfitUSD)}>{formatPriceWithSign(totalProfitUSD)} $</td>
                         <td className={profitClass(totalProfitILS)}>{formatPriceWithSign(totalProfitILS)} ₪</td>
-                        <td className={profitClass(profitPercentage)}>{profitPercentage}%</td>
-                        <td className={profitClass(stocks[0].dailyChangePercent)}>
-                          {formatDailyChangePercent(stocks[0].dailyChangePercent)}%
+                        <td>
+                          <ValuePill value={profitPercentage}>{profitPercentage}%</ValuePill>
+                        </td>
+                        <td>
+                          <ValuePill value={stocks[0].dailyChangePercent}>
+                            {formatDailyChangePercent(stocks[0].dailyChangePercent)}%
+                          </ValuePill>
                         </td>
                         <td className={profitClass(stocks[0].dailyChangePercent)}>
                           {formatPriceWithSign(((stocks[0].dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $

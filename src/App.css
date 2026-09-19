@@ -6,69 +6,184 @@
 }
 
 /* ===== Site-wide theme system =====
-   Dark is the default look (per explicit product decision - this app's
-   "real" design language is the one proven out on the stock-research page,
-   not the original purple-gradient light theme); :root[data-theme='light']
-   below is the opt-out. Applied via a data-theme attribute on <html> (see
-   public/index.html for the no-JS-yet default, and src/hooks/useTheme.js
-   for the toggle) rather than a class, so it composes cleanly with
-   existing classes. Originated on .sw-page (StockResearchView) as a
-   page-scoped block - promoted to :root here so the same variables now
-   drive the whole site; nothing about .sw-page's ~700 lines of rules
-   needed to change, since they already referenced var(--sw-*).
+   Applied via a data-theme attribute on <html> (see public/index.html for
+   the pre-paint bootstrap and src/hooks/useTheme.js for the toggle + OS
+   preference detection) rather than a class, so it composes cleanly with
+   existing classes.
 
-   Palette v2: a "private wealth" identity - warm charcoal (a hint of
-   green, not flat black) with a champagne-gold primary accent and a deep
-   emerald/teal secondary, replacing the first pass's generic indigo/violet
-   SaaS-dashboard look with something that reads as premium AND fits a
-   portfolio tracker's own subject matter (gold = value, emerald = growth)
-   rather than "any SaaS product". Semantic green/red for pass/fail stay
-   distinct hues from the gold accent so a checkmark's color never gets
-   confused with a decorative highlight. Chart colors in
-   StockResearchView.js are literal hex (recharts needs literal SVG
-   attribute values) but are hand-matched to this same palette. */
+   PALETTE v3 - "futuristic FinTech". Replaces v2's warm charcoal/champagne
+   -gold "private wealth" identity with the cooler, higher-contrast slate +
+   indigo language modern financial products use. The semantic colors are
+   the important part of the change: gains and losses are now emerald and
+   red, and the brand accent is indigo - three clearly distinct hues, so a
+   branded control can never be misread as a gain and a loss can never be
+   misread as decoration. Under the old palette the gold accent sat
+   uncomfortably close to the amber warning color.
+
+   Every surface, border, shadow and radius is a token. Component rules
+   below reference these and nothing else, which is what lets one attribute
+   flip the entire application between themes without a single duplicated
+   rule per component.
+
+   Recharts needs literal SVG attribute values, so chart colors are passed
+   as literals from JS (see utils/chartTheme.js) - hand-matched to these
+   tokens and re-read whenever the theme changes. */
 :root {
-  --sw-bg: #0a0b0a;
-  --sw-surface: #131513;
-  --sw-surface-2: #191c19;
-  --sw-surface-3: #20241f;
-  --sw-border: #262a25;
-  --sw-border-hover: #3a4038;
-  --sw-text: #f2f0e9;
-  --sw-text-secondary: #a3a99e;
-  --sw-text-muted: #6f766b;
-  --sw-accent: #d4af6a;
-  --sw-accent-strong: #c9a054;
-  --sw-accent-2: #2dd4bf;
-  --sw-accent-soft: rgba(212, 175, 106, 0.14);
-  --sw-cyan: #38bdf8;
-  --sw-green: #34d399;
-  --sw-green-soft: rgba(52, 211, 153, 0.16);
-  --sw-red: #f43f5e;
-  --sw-red-soft: rgba(244, 63, 94, 0.16);
+  color-scheme: dark;
+
+  /* Depth: bg sits behind everything; surface is a card; surface-2/3 are
+     raised or inset areas within one. */
+  --sw-bg: #0b0f19;
+  --sw-bg-elevated: #0f172a;
+  --sw-surface: #111827;
+  --sw-surface-2: #172033;
+  --sw-surface-3: #1e293b;
+
+  /* Glassmorphism: a translucent card over the page's ambient glows. The
+     blur is what sells it, so the fill stays low-alpha. */
+  --sw-glass: rgba(17, 24, 39, 0.72);
+  --sw-glass-strong: rgba(15, 23, 42, 0.88);
+  --sw-glass-blur: 16px;
+
+  --sw-border: rgba(148, 163, 184, 0.14);
+  --sw-border-strong: rgba(148, 163, 184, 0.22);
+  --sw-border-hover: rgba(148, 163, 184, 0.34);
+
+  --sw-text: #f1f5f9;
+  --sw-text-secondary: #94a3b8;
+  --sw-text-muted: #64748b;
+
+  /* Brand / primary action. */
+  --sw-accent: #6366f1;
+  --sw-accent-strong: #4f46e5;
+  --sw-accent-2: #3b82f6;
+  --sw-accent-soft: rgba(99, 102, 241, 0.16);
+  --sw-accent-glow: rgba(99, 102, 241, 0.35);
+
+  --sw-cyan: #22d3ee;
+
+  /* Semantic: gains / losses / warnings. */
+  --sw-green: #10b981;
+  --sw-green-soft: rgba(16, 185, 129, 0.16);
+  --sw-green-border: rgba(16, 185, 129, 0.32);
+  --sw-red: #ef4444;
+  --sw-red-soft: rgba(239, 68, 68, 0.16);
+  --sw-red-border: rgba(239, 68, 68, 0.32);
   --sw-amber: #f59e0b;
+  --sw-amber-soft: rgba(245, 158, 11, 0.16);
+
+  /* Elevation. Dark mode reads depth from light, not from shadow, so the
+     shadows stay deep and are paired with a hairline top highlight. */
+  --sw-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sw-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+  --sw-shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.55);
+  --sw-ring: 0 0 0 3px rgba(99, 102, 241, 0.35);
+
+  /* Shape - one scale, used everywhere. */
+  --sw-radius-sm: 8px;
+  --sw-radius: 12px;
+  --sw-radius-lg: 16px;
+  --sw-radius-xl: 20px;
+  --sw-radius-pill: 999px;
+
+  --sw-transition: 180ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Hebrew-first UI face; Inter carries the Latin/numeric fallback. */
+  --sw-font: 'Heebo', 'Inter', 'Segoe UI', Tahoma, system-ui, sans-serif;
+  --sw-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 :root[data-theme='light'] {
-  --sw-bg: #faf8f3;
+  color-scheme: light;
+
+  --sw-bg: #f1f5f9;
+  --sw-bg-elevated: #f8fafc;
   --sw-surface: #ffffff;
-  --sw-surface-2: #f5f2ea;
-  --sw-surface-3: #ece6d6;
-  --sw-border: #e3ddc9;
-  --sw-border-hover: #cfc7ab;
-  --sw-text: #1c1d18;
-  --sw-text-secondary: #5c5f52;
-  --sw-text-muted: #8b8d7d;
-  --sw-accent: #a9822f;
-  --sw-accent-strong: #8f6d24;
-  --sw-accent-2: #0f9488;
-  --sw-accent-soft: rgba(169, 130, 47, 0.12);
-  --sw-cyan: #0284c7;
-  --sw-green: #059669;
-  --sw-green-soft: rgba(5, 150, 105, 0.12);
-  --sw-red: #e11d48;
-  --sw-red-soft: rgba(225, 29, 72, 0.12);
-  --sw-amber: #b45309;
+  --sw-surface-2: #f8fafc;
+  --sw-surface-3: #f1f5f9;
+
+  --sw-glass: rgba(255, 255, 255, 0.78);
+  --sw-glass-strong: rgba(255, 255, 255, 0.92);
+
+  --sw-border: #e2e8f0;
+  --sw-border-strong: #cbd5e1;
+  --sw-border-hover: #94a3b8;
+
+  --sw-text: #0f172a;
+  --sw-text-secondary: #475569;
+  --sw-text-muted: #64748b;
+
+  --sw-accent: #4f46e5;
+  --sw-accent-strong: #4338ca;
+  --sw-accent-2: #2563eb;
+  --sw-accent-soft: rgba(79, 70, 229, 0.1);
+  --sw-accent-glow: rgba(79, 70, 229, 0.25);
+
+  --sw-cyan: #0891b2;
+
+  /* emerald-700, not -600: at #059669 this only reached 3.77:1 on white,
+     under the 4.5:1 AA threshold for normal text - and gain/loss is the
+     most important signal in the app, shown as small text inside a pill.
+     Verified by src/utils/paletteContrast.test.js. */
+  --sw-green: #047857;
+  --sw-green-soft: rgba(4, 120, 87, 0.1);
+  --sw-green-border: rgba(4, 120, 87, 0.26);
+  --sw-red: #dc2626;
+  --sw-red-soft: rgba(220, 38, 38, 0.1);
+  --sw-red-border: rgba(220, 38, 38, 0.24);
+  --sw-amber: #d97706;
+  --sw-amber-soft: rgba(217, 119, 6, 0.12);
+
+  /* Light mode reads depth from shadow: very soft and wide, never dark. */
+  --sw-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --sw-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
+  --sw-shadow-lg: 0 18px 44px rgba(15, 23, 42, 0.09);
+  --sw-ring: 0 0 0 3px rgba(79, 70, 229, 0.18);
+}
+
+/* Colors animate on a theme flip so the change reads as a transition
+   rather than a flash. Scoped to the properties that actually change, and
+   dropped entirely while the page is first painting (see the
+   .sw-theme-booting rule) so the initial render can't animate from a
+   default color. */
+body,
+.top-nav,
+.stocks-table,
+.stocks-table td,
+.stocks-table th,
+.distribution-card,
+.analysis-section,
+.portfolio-summary,
+.form-container,
+.feature-card,
+.table-container,
+.monthly-history-card,
+.btn,
+input,
+select,
+textarea {
+  transition: background-color var(--sw-transition), border-color var(--sw-transition),
+    color var(--sw-transition), box-shadow var(--sw-transition);
+}
+
+/* The pre-paint bootstrap in index.html adds this class and removes it on
+   the next frame. Without it the very first paint animates from the
+   browser's default colors into the theme, which looks like a flash. */
+.sw-theme-booting,
+.sw-theme-booting * {
+  transition: none !important;
+}
+
+/* Respecting the user's own motion setting matters more than the effect. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Modern thin scrollbar, applied site-wide (every scrollable element -
@@ -116,16 +231,82 @@
 }
 
 body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: radial-gradient(1200px 600px at 15% -10%, rgba(169, 130, 47, 0.07), transparent 60%), var(--sw-bg);
+  font-family: var(--sw-font);
+  background: var(--sw-bg);
   min-height: 100vh;
   direction: rtl;
   color: var(--sw-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Tabular figures: every digit the same width, so a column of prices
+     lines up on the decimal point instead of shifting as values change.
+     This is the single biggest readability win in a table of money. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
 }
 
+/* Ambient depth: two very soft, far-apart color fields behind everything,
+   so a full-bleed dark page reads as lit rather than flat. Fixed, so they
+   don't drift while scrolling, and low-alpha enough that no text ever
+   loses contrast over them. */
 [data-theme='dark'] body {
-  background: radial-gradient(1100px 560px at 12% -8%, rgba(212, 175, 106, 0.09), transparent 62%),
-    radial-gradient(900px 520px at 100% 0%, rgba(45, 212, 191, 0.08), transparent 58%), var(--sw-bg);
+  background: radial-gradient(1200px 620px at 15% -12%, rgba(99, 102, 241, 0.14), transparent 62%),
+    radial-gradient(1000px 560px at 100% 0%, rgba(34, 211, 238, 0.09), transparent 58%),
+    radial-gradient(900px 700px at 50% 110%, rgba(16, 185, 129, 0.06), transparent 60%), var(--sw-bg);
+  background-attachment: fixed;
+}
+
+[data-theme='light'] body {
+  background: radial-gradient(1100px 580px at 12% -10%, rgba(99, 102, 241, 0.09), transparent 60%),
+    radial-gradient(900px 520px at 100% 0%, rgba(59, 130, 246, 0.06), transparent 58%), var(--sw-bg);
+  background-attachment: fixed;
+}
+
+/* Typographic scale. Headings get tighter tracking and line-height as they
+   grow, which is what stops a large Hebrew heading reading as loose. */
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--sw-font);
+  color: var(--sw-text);
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+
+h1 {
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+h2,
+h3 {
+  font-weight: 600;
+}
+
+/* A number presented as a headline figure: the one place where a larger,
+   tighter, heavier treatment is applied to digits rather than words. */
+.sw-numeric {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Security ids, tickers and other machine identifiers - set in mono so
+   they're visibly a code rather than a name. */
+.sw-mono {
+  font-family: var(--sw-font-mono);
+  font-size: 0.8em;
+  letter-spacing: -0.01em;
+  color: var(--sw-text-muted);
+}
+
+/* Focus: one visible, consistent ring everywhere, replacing the browser
+   default outline. Keyboard users get it; mouse users don't, via
+   :focus-visible. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--sw-ring);
+  border-radius: var(--sw-radius-sm);
 }
 
 /* ===== Shared top navigation (src/components/TopNav.js) =====
@@ -135,8 +316,20 @@ body {
   position: sticky;
   top: 0;
   z-index: 30;
+  /* Glass: the page's content scrolls under a blurred, translucent bar
+     instead of behind an opaque slab. Needs an opaque fallback, since
+     without backdrop-filter the translucency alone would leave text
+     unreadable over whatever is passing beneath. */
   background: var(--sw-surface);
   border-bottom: 1px solid var(--sw-border);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .top-nav {
+    background: var(--sw-glass);
+    -webkit-backdrop-filter: blur(var(--sw-glass-blur)) saturate(180%);
+    backdrop-filter: blur(var(--sw-glass-blur)) saturate(180%);
+  }
 }
 
 .top-nav-inner {
@@ -165,16 +358,17 @@ body {
 }
 
 .top-nav-link {
+  position: relative;
   background: none;
   border: none;
-  padding: 8px 14px;
-  border-radius: 8px;
+  padding: 9px 16px;
+  border-radius: var(--sw-radius-sm);
   color: var(--sw-text-secondary);
   font-size: 0.92rem;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color var(--sw-transition), color var(--sw-transition);
 }
 
 .top-nav-link:hover {
@@ -185,6 +379,19 @@ body {
 .top-nav-link.active {
   background: var(--sw-accent-soft);
   color: var(--sw-accent);
+}
+
+/* A lit underline on the active tab - the small piece of "glow" that makes
+   the bar read as a modern product chrome rather than a row of buttons. */
+.top-nav-link.active::after {
+  content: '';
+  position: absolute;
+  inset-inline: 16px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: var(--sw-radius-pill);
+  background: linear-gradient(90deg, var(--sw-accent), var(--sw-accent-2));
+  box-shadow: 0 0 10px var(--sw-accent-glow);
 }
 
 .top-nav-actions {
@@ -219,23 +426,77 @@ body {
   border-color: var(--sw-border-hover);
 }
 
+/* Theme toggle: a two-position track rather than a button that swaps an
+   emoji. The thumb slides, so the control shows which of the two states is
+   active instead of only hinting at what pressing it would do - and both
+   icons stay visible, which is what makes that legible at a glance. */
 .theme-toggle-button {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
+  position: relative;
+  width: 62px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--sw-radius-pill);
   border: 1px solid var(--sw-border);
-  background: var(--sw-surface-2);
+  background: var(--sw-surface-3);
   cursor: pointer;
-  font-size: 1rem;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  flex-shrink: 0;
+  transition: border-color var(--sw-transition), background-color var(--sw-transition),
+    box-shadow var(--sw-transition);
 }
 
 .theme-toggle-button:hover {
   border-color: var(--sw-border-hover);
-  transform: rotate(-12deg);
+  box-shadow: 0 0 0 4px var(--sw-accent-soft);
+}
+
+.theme-toggle-button:active {
+  transform: scale(0.95);
+}
+
+/* The sliding thumb. inset-inline-start keeps it on the correct side under
+   RTL without a separate rule - `left` would be pinned to the wrong edge. */
+.theme-toggle-thumb {
+  position: absolute;
+  inset-inline-start: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--sw-accent), var(--sw-accent-2));
+  box-shadow: 0 2px 8px var(--sw-accent-glow);
+  transition: transform var(--sw-transition);
+}
+
+/* Moves toward the inline-end edge; under RTL that is leftward, which the
+   logical property resolves automatically. */
+.theme-toggle-button[data-state='light'] .theme-toggle-thumb {
+  transform: translateX(var(--sw-toggle-travel, 30px));
+}
+
+[dir='rtl'] .theme-toggle-button[data-state='light'] .theme-toggle-thumb,
+:root:not([dir='ltr']) .theme-toggle-button[data-state='light'] .theme-toggle-thumb {
+  transform: translateX(calc(-1 * var(--sw-toggle-travel, 30px)));
+}
+
+.theme-toggle-icons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0 7px;
+  font-size: 0.72rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.theme-toggle-icon {
+  opacity: 0.55;
+  transition: opacity var(--sw-transition);
+}
+
+.theme-toggle-icon.is-active {
+  opacity: 1;
 }
 
 .auth-theme-toggle-wrap {
@@ -294,7 +555,7 @@ body {
 .welcome-title {
   font-size: 2.5rem;
   font-weight: 700;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 20px;
   line-height: 1.3;
   background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
@@ -305,7 +566,7 @@ body {
 
 .welcome-subtitle {
   font-size: 1.2rem;
-  color: #7f8c8d;
+  color: var(--sw-text-secondary);
   margin-bottom: 40px;
   font-weight: 400;
 }
@@ -321,8 +582,8 @@ body {
 
 /* Edit mode notice */
 .edit-mode-notice {
-  background: linear-gradient(135deg, #ff6b6b, #ff8e8e);
-  border: 2px solid #ff5252;
+  background: var(--sw-red-soft);
+  border: 1px solid var(--sw-red-border);
   border-radius: 12px;
   padding: 15px 25px;
   margin: 20px auto;
@@ -336,7 +597,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: white;
+  color: #ffffff;
   font-weight: 600;
   font-size: 16px;
 }
@@ -384,7 +645,7 @@ body {
 }
 
 .expand-button:hover {
-  background-color: #f0f0f0;
+  background-color: var(--sw-surface-3);
   color: var(--sw-accent-2);
 }
 
@@ -405,8 +666,8 @@ body {
 
 /* Summary row when expanded */
 .summary-row-expanded {
-  background-color: #fff3cd !important;
-  border: 2px solid #ffc107 !important;
+  background-color: var(--sw-amber-soft) !important;
+  border: 1px solid var(--sw-amber) !important;
 }
 
 .summary-row-expanded td {
@@ -427,7 +688,7 @@ body {
 .portfolio-summary-title {
   font-size: 1.8rem;
   font-weight: 700;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 20px;
   text-align: center;
   background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
@@ -454,7 +715,7 @@ body {
 .summary-section-title {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 15px;
   text-align: center;
   padding-bottom: 10px;
@@ -475,22 +736,22 @@ body {
 
 .summary-label {
   font-weight: 500;
-  color: #555;
+  color: var(--sw-text-secondary);
   font-size: 0.95rem;
 }
 
 .summary-value {
   font-weight: 600;
   font-size: 1rem;
-  color: #2c3e50;
+  color: var(--sw-text);
 }
 
 .summary-value.profit-positive {
-  color: #27ae60;
+  color: var(--sw-green);
 }
 
 .summary-value.profit-negative {
-  color: #e74c3c;
+  color: var(--sw-red);
 }
 
 .summary-grid-custom {
@@ -654,34 +915,46 @@ body {
 }
 
 .btn {
-  color: white;
+  color: #ffffff;
   border: none;
-  padding: 18px 40px;
-  font-size: 1.1rem;
+  padding: 13px 28px;
+  font-size: 0.95rem;
   font-weight: 600;
-  border-radius: 50px;
+  border-radius: var(--sw-radius);
   cursor: pointer;
-  transition: all 0.3s ease;
   font-family: inherit;
-  text-transform: none;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
+  /* Transitioning `all` also animates layout properties, which is what
+     made these feel sluggish; only the properties that actually change
+     are animated now. */
+  transition: background-color var(--sw-transition), box-shadow var(--sw-transition),
+    transform var(--sw-transition), border-color var(--sw-transition), opacity var(--sw-transition);
 }
 
 .btn:hover {
-  transform: translateY(-3px);
-}
-
-.btn:active {
   transform: translateY(-1px);
 }
 
+/* A press should feel like a press. Pairing the lift on hover with a
+   slight compression on click is what gives a flat control physicality. */
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .btn-warning {
-  background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+  background: linear-gradient(135deg, var(--sw-amber) 0%, var(--sw-amber) 100%);
   box-shadow: 0 8px 25px rgba(243, 156, 18, 0.3);
 }
 
 .btn-warning:hover {
-  background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+  background: linear-gradient(135deg, var(--sw-amber), var(--sw-amber));
   box-shadow: 0 12px 35px rgba(243, 156, 18, 0.4);
 }
 
@@ -691,35 +964,35 @@ body {
 }
 
 .btn-danger {
-  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  background: linear-gradient(135deg, var(--sw-red) 0%, var(--sw-red) 100%);
   box-shadow: 0 8px 25px rgba(231, 76, 60, 0.3);
 }
 
 .btn-danger:hover {
-  background: linear-gradient(135deg, #c0392b 0%, #a93226 100%);
+  background: linear-gradient(135deg, var(--sw-red), var(--sw-red));
   box-shadow: 0 12px 35px rgba(231, 76, 60, 0.4);
 }
 
 .btn-info {
-  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
-  box-shadow: 0 8px 25px rgba(52, 152, 219, 0.3);
+  background: linear-gradient(135deg, var(--sw-accent-2), var(--sw-accent));
+  box-shadow: 0 4px 14px var(--sw-accent-glow);
 }
 
 .btn-info:hover {
-  background: linear-gradient(135deg, #2980b9 0%, #1f618d 100%);
+  background: linear-gradient(135deg, var(--sw-accent), var(--sw-accent-strong));
   box-shadow: 0 12px 35px rgba(52, 152, 219, 0.4);
 }
 
 /* Manual portfolio save — light blue */
 .portfolio-save-btn {
-  color: #0c4a6e;
-  background: linear-gradient(135deg, #bae6fd 0%, #7dd3fc 100%);
-  border: 1px solid #38bdf8;
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--sw-accent-strong), var(--sw-accent));
+  border: 1px solid var(--sw-accent);
   box-shadow: 0 6px 18px rgba(56, 189, 248, 0.35);
 }
 
 .portfolio-save-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 100%);
+  background: linear-gradient(135deg, var(--sw-accent), var(--sw-accent-2));
   color: #fff;
   box-shadow: 0 10px 26px rgba(56, 189, 248, 0.45);
 }
@@ -728,9 +1001,9 @@ body {
   cursor: not-allowed;
   opacity: 0.55;
   transform: none;
-  color: #64748b;
-  background: #e2e8f0;
-  border-color: #cbd5e1;
+  color: var(--sw-text-muted);
+  background: var(--sw-border);
+  border-color: var(--sw-text-secondary);
   box-shadow: none;
 }
 
@@ -744,7 +1017,7 @@ body {
    button pile. */
 .add-info-button {
   background: linear-gradient(135deg, var(--sw-accent-strong), var(--sw-accent));
-  color: #1a1508;
+  color: #ffffff;
   border: none;
   padding: 12px 26px;
   font-size: 0.95rem;
@@ -776,7 +1049,7 @@ body {
 }
 
 .feature-card {
-  background: white;
+  background: var(--sw-surface);
   padding: 30px 20px;
   border-radius: 15px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
@@ -797,13 +1070,13 @@ body {
 
 .feature-card h3 {
   font-size: 1.3rem;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 15px;
   font-weight: 600;
 }
 
 .feature-card p {
-  color: #7f8c8d;
+  color: var(--sw-text-secondary);
   line-height: 1.6;
   font-size: 0.95rem;
 }
@@ -959,7 +1232,7 @@ body {
   display: block;
   margin-top: 5px;
   font-size: 0.85rem;
-  color: #666;
+  color: var(--sw-text-secondary);
   font-style: italic;
 }
 
@@ -971,7 +1244,7 @@ body {
 .form-title {
   font-size: 2rem;
   font-weight: 700;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 30px;
   text-align: center;
   background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
@@ -995,20 +1268,20 @@ body {
 .form-group label {
   font-size: 1rem;
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 5px;
 }
 
 .form-group input,
 .form-group select {
   padding: 15px;
-  border: 2px solid #e1e8ed;
+  border: 2px solid var(--sw-border);
   border-radius: 10px;
   font-size: 1rem;
   font-family: inherit;
   transition: all 0.3s ease;
-  background: white;
-  color: #2c3e50;
+  background: var(--sw-surface);
+  color: var(--sw-text);
 }
 
 .exchange-rate-display {
@@ -1017,13 +1290,13 @@ body {
   background: rgba(169, 130, 47, 0.08);
   border: 2px solid rgba(169, 130, 47, 0.25);
   border-radius: 10px;
-  color: #2c3e50;
+  color: var(--sw-text);
   font-size: 0.95rem;
 }
 
 .exchange-rate-warning {
   margin: 0 0 8px;
-  color: #b45309;
+  color: var(--sw-amber);
   font-size: 0.9rem;
 }
 
@@ -1046,7 +1319,7 @@ body {
 }
 
 .form-group input::placeholder {
-  color: #95a5a6;
+  color: var(--sw-text-muted);
 }
 
 .form-group-checkbox label {
@@ -1064,14 +1337,14 @@ body {
 
 .form-hint {
   font-size: 0.85rem;
-  color: #7f8c8d;
+  color: var(--sw-text-secondary);
   margin: 4px 0 0;
 }
 
 .cpi-status-banner {
   font-size: 0.85rem;
-  color: #5a6b7d;
-  background: #eef2f7;
+  color: var(--sw-text-secondary);
+  background: var(--sw-surface-2);
   border-radius: 8px;
   padding: 8px 14px;
   margin: 0 0 16px;
@@ -1089,8 +1362,8 @@ body {
 }
 
 .back-button {
-  background: #95a5a6;
-  color: white;
+  background: var(--sw-surface-3);
+  color: var(--sw-text);
   border: none;
   padding: 15px 30px;
   font-size: 1rem;
@@ -1102,13 +1375,13 @@ body {
 }
 
 .back-button:hover {
-  background: #7f8c8d;
+  background: var(--sw-surface-3);
   transform: translateY(-2px);
 }
 
 .submit-button {
   background: linear-gradient(135deg, var(--sw-accent-strong), var(--sw-accent));
-  color: #1a1508;
+  color: #ffffff;
   border: none;
   padding: 15px 30px;
   font-size: 1rem;
@@ -1164,7 +1437,7 @@ body {
 /* Stocks Tables Styles */
 .stocks-section {
   margin-top: 30px;
-  background: white;
+  background: var(--sw-surface);
   border-radius: 15px;
   padding: 20px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
@@ -1176,7 +1449,7 @@ body {
 .section-title {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 20px;
   text-align: center;
   background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
@@ -1187,43 +1460,73 @@ body {
 
 .table-container {
   overflow-x: auto;
-  border-radius: 10px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  /* The rounded card IS the container, so the table's corners are clipped
+     by it rather than each needing their own radius. */
+  border-radius: var(--sw-radius-lg);
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface);
+  box-shadow: var(--sw-shadow);
   width: 100%;
   max-width: 100%;
+  /* Contains the sticky header's blur and keeps the clip working while
+     the body scrolls horizontally. */
+  position: relative;
+  isolation: isolate;
 }
 
 .stocks-table {
   width: 100%;
-  border-collapse: collapse;
-  background: white;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: transparent;
   font-size: 0.9rem;
-}
-
-.stocks-table thead {
-  background: var(--sw-surface-3);
   color: var(--sw-text);
-  border-bottom: 2px solid var(--sw-accent);
 }
 
-.stocks-table th {
-  padding: 15px 10px;
+/* Sticky, blurred header: stays legible over whatever scrolls beneath it.
+   The blur needs a translucent background to be visible at all, and a
+   fallback opaque one for browsers without backdrop-filter - otherwise
+   rows would show straight through the header text. */
+.stocks-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--sw-surface-3);
+  color: var(--sw-text-secondary);
+  border-bottom: 1px solid var(--sw-border-strong);
+  padding: 14px 16px;
   text-align: center;
   font-weight: 600;
-  font-size: 0.9rem;
-  border: none;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .stocks-table thead th {
+    background: var(--sw-glass-strong);
+    -webkit-backdrop-filter: blur(var(--sw-glass-blur));
+    backdrop-filter: blur(var(--sw-glass-blur));
+  }
 }
 
 .stocks-table td {
-  padding: 12px 10px;
+  /* Roomier than the old 12px/10px: the density complaint was about
+     breathing room between columns, not about how many rows fit. */
+  padding: 14px 16px;
   text-align: center;
-  border-bottom: 1px solid #e1e8ed;
-  color: #2c3e50;
+  border-bottom: 1px solid var(--sw-border);
+  color: var(--sw-text);
+  white-space: nowrap;
+}
+
+.stocks-table tbody tr {
+  transition: background-color var(--sw-transition);
 }
 
 .stocks-table tbody tr:hover {
-  background-color: #f8f9fa;
-  transition: background-color 0.2s ease;
+  background-color: var(--sw-surface-2);
 }
 
 .stocks-table tbody tr:last-child td {
@@ -1231,19 +1534,24 @@ body {
 }
 
 /* Sticky first column (RTL - the first column sits at the visual right
-   edge) so the identifying column (stock/fund name) stays in view while
-   scrolling through a wide table's other 10-20 columns. The sticky cell
-   needs its own *opaque* background matching whatever the row beneath it
-   would show, or content scrolling under it would show through - each
-   rule below mirrors an existing row-state's background exactly. Not
-   chasing every possible *combined* state (e.g. hovering an expanded
-   detail row in edit mode) - a known, accepted limitation. */
+   edge) so the identifying column stays in view while scrolling a wide
+   table's other 10-20 columns.
+
+   A sticky cell needs its own OPAQUE background or the content scrolling
+   under it shows through, which is why this can't just inherit the row's.
+   The separating edge is a shadow rather than a border so it appears only
+   once the table is actually scrolled sideways... and since CSS can't
+   detect that, it's simply always present but soft enough to read as part
+   of the design. */
 .stocks-table th:first-child,
 .stocks-table td:first-child {
   position: sticky;
   right: 0;
-  z-index: 2;
-  background-color: white;
+  z-index: 1;
+  background-color: var(--sw-surface);
+  text-align: right;
+  font-weight: 500;
+  box-shadow: -1px 0 0 var(--sw-border);
 }
 
 .stocks-table thead th:first-child {
@@ -1251,32 +1559,105 @@ body {
   background-color: var(--sw-surface-3);
 }
 
-[data-theme='dark'] .stocks-table td:first-child {
-  background-color: var(--sw-surface);
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .stocks-table thead th:first-child {
+    background-color: var(--sw-glass-strong);
+  }
 }
 
 .stocks-table tbody tr:hover td:first-child {
-  background-color: #f8f9fa;
-}
-
-[data-theme='dark'] .stocks-table tbody tr:hover td:first-child {
   background-color: var(--sw-surface-2);
 }
 
-.detail-row td:first-child {
+.detail-row td:first-child,
+.detail-row {
   background-color: var(--sw-surface-2);
 }
 
 .summary-row-expanded td:first-child {
-  background-color: #fff3cd;
+  background-color: var(--sw-amber-soft);
 }
 
-[data-theme='dark'] .summary-row-expanded td:first-child {
-  /* Layers the same translucent amber tint the row itself uses on top of
-     the table's own solid surface color, so the composite stays opaque
-     instead of letting scrolled columns show through a transparent cell. */
-  background-image: linear-gradient(rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.12));
-  background-color: var(--sw-surface);
+/* An asset's identity: name on the first line, machine identifier
+   (security number / ticker) in mono on a quieter second line. Two facts
+   that were previously crammed into one string as "name (1159250)". */
+.asset-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  text-align: right;
+}
+
+.asset-cell-name {
+  font-weight: 600;
+  color: var(--sw-text);
+  line-height: 1.3;
+}
+
+.asset-cell-id {
+  font-family: var(--sw-font-mono);
+  font-size: 0.72rem;
+  color: var(--sw-text-muted);
+  letter-spacing: 0.02em;
+  direction: ltr;
+}
+
+/* Returns and changes as pill badges rather than bare colored text - a
+   percentage reads as a discrete status this way, and the tinted
+   background carries the sign even before the number is read. */
+.value-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--sw-radius-pill);
+  font-weight: 600;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+}
+
+.value-pill.is-positive {
+  background: var(--sw-green-soft);
+  color: var(--sw-green);
+  border-color: var(--sw-green-border);
+}
+
+.value-pill.is-negative {
+  background: var(--sw-red-soft);
+  color: var(--sw-red);
+  border-color: var(--sw-red-border);
+}
+
+.value-pill.is-neutral {
+  background: var(--sw-surface-3);
+  color: var(--sw-text-secondary);
+  border-color: var(--sw-border);
+}
+
+/* Small screens: a 20-column financial table cannot become a readable
+   grid, so it keeps its horizontal scroll - but the container hints that
+   there is more to the side, and padding tightens so more of it fits. */
+@media (max-width: 768px) {
+  .stocks-table {
+    font-size: 0.82rem;
+  }
+
+  .stocks-table th,
+  .stocks-table td {
+    padding: 10px 12px;
+  }
+
+  .table-container {
+    border-radius: var(--sw-radius);
+    /* A fading edge on the scrollable side, so it's visible that the
+       table continues past the viewport. */
+    -webkit-mask-image: linear-gradient(to left, transparent 0, #000 18px);
+    mask-image: linear-gradient(to left, transparent 0, #000 18px);
+  }
 }
 
 .no-data-message {
@@ -1285,18 +1666,18 @@ body {
   padding: 40px;
   background: rgba(255, 255, 255, 0.7);
   border-radius: 15px;
-  border: 2px dashed #bdc3c7;
+  border: 2px dashed var(--sw-border-strong);
 }
 
 .no-data-message p {
-  color: #7f8c8d;
+  color: var(--sw-text-secondary);
   font-size: 1.1rem;
   margin: 10px 0;
 }
 
 .no-data-message p:first-child {
   font-weight: 600;
-  color: #95a5a6;
+  color: var(--sw-text-muted);
 }
 
 /* Israeli stocks table width */
@@ -1356,12 +1737,12 @@ body {
 
 /* Profit/Loss styling */
 .profit-positive {
-  color: #27ae60 !important;
+  color: var(--sw-green) !important;
   font-weight: 600;
 }
 
 .profit-negative {
-  color: #e74c3c !important;
+  color: var(--sw-red) !important;
   font-weight: 600;
 }
 
@@ -1374,18 +1755,18 @@ body {
 }
 
 .volatility-indicator.low {
-  background-color: #d5f4e6;
-  color: #27ae60;
+  background-color: var(--sw-green-soft);
+  color: var(--sw-green);
 }
 
 .volatility-indicator.medium {
-  background-color: #fef5e7;
-  color: #f39c12;
+  background-color: var(--sw-amber-soft);
+  color: var(--sw-amber);
 }
 
 .volatility-indicator.high {
-  background-color: #fadbd8;
-  color: #e74c3c;
+  background-color: var(--sw-red-soft);
+  color: var(--sw-red);
 }
 
 /* Edit mode styles */
@@ -1395,7 +1776,7 @@ body {
 }
 
 .editable-row:hover {
-  background-color: #e8f4fd !important;
+  background-color: var(--sw-accent-soft) !important;
 }
 
 .editable-cell {
@@ -1404,7 +1785,7 @@ body {
 }
 
 .editable-cell:hover {
-  background-color: #e8f4fd !important;
+  background-color: var(--sw-accent-soft) !important;
 }
 
 .editable-cell input {
@@ -1414,7 +1795,7 @@ body {
   border-radius: 4px;
   font-size: 0.85rem;
   text-align: center;
-  background: white;
+  background: var(--sw-surface);
   margin: 0;
   box-sizing: border-box;
 }
@@ -1426,7 +1807,7 @@ body {
 }
 
 .edit-row {
-  background-color: #f8f9fa;
+  background-color: var(--sw-surface-2);
   border: 1px solid var(--sw-accent);
 }
 
@@ -1444,11 +1825,11 @@ body {
 .edit-input {
   width: 100%;
   padding: 4px 6px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--sw-border);
   border-radius: 3px;
   font-size: 0.85rem;
   text-align: center;
-  background: white;
+  background: var(--sw-surface);
   margin: 0;
   box-sizing: border-box;
 }
@@ -1466,7 +1847,7 @@ body {
 }
 
 .edit-display {
-  color: #2c3e50;
+  color: var(--sw-text);
   font-weight: 500;
   font-size: 0.85rem;
   display: block;
@@ -1482,8 +1863,8 @@ body {
 }
 
 .delete-button {
-  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-  color: white;
+  background: linear-gradient(135deg, var(--sw-red) 0%, var(--sw-red) 100%);
+  color: #ffffff;
   border: none;
   padding: 4px 8px;
   font-size: 0.75rem;
@@ -1496,7 +1877,7 @@ body {
 }
 
 .delete-button:hover {
-  background: linear-gradient(135deg, #c0392b 0%, #a93226 100%);
+  background: linear-gradient(135deg, var(--sw-red), var(--sw-red));
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
 }
@@ -1529,7 +1910,7 @@ body {
 .analysis-title {
   font-size: 2.5rem;
   font-weight: 700;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 30px;
   text-align: center;
   background: linear-gradient(90deg, var(--sw-text), var(--sw-accent) 130%);
@@ -1555,7 +1936,7 @@ body {
 }
 
 .distribution-card {
-  background: white;
+  background: var(--sw-surface);
   border-radius: 10px;
   padding: 14px;
   text-align: center;
@@ -1565,7 +1946,7 @@ body {
 
 .distribution-card h3 {
   font-size: 1rem;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 8px;
   font-weight: 600;
 }
@@ -1573,7 +1954,7 @@ body {
 .distribution-value {
   font-size: 1.35rem;
   font-weight: 700;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 4px;
 }
 
@@ -1585,17 +1966,17 @@ body {
 
 .section-subtitle {
   font-size: 0.85rem;
-  color: #8a94a6;
+  color: var(--sw-text-secondary);
   margin-top: -4px;
   margin-bottom: 4px;
 }
 
 .history-empty-note {
-  background: white;
+  background: var(--sw-surface);
   border-radius: 10px;
   padding: 20px;
   margin-top: 12px;
-  color: #5a6474;
+  color: var(--sw-text-secondary);
   font-size: 0.95rem;
   line-height: 1.6;
   text-align: center;
@@ -1603,7 +1984,7 @@ body {
 }
 
 .equity-chart-container {
-  background: white;
+  background: var(--sw-surface);
   border-radius: 12px;
   padding: 20px 12px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
@@ -1620,7 +2001,7 @@ body {
 
 .benchmark-toggle-button {
   border: 1px solid rgba(169, 130, 47, 0.3);
-  background: white;
+  background: var(--sw-surface);
   color: var(--sw-accent);
   border-radius: 999px;
   padding: 6px 16px;
@@ -1636,7 +2017,7 @@ body {
 
 .benchmark-toggle-button.active {
   background: var(--sw-accent);
-  color: white;
+  color: #ffffff;
   border-color: var(--sw-accent);
 }
 
@@ -1648,7 +2029,7 @@ body {
 }
 
 .rebalance-input-item {
-  background: white;
+  background: var(--sw-surface);
   border-radius: 10px;
   padding: 10px 14px;
   border: 1px solid rgba(169, 130, 47, 0.15);
@@ -1688,7 +2069,7 @@ body {
 
 .monthly-status-text {
   font-size: 0.85rem;
-  color: #5a6474;
+  color: var(--sw-text-secondary);
 }
 
 .monthly-toolbar-buttons {
@@ -1699,7 +2080,7 @@ body {
 
 .monthly-toolbar-btn {
   border: 1px solid rgba(169, 130, 47, 0.3);
-  background: white;
+  background: var(--sw-surface);
   color: var(--sw-accent);
   border-radius: 999px;
   padding: 5px 14px;
@@ -1720,7 +2101,7 @@ body {
 
 .monthly-toolbar-btn.danger {
   border-color: rgba(220, 38, 38, 0.35);
-  color: #dc2626;
+  color: var(--sw-red);
 }
 
 .monthly-toolbar-btn.danger:hover {
@@ -1728,7 +2109,7 @@ body {
 }
 
 .monthly-manual-form {
-  background: white;
+  background: var(--sw-surface);
   border: 1px dashed rgba(169, 130, 47, 0.35);
   border-radius: 10px;
   padding: 14px;
@@ -1745,7 +2126,7 @@ body {
   align-items: center;
   padding: 4px 2px;
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--sw-text);
 }
 
 .monthly-manual-item-row {
@@ -1769,7 +2150,7 @@ body {
 
 .monthly-cashflow-hint {
   font-size: 0.8rem;
-  color: #7f8c8d;
+  color: var(--sw-text-secondary);
   margin: 0 0 8px;
 }
 
@@ -1780,7 +2161,7 @@ body {
 }
 
 .monthly-cashflow-item {
-  background: white;
+  background: var(--sw-surface);
   border-radius: 8px;
   padding: 6px 10px;
   border: 1px solid rgba(169, 130, 47, 0.15);
@@ -1807,8 +2188,8 @@ body {
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 0.95rem;
-  background: white;
-  color: #2c3e50;
+  background: var(--sw-surface);
+  color: var(--sw-text);
 }
 
 .monthly-category-row {
@@ -1822,14 +2203,14 @@ body {
 
 .monthly-item-row td {
   font-weight: 400;
-  color: #5a6474;
+  color: var(--sw-text-secondary);
   font-size: 0.9rem;
 }
 
 .monthly-cashflow-note {
   font-weight: 400;
   font-size: 0.78rem;
-  color: #7f8c8d;
+  color: var(--sw-text-secondary);
   margin-top: 2px;
 }
 
@@ -1845,7 +2226,7 @@ body {
 }
 
 .monthly-history-card {
-  background: white;
+  background: var(--sw-surface);
   border-radius: 10px;
   padding: 14px;
   border: 1px solid rgba(169, 130, 47, 0.15);
@@ -1859,10 +2240,10 @@ body {
   display: flex;
   justify-content: space-between;
   padding: 6px 10px;
-  background: #f8f9fa;
+  background: var(--sw-surface-2);
   border-radius: 6px;
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--sw-text);
 }
 
 .monthly-history-item-row {
@@ -1870,7 +2251,7 @@ body {
   justify-content: space-between;
   padding: 6px 10px 6px 20px;
   font-size: 0.9rem;
-  color: #5a6474;
+  color: var(--sw-text-secondary);
 }
 
 .monthly-item-placeholder {
@@ -1888,7 +2269,7 @@ body {
 }
 
 .rebalance-sum-hint {
-  color: #8a94a6;
+  color: var(--sw-text-secondary);
   font-weight: 500;
   font-size: 0.9rem;
 }
@@ -1898,7 +2279,7 @@ body {
 }
 
 .pie-chart-container {
-  background: white;
+  background: var(--sw-surface);
   border-radius: 12px;
   padding: 30px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
@@ -1926,7 +2307,7 @@ body {
   display: flex;
   align-items: center;
   gap: 15px;
-  background: white;
+  background: var(--sw-surface);
   padding: 20px;
   border-radius: 12px;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
@@ -1954,13 +2335,13 @@ body {
 
 .pie-label-item .label-name {
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--sw-text);
   font-size: 1.1rem;
 }
 
 .pie-label-item .label-value {
   font-weight: 700;
-  color: #2c3e50;
+  color: var(--sw-text);
   font-size: 1.2rem;
 }
 
@@ -2013,9 +2394,11 @@ body {
 .recharts-pie-label-text {
   font-size: 14px !important;
   font-weight: 600 !important;
-  fill: #2c3e50 !important;
-  text-shadow: 2px 2px 4px rgba(255, 255, 255, 0.8) !important;
-  background: rgba(255, 255, 255, 0.9) !important;
+  fill: var(--sw-text) !important;
+  paint-order: stroke fill !important;
+  stroke: var(--sw-bg) !important;
+  stroke-width: 3px !important;
+  stroke-linejoin: round !important;
   padding: 4px 8px !important;
   border-radius: 6px !important;
   border: 1px solid rgba(169, 130, 47, 0.2) !important;
@@ -2030,7 +2413,7 @@ body {
 .analysis-table {
   width: 100%;
   border-collapse: collapse;
-  background: white;
+  background: var(--sw-surface);
   border-radius: 10px;
   overflow: hidden;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
@@ -2052,12 +2435,12 @@ body {
 .analysis-table td {
   padding: 12px 10px;
   text-align: center;
-  border-bottom: 1px solid #e1e8ed;
-  color: #2c3e50;
+  border-bottom: 1px solid var(--sw-border);
+  color: var(--sw-text);
 }
 
 .analysis-table tbody tr:hover {
-  background-color: #f8f9fa;
+  background-color: var(--sw-surface-2);
   transition: background-color 0.2s ease;
 }
 
@@ -2069,7 +2452,7 @@ body {
 }
 
 .date-distribution-card {
-  background: white;
+  background: var(--sw-surface);
   border-radius: 10px;
   padding: 14px;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
@@ -2078,7 +2461,7 @@ body {
 
 .date-distribution-card h3 {
   font-size: 1.2rem;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 15px;
   font-weight: 600;
   text-align: center;
@@ -2095,14 +2478,14 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 10px;
-  background: #f8f9fa;
+  background: var(--sw-surface-2);
   border-radius: 8px;
-  border: 1px solid #e1e8ed;
+  border: 1px solid var(--sw-border);
 }
 
 .date-label {
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--sw-text);
 }
 
 .date-item-actions {
@@ -2119,7 +2502,7 @@ body {
 
 .date-count {
   font-size: 0.9rem;
-  color: #7f8c8d;
+  color: var(--sw-text-secondary);
 }
 
 .reports-grid {
@@ -2130,7 +2513,7 @@ body {
 }
 
 .report-card {
-  background: white;
+  background: var(--sw-surface);
   border-radius: 10px;
   padding: 14px;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
@@ -2139,7 +2522,7 @@ body {
 
 .report-card h3 {
   font-size: 1.2rem;
-  color: #2c3e50;
+  color: var(--sw-text);
   margin-bottom: 15px;
   font-weight: 600;
   text-align: center;
@@ -2156,14 +2539,14 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 10px;
-  background: #f8f9fa;
+  background: var(--sw-surface-2);
   border-radius: 8px;
-  border: 1px solid #e1e8ed;
+  border: 1px solid var(--sw-border);
 }
 
 .report-name {
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--sw-text);
 }
 
 .report-profit,
@@ -2289,7 +2672,7 @@ body {
 }
 
 .auth-subtitle {
-  color: #7f8c8d;
+  color: var(--sw-text-secondary);
   font-size: 0.95rem;
   margin-bottom: 24px;
 }
@@ -2298,7 +2681,7 @@ body {
   display: flex;
   gap: 8px;
   margin-bottom: 24px;
-  background: #eef1f5;
+  background: var(--sw-surface-2);
   padding: 6px;
   border-radius: 12px;
 }
@@ -2312,13 +2695,13 @@ body {
   font-weight: 600;
   cursor: pointer;
   background: transparent;
-  color: #64748b;
+  color: var(--sw-text-muted);
   transition: background 0.2s, color 0.2s;
 }
 
 .auth-tab.active {
-  background: #fff;
-  color: #2c3e50;
+  background: var(--sw-surface);
+  color: var(--sw-text);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
@@ -2335,19 +2718,19 @@ body {
   gap: 8px;
   font-size: 0.9rem;
   font-weight: 600;
-  color: #334155;
+  color: var(--sw-text);
 }
 
 .auth-hint {
   font-weight: 400;
-  color: #94a3b8;
+  color: var(--sw-text-secondary);
   font-size: 0.8rem;
 }
 
 .auth-input {
   width: 100%;
   padding: 12px 14px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--sw-border);
   border-radius: 10px;
   font-size: 1rem;
   direction: ltr;
@@ -2361,8 +2744,8 @@ body {
 }
 
 .auth-error {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--sw-red-soft);
+  color: var(--sw-red);
   padding: 10px 12px;
   border-radius: 10px;
   font-size: 0.9rem;
@@ -2378,7 +2761,7 @@ body {
   font-size: 1.05rem;
   font-weight: 700;
   cursor: pointer;
-  color: #1a1508;
+  color: #ffffff;
   background: linear-gradient(135deg, var(--sw-accent-strong), var(--sw-accent));
   transition: opacity 0.2s;
 }
@@ -2402,7 +2785,7 @@ body {
 .user-email {
   direction: ltr;
   font-size: 0.9rem;
-  color: #475569;
+  color: var(--sw-text-secondary);
   font-weight: 600;
 }
 
@@ -2410,25 +2793,25 @@ body {
   margin-right: auto;
   padding: 8px 16px;
   border-radius: 10px;
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  color: #475569;
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface);
+  color: var(--sw-text-secondary);
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .user-logout:hover {
-  background: #f8fafc;
-  border-color: #94a3b8;
+  background: var(--sw-surface-2);
+  border-color: var(--sw-text-secondary);
 }
 
 .user-legacy-import {
   padding: 8px 14px;
   border-radius: 10px;
-  border: 1px dashed #94a3b8;
-  background: #f8fafc;
-  color: #334155;
+  border: 1px dashed var(--sw-border-strong);
+  background: var(--sw-surface-2);
+  color: var(--sw-text);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -2447,14 +2830,14 @@ body {
 
 .user-import-banner {
   text-align: center;
-  color: #166534;
+  color: var(--sw-green);
   font-size: 0.9rem;
   font-weight: 600;
   margin: -8px 8px 12px;
   padding: 10px;
-  background: #ecfdf5;
+  background: var(--sw-green-soft);
   border-radius: 10px;
-  border: 1px solid #a7f3d0;
+  border: 1px solid var(--sw-green-border);
 }
 
 /* ===== Dark-theme overrides for the app's original (light-first) pages =====
@@ -3269,7 +3652,7 @@ body {
 }
 
 .sw-subsection-title {
-  color: #c7cbdc;
+  color: var(--sw-text-secondary);
   font-size: 0.95rem;
   margin: 18px 0 8px;
   font-weight: 600;
@@ -3572,7 +3955,7 @@ body {
 }
 
 .sw-treemap-group-title {
-  color: #c7cbdc;
+  color: var(--sw-text-secondary);
   font-size: 0.85rem;
   margin: 0 0 6px;
   text-align: center;
@@ -3656,12 +4039,12 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #16a34a;
+  background: var(--sw-green);
   display: inline-block;
 }
 
 .price-refresh-status.is-refreshing .price-refresh-dot {
-  background: #f59e0b;
+  background: var(--sw-amber);
   animation: price-refresh-pulse 1.2s ease-in-out infinite;
 }
 
@@ -3729,3 +4112,1092 @@ body {
   padding-top: 8px;
   margin-top: 8px;
 }
+
+/* ============================================================
+   CONTROL & SURFACE LAYER
+   A small set of reusable treatments the rest of the stylesheet composes
+   with, so a button or an input looks the same wherever it appears
+   instead of each page inventing its own.
+   ============================================================ */
+
+/* --- Buttons ------------------------------------------------ */
+
+/* The primary action: a gradient fill plus an ambient colored glow that
+   grows on hover. The glow is a shadow in the accent's own hue, not black,
+   which is what makes it read as light coming off the control. */
+.btn-primary,
+.add-info-button,
+.submit-button,
+.portfolio-save-btn:not(:disabled) {
+  background: linear-gradient(135deg, var(--sw-accent-strong), var(--sw-accent));
+  color: #ffffff;
+  border: none;
+  box-shadow: 0 4px 14px var(--sw-accent-glow);
+}
+
+.btn-primary:hover,
+.add-info-button:hover,
+.submit-button:hover,
+.portfolio-save-btn:not(:disabled):hover {
+  box-shadow: 0 8px 26px var(--sw-accent-glow);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active,
+.add-info-button:active,
+.submit-button:active,
+.portfolio-save-btn:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* Secondary / outline: translucent rather than filled, so a screen with
+   many controls has exactly one that draws the eye. */
+.btn-outline,
+.monthly-toolbar-btn,
+.back-button,
+.benchmark-toggle-button,
+.export-button,
+.top-nav-logout {
+  background: var(--sw-surface-2);
+  border: 1px solid var(--sw-border);
+  color: var(--sw-text-secondary);
+  border-radius: var(--sw-radius-sm);
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--sw-transition), border-color var(--sw-transition),
+    color var(--sw-transition), transform var(--sw-transition), box-shadow var(--sw-transition);
+}
+
+.btn-outline:hover,
+.monthly-toolbar-btn:hover,
+.back-button:hover,
+.benchmark-toggle-button:hover,
+.export-button:hover,
+.top-nav-logout:hover {
+  background: var(--sw-surface-3);
+  border-color: var(--sw-border-hover);
+  color: var(--sw-text);
+}
+
+.btn-outline:active,
+.monthly-toolbar-btn:active,
+.back-button:active,
+.benchmark-toggle-button:active,
+.export-button:active,
+.top-nav-logout:active {
+  transform: scale(0.96);
+}
+
+.monthly-toolbar-btn.danger {
+  color: var(--sw-red);
+  border-color: var(--sw-red-border);
+  background: var(--sw-red-soft);
+}
+
+.monthly-toolbar-btn.danger:hover {
+  background: var(--sw-red-soft);
+  border-color: var(--sw-red);
+  color: var(--sw-red);
+}
+
+.benchmark-toggle-button.active {
+  background: var(--sw-accent-soft);
+  border-color: var(--sw-accent);
+  color: var(--sw-accent);
+}
+
+.delete-button {
+  background: var(--sw-red-soft);
+  color: var(--sw-red);
+  border: 1px solid var(--sw-red-border);
+  border-radius: var(--sw-radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--sw-transition), transform var(--sw-transition);
+}
+
+.delete-button:hover {
+  background: var(--sw-red);
+  color: #ffffff;
+}
+
+.delete-button:active {
+  transform: scale(0.95);
+}
+
+/* --- Form controls ------------------------------------------ */
+
+/* One treatment for every text-like control. Inputs sit slightly inset
+   against their card so the field is visible as a field before it's
+   focused, and gain an accent ring when it is. */
+input[type='text'],
+input[type='number'],
+input[type='date'],
+input[type='month'],
+input[type='email'],
+input[type='password'],
+input[type='search'],
+select,
+textarea {
+  font-family: inherit;
+  font-size: 0.92rem;
+  color: var(--sw-text);
+  background: var(--sw-surface-2);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius-sm);
+  padding: 10px 12px;
+  transition: border-color var(--sw-transition), box-shadow var(--sw-transition),
+    background-color var(--sw-transition);
+}
+
+input[type='text']:hover,
+input[type='number']:hover,
+input[type='date']:hover,
+input[type='month']:hover,
+input[type='email']:hover,
+input[type='password']:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--sw-border-hover);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--sw-accent);
+  box-shadow: var(--sw-ring);
+  background: var(--sw-surface);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--sw-text-muted);
+}
+
+/* The native calendar/spinner glyphs are drawn dark by default, which
+   makes them nearly invisible on a dark field. */
+[data-theme='dark'] input[type='date']::-webkit-calendar-picker-indicator,
+[data-theme='dark'] input[type='month']::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
+  cursor: pointer;
+}
+
+/* Native select arrow, drawn as a background image so it can follow the
+   theme. Positioned on the inline-end edge, which RTL resolves to the
+   left. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(12px) calc(50% + 1px), calc(17px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-inline-end: 32px;
+  color: var(--sw-text);
+}
+
+/* --- Cards & surfaces --------------------------------------- */
+
+/* The shared card treatment: rounded, hairline-bordered, softly elevated.
+   In dark mode the hairline at the top edge simulates light catching the
+   card's leading edge, which is what separates it from the background
+   without a heavy border. */
+.analysis-section,
+.portfolio-summary,
+.form-container,
+.distribution-card,
+.feature-card,
+.monthly-history-card,
+.stocks-section {
+  border-radius: var(--sw-radius-lg);
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface);
+  box-shadow: var(--sw-shadow);
+}
+
+[data-theme='dark'] .analysis-section,
+[data-theme='dark'] .portfolio-summary,
+[data-theme='dark'] .distribution-card,
+[data-theme='dark'] .feature-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 120px), var(--sw-surface);
+}
+
+/* KPI tiles: the summary figures, given a little more presence than a
+   plain card. The accent bar along the top edge is what makes a row of
+   them read as a dashboard rather than as paragraphs in boxes. */
+.distribution-card {
+  position: relative;
+  overflow: hidden;
+  padding: 20px;
+  transition: transform var(--sw-transition), box-shadow var(--sw-transition),
+    border-color var(--sw-transition);
+}
+
+.distribution-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  inset-inline: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--sw-accent), transparent);
+  opacity: 0.7;
+}
+
+.distribution-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--sw-border-hover);
+  box-shadow: var(--sw-shadow-lg);
+}
+
+.distribution-card h3 {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--sw-text-secondary);
+  margin-bottom: 10px;
+}
+
+.distribution-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  color: var(--sw-text);
+}
+
+.distribution-percentage {
+  font-size: 0.82rem;
+  color: var(--sw-text-secondary);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* --- Responsiveness ----------------------------------------- */
+
+@media (max-width: 768px) {
+  .top-nav-inner {
+    padding: 10px 14px;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .top-nav-user {
+    display: none;
+  }
+
+  .top-nav-links {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .distribution-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .distribution-value {
+    font-size: 1.5rem;
+  }
+
+  .analysis-section,
+  .portfolio-summary,
+  .form-container {
+    border-radius: var(--sw-radius);
+    padding: 16px;
+  }
+
+  .btn {
+    width: 100%;
+  }
+
+  /* A row of toolbar buttons wraps instead of overflowing. */
+  .monthly-toolbar,
+  .monthly-toolbar-buttons,
+  .page-header-row,
+  .control-buttons {
+    flex-wrap: wrap;
+  }
+}
+
+/* ============================================================
+   APP SHELL - sidebar + page area
+   The frame every authenticated page renders inside. Laid out with
+   LOGICAL properties (inline-start/end, margin-inline) throughout, so RTL
+   puts the sidebar on the right with no mirrored stylesheet - `left`/
+   `right` here would each need a duplicate rule and would drift apart.
+   ============================================================ */
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  align-items: flex-start;
+}
+
+.side-nav {
+  position: sticky;
+  top: 0;
+  flex-shrink: 0;
+  width: 232px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 14px;
+  border-inline-end: 1px solid var(--sw-border);
+  background: var(--sw-surface);
+  z-index: 20;
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .side-nav {
+    background: var(--sw-glass);
+    -webkit-backdrop-filter: blur(var(--sw-glass-blur)) saturate(180%);
+    backdrop-filter: blur(var(--sw-glass-blur)) saturate(180%);
+  }
+}
+
+.side-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 18px;
+}
+
+.side-nav-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--sw-radius-sm);
+  background: linear-gradient(135deg, var(--sw-accent-strong), var(--sw-accent-2));
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 1rem;
+  box-shadow: 0 4px 14px var(--sw-accent-glow);
+  flex-shrink: 0;
+}
+
+.side-nav-brand-text {
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  color: var(--sw-text);
+}
+
+.side-nav-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+}
+
+.side-nav-link {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: none;
+  border-radius: var(--sw-radius-sm);
+  background: none;
+  color: var(--sw-text-secondary);
+  font-family: inherit;
+  font-size: 0.94rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: start;
+  transition: background-color var(--sw-transition), color var(--sw-transition);
+}
+
+.side-nav-link:hover {
+  background: var(--sw-surface-2);
+  color: var(--sw-text);
+}
+
+.side-nav-link.active {
+  background: var(--sw-accent-soft);
+  color: var(--sw-accent);
+}
+
+/* Lit marker on the inline-start edge - the visual anchor for "you are
+   here", which under RTL means the right edge, resolved automatically. */
+.side-nav-link.active::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 3px;
+  border-radius: var(--sw-radius-pill);
+  background: linear-gradient(180deg, var(--sw-accent), var(--sw-accent-2));
+  box-shadow: 0 0 10px var(--sw-accent-glow);
+}
+
+.side-nav-icon {
+  width: 19px;
+  height: 19px;
+  flex-shrink: 0;
+}
+
+.side-nav-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--sw-border);
+}
+
+.side-nav-user {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.side-nav-user-email {
+  direction: ltr;
+  text-align: start;
+  font-size: 0.78rem;
+  color: var(--sw-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-nav-logout {
+  padding: 8px 12px;
+  border-radius: var(--sw-radius-sm);
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface-2);
+  color: var(--sw-text-secondary);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--sw-transition), border-color var(--sw-transition),
+    color var(--sw-transition), transform var(--sw-transition);
+}
+
+.side-nav-logout:hover {
+  background: var(--sw-surface-3);
+  border-color: var(--sw-border-hover);
+  color: var(--sw-text);
+}
+
+.side-nav-logout:active {
+  transform: scale(0.96);
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0; /* lets a wide table scroll instead of stretching the shell */
+}
+
+.app-main-inner {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 24px 64px;
+}
+
+/* ============================================================
+   PAGE TOOLBAR - the contextual action bar
+   ============================================================ */
+
+.page-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  padding: 18px 0 14px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--sw-border);
+  background: var(--sw-bg);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .page-toolbar {
+    background: var(--sw-glass);
+    -webkit-backdrop-filter: blur(var(--sw-glass-blur)) saturate(180%);
+    backdrop-filter: blur(var(--sw-glass-blur)) saturate(180%);
+  }
+}
+
+.page-toolbar-main {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-toolbar-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+
+.page-toolbar-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.86rem;
+  color: var(--sw-text-secondary);
+}
+
+.page-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* The separation that makes the hierarchy readable at a glance: the
+   secondary group is a quiet cluster, the primary sits apart from it. */
+.page-toolbar-secondary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: var(--sw-radius);
+  background: var(--sw-surface-2);
+  border: 1px solid var(--sw-border);
+  flex-wrap: wrap;
+}
+
+.page-toolbar-primary {
+  display: flex;
+  gap: 8px;
+}
+
+.toolbar-btn {
+  padding: 8px 14px;
+  border-radius: var(--sw-radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--sw-text-secondary);
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--sw-transition), color var(--sw-transition),
+    border-color var(--sw-transition), transform var(--sw-transition);
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background: var(--sw-surface-3);
+  color: var(--sw-text);
+}
+
+.toolbar-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.toolbar-btn.is-pressed {
+  background: var(--sw-accent-soft);
+  border-color: var(--sw-accent);
+  color: var(--sw-accent);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toolbar-btn-primary {
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--sw-radius);
+  background: linear-gradient(135deg, var(--sw-accent-strong), var(--sw-accent));
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px var(--sw-accent-glow);
+  transition: box-shadow var(--sw-transition), transform var(--sw-transition), opacity var(--sw-transition);
+}
+
+.toolbar-btn-primary:hover:not(:disabled) {
+  box-shadow: 0 8px 26px var(--sw-accent-glow);
+  transform: translateY(-1px);
+}
+
+.toolbar-btn-primary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.toolbar-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.page-toolbar-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 0.8rem;
+}
+
+.toolbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-status-muted {
+  color: var(--sw-text-muted);
+}
+
+.toolbar-status-positive {
+  color: var(--sw-green);
+}
+
+.toolbar-status-negative {
+  color: var(--sw-red);
+}
+
+/* ============================================================
+   KPI TILES
+   ============================================================ */
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.kpi-tile {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 20px;
+  border-radius: var(--sw-radius-lg);
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface);
+  box-shadow: var(--sw-shadow);
+  text-align: start;
+  font-family: inherit;
+  transition: transform var(--sw-transition), box-shadow var(--sw-transition),
+    border-color var(--sw-transition);
+}
+
+[data-theme='dark'] .kpi-tile {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 140px), var(--sw-surface);
+}
+
+/* The glow: a soft radial field in the tile's own tone, bleeding in from
+   the inline-start top corner. Sits under the content (z-index 0 vs 1) so
+   it can never wash out a figure. */
+.kpi-tile-glow {
+  position: absolute;
+  inset-inline-start: -30%;
+  top: -60%;
+  width: 160%;
+  height: 160%;
+  border-radius: 50%;
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity var(--sw-transition);
+  background: radial-gradient(closest-side, var(--sw-accent-glow), transparent);
+}
+
+.kpi-tone-positive .kpi-tile-glow {
+  background: radial-gradient(closest-side, var(--sw-green-soft), transparent);
+}
+
+.kpi-tone-negative .kpi-tile-glow {
+  background: radial-gradient(closest-side, var(--sw-red-soft), transparent);
+}
+
+.kpi-tile-head,
+.kpi-tile-value,
+.kpi-tile-sub {
+  position: relative;
+  z-index: 1;
+}
+
+.kpi-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kpi-tile-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--sw-radius-sm);
+  background: var(--sw-accent-soft);
+  color: var(--sw-accent);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.kpi-tone-positive .kpi-tile-icon {
+  background: var(--sw-green-soft);
+  color: var(--sw-green);
+}
+
+.kpi-tone-negative .kpi-tile-icon {
+  background: var(--sw-red-soft);
+  color: var(--sw-red);
+}
+
+.kpi-tile-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--sw-text-secondary);
+}
+
+.kpi-tile-value {
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--sw-text);
+}
+
+.kpi-tone-positive .kpi-tile-value {
+  color: var(--sw-green);
+}
+
+.kpi-tone-negative .kpi-tile-value {
+  color: var(--sw-red);
+}
+
+.kpi-tile-sub {
+  font-size: 0.8rem;
+  color: var(--sw-text-secondary);
+}
+
+.kpi-tile.is-interactive {
+  cursor: pointer;
+  border-width: 1px;
+}
+
+.kpi-tile.is-interactive:hover {
+  transform: translateY(-2px);
+  border-color: var(--sw-border-hover);
+  box-shadow: var(--sw-shadow-lg);
+}
+
+.kpi-tile.is-interactive:hover .kpi-tile-glow {
+  opacity: 0.85;
+}
+
+.kpi-tile.is-interactive:active {
+  transform: scale(0.985);
+}
+
+/* ============================================================
+   SHELL RESPONSIVENESS
+   Below 960px the sidebar becomes a bottom bar: thumb-reachable, and it
+   stops taking horizontal space a wide table needs.
+   ============================================================ */
+
+@media (max-width: 960px) {
+  .app-shell {
+    flex-direction: column;
+    /* Room for the fixed bottom bar, so the last row of a table isn't
+       permanently hidden behind it. */
+    padding-bottom: 68px;
+  }
+
+  .side-nav {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    top: auto;
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 10px;
+    border-inline-end: none;
+    border-top: 1px solid var(--sw-border);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.18);
+  }
+
+  .side-nav-brand,
+  .side-nav-user-email {
+    display: none;
+  }
+
+  .side-nav-list {
+    flex-direction: row;
+    justify-content: space-around;
+    gap: 2px;
+  }
+
+  .side-nav-link {
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 10px;
+    font-size: 0.7rem;
+  }
+
+  .side-nav-link.active::before {
+    inset-inline: 22%;
+    inset-inline-start: 22%;
+    top: 0;
+    bottom: auto;
+    width: auto;
+    height: 3px;
+  }
+
+  .side-nav-footer {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding-top: 0;
+    border-top: none;
+    margin-inline-start: auto;
+  }
+
+  .side-nav-user {
+    flex-direction: row;
+  }
+
+  .app-main-inner {
+    padding: 0 14px 32px;
+  }
+
+  .page-toolbar {
+    padding: 14px 0 12px;
+  }
+
+  .page-toolbar-title {
+    font-size: 1.3rem;
+  }
+
+  .page-toolbar-main {
+    align-items: flex-start;
+  }
+
+  .page-toolbar-actions {
+    width: 100%;
+    gap: 10px;
+  }
+
+  .page-toolbar-secondary {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .page-toolbar-primary {
+    flex: 1;
+  }
+
+  .toolbar-btn-primary {
+    width: 100%;
+  }
+
+  .kpi-row {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+  }
+
+  .kpi-tile {
+    padding: 14px;
+  }
+
+  .kpi-tile-value {
+    font-size: 1.35rem;
+  }
+}
+
+/* ============================================================
+   MOBILE: TABLES BECOME CARDS
+   A 20-column financial table cannot be made readable at 380px by
+   shrinking it, and horizontal scrolling alone hides the identifying
+   column behind a swipe. Below 720px each ROW becomes a card and each
+   CELL a labelled line, driven by the data-label the header supplies.
+   Above that breakpoint none of this applies and the table is a table.
+   ============================================================ */
+
+@media (max-width: 720px) {
+  .table-container {
+    overflow: visible;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  /* The header is what a data-label repeats, so it's redundant here. */
+  .stocks-table thead {
+    /* Not display:none - that removes it from the accessibility tree too,
+       and the headers are what give each value its meaning. Clipped
+       instead, so it stays available to a screen reader. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .stocks-table,
+  .stocks-table tbody,
+  .stocks-table tr,
+  .stocks-table td {
+    display: block;
+    width: auto;
+  }
+
+  .stocks-table tbody tr {
+    position: relative;
+    margin-bottom: 12px;
+    padding: 4px 0;
+    border-radius: var(--sw-radius-lg);
+    border: 1px solid var(--sw-border);
+    background: var(--sw-surface);
+    box-shadow: var(--sw-shadow);
+    overflow: hidden;
+  }
+
+  [data-theme='dark'] .stocks-table tbody tr {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 90px), var(--sw-surface);
+  }
+
+  /* The identifying cell becomes the card's header strip rather than one
+     more labelled line. */
+  .stocks-table td:first-child {
+    position: static;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--sw-border);
+    background: var(--sw-surface-2);
+    box-shadow: none;
+    font-size: 0.95rem;
+  }
+
+  .stocks-table td:first-child::before {
+    content: none;
+  }
+
+  /* Every other cell: its column header on one side, its value on the
+     other. data-label is set by the table components from the same header
+     text, so the two can't drift apart. */
+  .stocks-table td:not(:first-child) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 14px;
+    text-align: start;
+    border-bottom: 1px solid var(--sw-border);
+    white-space: normal;
+  }
+
+  .stocks-table td:not(:first-child)::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-size: 0.76rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--sw-text-secondary);
+  }
+
+  .stocks-table tbody tr td:last-child {
+    border-bottom: none;
+  }
+
+  /* A cell the header couldn't label (a spacer, an actions cell) would
+     otherwise render an empty label column. */
+  .stocks-table td:not(:first-child):not([data-label])::before {
+    content: none;
+  }
+
+  .stocks-table tbody tr:hover,
+  .stocks-table tbody tr:hover td:first-child {
+    background-color: var(--sw-surface);
+  }
+
+  .asset-cell {
+    gap: 3px;
+  }
+
+  .detail-row {
+    margin-inline-start: 14px;
+  }
+}
+
+/* ============================================================
+   MOTION - expand/collapse and entrance
+   ============================================================ */
+
+/* Expanded lot rows unfold instead of appearing instantly, so it's visible
+   that they belong to the row that was just opened. */
+@keyframes sw-row-unfold {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.stocks-table .detail-row {
+  animation: sw-row-unfold 220ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.expand-button {
+  transition: transform var(--sw-transition), color var(--sw-transition);
+}
+
+.expand-button:hover {
+  color: var(--sw-accent);
+}
+
+.expand-button:active {
+  transform: scale(0.88);
+}
+
+/* KPI tiles arrive in sequence rather than all at once - a short stagger
+   that reads as the dashboard assembling. Deliberately capped at four
+   steps; beyond that a stagger stops looking intentional and starts
+   looking slow. */
+@keyframes sw-tile-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.kpi-tile {
+  animation: sw-tile-rise 320ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.kpi-row > .kpi-tile:nth-child(1) { animation-delay: 0ms; }
+.kpi-row > .kpi-tile:nth-child(2) { animation-delay: 45ms; }
+.kpi-row > .kpi-tile:nth-child(3) { animation-delay: 90ms; }
+.kpi-row > .kpi-tile:nth-child(n + 4) { animation-delay: 135ms; }

@@ -27,7 +27,7 @@ import PortfolioAnalysisView from './components/PortfolioAnalysisView';
 import StockResearchView from './components/StockResearchView';
 import HomeView from './components/HomeView';
 import AuthView from './components/AuthView';
-import TopNav from './components/TopNav';
+import AppShell from './components/AppShell';
 import ThemeToggleButton from './components/ThemeToggleButton';
 
 const LEGACY_KEYS = [
@@ -726,7 +726,7 @@ function App() {
     setShowForm(false);
   };
 
-  // Single navigation entry point for TopNav (and, via onBack, the pages'
+  // Single navigation entry point for SideNav (and, via onBack, the pages'
   // own existing back buttons) - clears whichever "show X" flag isn't the
   // target page. 'home' clears both, same as the original handleBackToHome.
   const handleNavigate = (page) => {
@@ -1004,15 +1004,14 @@ function App() {
 
   if (showForm) {
     return (
-      <>
-        <TopNav
-          activePage={activePage}
-          onNavigate={handleNavigate}
-          user={user}
-          onLogout={handleLogout}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-        />
+      <AppShell
+        activePage={activePage}
+        onNavigate={handleNavigate}
+        user={user}
+        onLogout={handleLogout}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      >
         <StockFormView
           isEditMode={isEditMode}
           formData={formData}
@@ -1027,22 +1026,22 @@ function App() {
           onPullExchangeRate={handlePullExchangeRate}
           onSelectIsraeliStock={handleSelectIsraeliStock}
         />
-      </>
+      </AppShell>
     );
   }
 
   if (showAnalysis) {
     return (
-      <>
-        <TopNav
-          activePage={activePage}
-          onNavigate={handleNavigate}
-          user={user}
-          onLogout={handleLogout}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-        />
+      <AppShell
+        activePage={activePage}
+        onNavigate={handleNavigate}
+        user={user}
+        onLogout={handleLogout}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      >
         <PortfolioAnalysisView
+          theme={theme}
           analysis={analysis}
           formatPriceWithSign={formatPriceWithSign}
           onBack={() => handleNavigate('home')}
@@ -1073,23 +1072,22 @@ function App() {
           addingManual={addingManual}
           addManualError={addManualError}
         />
-      </>
+      </AppShell>
     );
   }
 
   if (showStockResearch) {
     return (
-      <>
-        <TopNav
-          activePage={activePage}
-          onNavigate={handleNavigate}
-          user={user}
-          onLogout={handleLogout}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-        />
+      <AppShell
+        activePage={activePage}
+        onNavigate={handleNavigate}
+        user={user}
+        onLogout={handleLogout}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      >
         <StockResearchView onBack={() => handleNavigate('home')} theme={theme} />
-      </>
+      </AppShell>
     );
   }
 
@@ -1104,15 +1102,14 @@ function App() {
   );
 
   return (
-    <>
-      <TopNav
-        activePage={activePage}
-        onNavigate={handleNavigate}
-        user={user}
-        onLogout={handleLogout}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-      />
+    <AppShell
+      activePage={activePage}
+      onNavigate={handleNavigate}
+      user={user}
+      onLogout={handleLogout}
+      theme={theme}
+      onToggleTheme={toggleTheme}
+    >
       <HomeView
         showLegacyImportButton={showLegacyImportButton}
         legacyImportLoading={legacyImportLoading}
@@ -1150,7 +1147,7 @@ function App() {
         pricesLastRefreshAt={pricesLastRefreshAt}
         hasLoadedLivePrices={hasLoadedLivePrices}
       />
-    </>
+    </AppShell>
   );
 }
 

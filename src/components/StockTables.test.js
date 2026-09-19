@@ -111,11 +111,43 @@ describe('IsraeliStocksTable', () => {
 
   // Requirement: show the security id ("מספר נייר") alongside the name.
   // A bare 7-digit number identifies nothing to a reader, and a bare name
-  // doesn't say which security it is.
-  test('shows each security\'s name together with its security id', () => {
-    render(<IsraeliStocksTable {...baseProps} isEditMode={false} expandedGroups={{}} editingField={null} />);
-    expect(screen.getByText('טבע (629014)')).toBeInTheDocument();
-    expect(screen.getByText('איישרס.חוץ P 500&S (1159250)')).toBeInTheDocument();
+  // doesn't say which security it is. They're set on two lines - the name
+  // reading normally, the number in mono beneath it - rather than crammed
+  // into one "name (id)" string.
+  test('shows each security name and its security id on separate lines', () => {
+    const { container } = render(
+      <IsraeliStocksTable {...baseProps} isEditMode={false} expandedGroups={{}} editingField={null} />
+    );
+
+    expect(screen.getByText('טבע')).toBeInTheDocument();
+    expect(screen.getByText('איישרס.חוץ P 500&S')).toBeInTheDocument();
+
+    const ids = Array.from(container.querySelectorAll('.asset-cell-id')).map((el) => el.textContent);
+    expect(ids).toContain('629014');
+    expect(ids).toContain('1159250');
+  });
+
+  test('an identifier that IS the name renders one line, not an empty second one', () => {
+    const { container } = render(
+      <IsraeliStocksTable
+        {...baseProps}
+        israeliStocks={[
+          {
+            id: 7,
+            stockName: 'TEVA',
+            officialName: 'TEVA',
+            purchaseDate: '2023-01-01',
+            purchasePrice: 1,
+            quantity: 1,
+            currentPrice: 1
+          }
+        ]}
+        isEditMode={false}
+        expandedGroups={{}}
+        editingField={null}
+      />
+    );
+    expect(container.querySelectorAll('.asset-cell-id').length).toBe(0);
   });
 
   test('labels a holding whose name has not been resolved rather than showing a bare number', () => {
@@ -149,7 +181,7 @@ describe('IsraeliStocksTable', () => {
       <IsraeliStocksTable {...baseProps} isEditMode={false} showAdditionalData expandedGroups={{}} editingField={null} />
     );
     const rows = Array.from(container.querySelectorAll('tbody tr'));
-    const tevaRow = rows.find((r) => within(r).queryByText('טבע (629014)'));
+    const tevaRow = rows.find((r) => within(r).queryByText('טבע'));
     const etfRow = rows.find((r) => within(r).queryByText(/איישרס/));
 
     expect(within(tevaRow).getByText('בריאות')).toBeInTheDocument();

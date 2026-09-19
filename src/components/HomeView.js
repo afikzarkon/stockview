@@ -12,6 +12,8 @@ import PortfolioSummary from './PortfolioSummary';
 import IsraeliStocksTable from './IsraeliStocksTable';
 import AmericanStocksTable from './AmericanStocksTable';
 import FinancialAccountsTables from './FinancialAccountsTables';
+import PageToolbar, { ToolbarButton, ToolbarPrimaryButton, ToolbarStatus } from './PageToolbar';
+import KpiTile, { KpiRow } from './KpiTile';
 
 // The main portfolio dashboard: user bar, save controls, summary, the three
 // tables, and the empty-state message. Extracted from App.js's final
@@ -92,72 +94,137 @@ function HomeView({
     }
   };
 
+  // Every control that acts on this page, in one strip, split by weight:
+  // one filled primary action, and a quiet cluster of view/export
+  // secondaries. These used to be spread across three places - a bar above
+  // the title, a header row, and a block buried between the summary and
+  // the tables.
+  const secondaryActions = (
+    <>
+      <ToolbarButton
+        onClick={() => setIsEditMode(!isEditMode)}
+        pressed={isEditMode}
+        title="עריכת תאים ישירות בטבלאות"
+      >
+        {isEditMode ? '✓ מצב עריכה' : 'מצב עריכה'}
+      </ToolbarButton>
+      <ToolbarButton
+        onClick={() => setShowAmericanColumns(!showAmericanColumns)}
+        pressed={showAmericanColumns}
+        title="עמודות מס, מדד ורווח ריאלי"
+      >
+        נתונים מורחבים
+      </ToolbarButton>
+      {hasAnyData && (
+        <>
+          <ToolbarButton onClick={handleExportExcel} title="ייצוא הטבלאות לאקסל">
+            ייצוא Excel
+          </ToolbarButton>
+          <ToolbarButton onClick={handleExportPdf} title="ייצוא הטבלאות ל-PDF">
+            ייצוא PDF
+          </ToolbarButton>
+        </>
+      )}
+      {showLegacyImportButton && (
+        <ToolbarButton onClick={handleLegacyImportOnce} disabled={legacyImportLoading}>
+          {legacyImportLoading ? 'מייבא…' : 'ייבוא מהדפדפן'}
+        </ToolbarButton>
+      )}
+    </>
+  );
+
+  // Save is the primary action only while there is something to save;
+  // otherwise it states that everything is saved and stays out of the way.
+  const primaryAction = (
+    <>
+      <ToolbarPrimaryButton onClick={handleAddInfo}>+ הוספת מידע</ToolbarPrimaryButton>
+      <ToolbarButton onClick={savePortfolio} disabled={!hasUnsavedChanges || saveLoading} pressed={hasUnsavedChanges}>
+        {saveLoading ? 'שומר…' : hasUnsavedChanges ? 'שמור שינויים' : 'נשמר'}
+      </ToolbarButton>
+    </>
+  );
+
+  const status = (
+    <>
+      {hasAnyData && (
+        <span className={`price-refresh-status ${pricesRefreshing ? 'is-refreshing' : ''}`}>
+          <span className="price-refresh-dot" />
+          {pricesRefreshing
+            ? hasLoadedLivePrices
+              ? 'מעדכן מחירים…'
+              : 'טוען מחירים עדכניים…'
+            : pricesLastRefreshAt
+            ? `מחירים עודכנו ב-${pricesLastRefreshAt.toLocaleTimeString('he-IL')}`
+            : 'מוצגים מחירים אחרונים שנשמרו'}
+        </span>
+      )}
+      {lastSavedAt && (
+        <ToolbarStatus>נשמר לאחרונה: {lastSavedAt.toLocaleTimeString('he-IL')}</ToolbarStatus>
+      )}
+      {lastSnapshotSavedAt && (
+        <ToolbarStatus>מידע יומי נשמר: {lastSnapshotSavedAt.toLocaleTimeString('he-IL')}</ToolbarStatus>
+      )}
+      {saveError && <ToolbarStatus tone="negative">{saveError}</ToolbarStatus>}
+      {snapshotSaveError && <ToolbarStatus tone="negative">{snapshotSaveError}</ToolbarStatus>}
+      {exportError && <ToolbarStatus tone="negative">{exportError}</ToolbarStatus>}
+      {legacyImportBanner && <ToolbarStatus tone="positive">{legacyImportBanner}</ToolbarStatus>}
+    </>
+  );
+
+  const toneOf = (value) => (value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral');
+
+  // There is no portfolio-wide profit percentage on the summary - only
+  // per-market ones - so it is derived here from the two totals that do
+  // exist. Null rather than 0 when there is nothing invested to divide by,
+  // so an empty portfolio doesn't report a confident "0.00%".
+  const totalProfitPercent =
+    summary.totalPurchaseILS > 0 ? (summary.totalProfitILS / summary.totalPurchaseILS) * 100 : null;
+
   return (
     <div className="App">
       <div className="welcome-container">
-        <div className="user-bar">
-          {showLegacyImportButton ? (
-            <button
-              type="button"
-              className="user-legacy-import"
-              disabled={legacyImportLoading}
-              onClick={handleLegacyImportOnce}
-            >
-              {legacyImportLoading ? 'מייבא…' : 'ייבוא חד-פעמי מהדפדפן'}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="btn portfolio-save-btn"
-            onClick={savePortfolio}
-            disabled={!hasUnsavedChanges || saveLoading}
-          >
-            {saveLoading ? 'שומר…' : hasUnsavedChanges ? 'שמור שינויים' : 'נשמר'}
-          </button>
-          {lastSavedAt ? (
-            <span className="user-email" style={{ fontSize: 12, opacity: 0.8 }}>
-              נשמר לאחרונה: {lastSavedAt.toLocaleTimeString('he-IL')}
-            </span>
-          ) : null}
-          {saveError ? (
-            <span className="user-email" style={{ fontSize: 12, color: '#b00020' }}>
-              {saveError}
-            </span>
-          ) : null}
-          {hasAnyData ? (
-            <span className={`price-refresh-status ${pricesRefreshing ? 'is-refreshing' : ''}`}>
-              <span className="price-refresh-dot" />
-              {pricesRefreshing
-                ? hasLoadedLivePrices
-                  ? 'מעדכן מחירים…'
-                  : 'טוען מחירים עדכניים…'
-                : pricesLastRefreshAt
-                ? `מחירים עודכנו ב-${pricesLastRefreshAt.toLocaleTimeString('he-IL')}`
-                : 'מוצגים מחירים אחרונים שנשמרו'}
-            </span>
-          ) : null}
-        </div>
-        {legacyImportBanner ? <p className="user-import-banner">{legacyImportBanner}</p> : null}
         <div className="welcome-content">
-          <div className="page-header-row">
-            <h1 className="welcome-title">תיק ההשקעות שלך</h1>
-            <div className="page-header-actions">
-              {hasAnyData && (
-                <div className="export-actions">
-                  <button type="button" className="export-button" onClick={handleExportExcel}>
-                    ייצוא ל-Excel
-                  </button>
-                  <button type="button" className="export-button" onClick={handleExportPdf}>
-                    ייצוא ל-PDF
-                  </button>
-                </div>
-              )}
-              <button type="button" className="add-info-button" onClick={handleAddInfo}>
-                + הוספת מידע חדש
-              </button>
-            </div>
-          </div>
-          {exportError && <p className="export-error">{exportError}</p>}
+          <PageToolbar
+            title="תיק ההשקעות שלך"
+            subtitle={isEditMode ? 'מצב עריכה פעיל - לחצו על תא בטבלה כדי לערוך אותו' : undefined}
+            primaryAction={primaryAction}
+            secondaryActions={secondaryActions}
+            status={status}
+          />
+
+          {/* The three or four figures the app is opened to see, lifted out
+              of the ~35-row summary below so they aren't buried among tax
+              detail that is read occasionally rather than every time. */}
+          {hasAnyData && (
+            <KpiRow>
+              <KpiTile
+                label="שווי התיק"
+                icon="₪"
+                value={`${formatPriceWithSign(summary.capitalTotalILS)} ₪`}
+                sub="סך כל הנכסים"
+              />
+              <KpiTile
+                label="רווח/הפסד כולל"
+                icon="↗"
+                tone={toneOf(summary.totalProfitILS)}
+                value={`${formatPriceWithSign(summary.totalProfitILS)} ₪`}
+                sub={totalProfitPercent != null ? `${totalProfitPercent.toFixed(2)}% מההשקעה` : 'אין השקעה רשומה'}
+              />
+              <KpiTile
+                label="שינוי יומי"
+                icon="◷"
+                tone={toneOf(summary.dailyProfitILS)}
+                value={`${formatPriceWithSign(summary.dailyProfitILS)} ₪`}
+                sub={`${summary.weightedDailyChange.toFixed(2)}% משוקלל`}
+              />
+              <KpiTile
+                label="מס צפוי"
+                icon="%"
+                value={`${formatPriceWithSign(summary.totalTaxILS)} ₪`}
+                sub="על הרווח הריאלי"
+              />
+            </KpiRow>
+          )}
 
           {/* מקור החישוב: המדד שנמשך ומשמש לחישוב מס רווח ההון הריאלי */}
           {cpi && (cpi.loading || cpi.currentIndex != null || cpi.error) && (
@@ -174,53 +241,6 @@ function HomeView({
           {(israeliStocks.length > 0 || americanStocks.length > 0) && (
             <PortfolioSummary summary={summary} formatPriceWithSign={formatPriceWithSign} />
           )}
-
-          <div className="main-buttons-container">
-            {/* כפתורי בקרה */}
-            <div className="control-buttons">
-              <button
-                onClick={() => setIsEditMode(!isEditMode)}
-                className={`btn ${isEditMode ? 'btn-danger' : 'btn-warning'}`}
-              >
-                {isEditMode ? 'יציאה ממצב עריכה' : 'מצב עריכה'}
-              </button>
-
-              <button
-                onClick={() => setShowAmericanColumns(!showAmericanColumns)}
-                className="btn btn-info"
-              >
-                {showAmericanColumns ? 'הסתר נתונים נוספים' : 'לחץ כאן כדי לראות נתונים נוספים'}
-              </button>
-            </div>
-
-            {/* אין יותר כפתור שמירה ידני - הנתון היומי נשמר אוטומטית ובשקט
-                ברקע (ראו useAutoSnapshot.js) לאחר שהמחירים החיים נטענו
-                בפועל, לא בעת עליית העמוד. השורה הזו רק מציגה משוב פסיבי. */}
-            {(lastSnapshotSavedAt || snapshotSaveError) && (
-              <div className="snapshot-status-row">
-                {lastSnapshotSavedAt ? (
-                  <span className="user-email" style={{ fontSize: 12, opacity: 0.8 }}>
-                    מידע יומי נשמר אוטומטית: {lastSnapshotSavedAt.toLocaleTimeString('he-IL')}
-                  </span>
-                ) : null}
-                {snapshotSaveError ? (
-                  <span className="user-email" style={{ fontSize: 12, color: '#b00020' }}>
-                    {snapshotSaveError}
-                  </span>
-                ) : null}
-              </div>
-            )}
-
-            {/* הודעה על מצב עריכה */}
-            {isEditMode && (
-              <div className="edit-mode-notice">
-                <div className="notice-content">
-                  <span className="notice-icon">✏️</span>
-                  <span className="notice-text">מצב עריכה פעיל - לחץ על תאים לעריכה</span>
-                </div>
-              </div>
-            )}
-          </div>
 
           <IsraeliStocksTable
             israeliStocks={israeliStocks}

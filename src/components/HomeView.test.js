@@ -90,7 +90,7 @@ test('there is no manual "save daily info" button - the daily snapshot is taken 
 
   const savedAt = new Date('2024-06-01T10:00:00');
   rerender(<HomeView {...makeProps({ lastSnapshotSavedAt: savedAt })} />);
-  expect(getByText(`מידע יומי נשמר אוטומטית: ${savedAt.toLocaleTimeString('he-IL')}`)).toBeInTheDocument();
+  expect(getByText(`מידע יומי נשמר: ${savedAt.toLocaleTimeString('he-IL')}`)).toBeInTheDocument();
 
   rerender(<HomeView {...makeProps({ snapshotSaveError: 'שמירת תמונת המצב נכשלה, נסה שוב' })} />);
   expect(getByText('שמירת תמונת המצב נכשלה, נסה שוב')).toBeInTheDocument();
@@ -98,10 +98,10 @@ test('there is no manual "save daily info" button - the daily snapshot is taken 
 
 test('shows the legacy import button only when showLegacyImportButton is true', () => {
   const { queryByText, rerender } = render(<HomeView {...makeProps({ showLegacyImportButton: false })} />);
-  expect(queryByText('ייבוא חד-פעמי מהדפדפן')).toBeNull();
+  expect(queryByText('ייבוא מהדפדפן')).toBeNull();
 
   rerender(<HomeView {...makeProps({ showLegacyImportButton: true })} />);
-  expect(queryByText('ייבוא חד-פעמי מהדפדפן')).not.toBeNull();
+  expect(queryByText('ייבוא מהדפדפן')).not.toBeNull();
 });
 
 test('save button reflects hasUnsavedChanges and saveLoading state', () => {
@@ -131,8 +131,8 @@ test('shows export buttons for a populated portfolio and wires them to downloadP
 
   const { getByText } = render(<HomeView {...makeProps()} />);
 
-  fireEvent.click(getByText('ייצוא ל-Excel'));
-  fireEvent.click(getByText('ייצוא ל-PDF'));
+  fireEvent.click(getByText('ייצוא Excel'));
+  fireEvent.click(getByText('ייצוא PDF'));
 
   // Both handlers dynamically import('../utils/exportReport') now (code
   // splitting - see the comment in HomeView.js), which resolves on a later
@@ -161,8 +161,8 @@ test('hides export buttons for an empty portfolio', () => {
       })}
     />
   );
-  expect(queryByText('ייצוא ל-Excel')).toBeNull();
-  expect(queryByText('ייצוא ל-PDF')).toBeNull();
+  expect(queryByText('ייצוא Excel')).toBeNull();
+  expect(queryByText('ייצוא PDF')).toBeNull();
 });
 
 test('shows an error message if the PDF export throws', async () => {
@@ -171,16 +171,62 @@ test('shows an error message if the PDF export throws', async () => {
   });
 
   const { findByText } = render(<HomeView {...makeProps()} />);
-  fireEvent.click(await findByText('ייצוא ל-PDF'));
+  fireEvent.click(await findByText('ייצוא PDF'));
 
   expect(await findByText('שגיאה בייצוא ל-PDF, נסה שוב')).toBeInTheDocument();
   pdfSpy.mockRestore();
 });
 
-test('shows the edit-mode notice only in edit mode', () => {
-  const { queryByText, rerender } = render(<HomeView {...makeProps({ isEditMode: false })} />);
-  expect(queryByText('מצב עריכה פעיל - לחץ על תאים לעריכה')).toBeNull();
+test('reflects edit mode in the toolbar - as the toggle\'s own pressed state and a subtitle', () => {
+  const { queryByText, getByText, rerender } = render(<HomeView {...makeProps({ isEditMode: false })} />);
+  expect(queryByText(/מצב עריכה פעיל/)).toBeNull();
+  // The edit toggle specifically - other toggles in the cluster have their
+  // own independent pressed state.
+  expect(getByText('מצב עריכה')).toHaveAttribute('aria-pressed', 'false');
 
   rerender(<HomeView {...makeProps({ isEditMode: true })} />);
-  expect(queryByText('מצב עריכה פעיל - לחץ על תאים לעריכה')).not.toBeNull();
+  expect(queryByText(/מצב עריכה פעיל/)).not.toBeNull();
+  // The state is carried by the control itself, not only by a banner -
+  // and is exposed to assistive tech rather than by styling alone.
+  expect(getByText('✓ מצב עריכה')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('puts every page action in one toolbar, split into primary and secondary', () => {
+  const { container } = render(<HomeView {...makeProps()} />);
+
+  // Exactly one filled primary action - the thing the page is for.
+  const primary = container.querySelectorAll('.page-toolbar-primary .toolbar-btn-primary');
+  expect(primary.length).toBe(1);
+  expect(primary[0]).toHaveTextContent('הוספת מידע');
+
+  // View/export controls live together in the quieter secondary cluster.
+  const secondary = container.querySelector('.page-toolbar-secondary');
+  expect(secondary).not.toBeNull();
+  ['מצב עריכה', 'נתונים מורחבים', 'ייצוא Excel', 'ייצוא PDF'].forEach((label) => {
+    expect(secondary).toHaveTextContent(label);
+  });
+
+  // And no page action is left stranded outside it.
+  expect(container.querySelector('.control-buttons')).toBeNull();
+  expect(container.querySelector('.page-header-actions')).toBeNull();
+});
+
+test('surfaces the headline figures as KPI tiles above the detailed summary', () => {
+  const { container, getByText } = render(<HomeView {...makeProps()} />);
+  const tiles = container.querySelectorAll('.kpi-tile');
+  expect(tiles.length).toBe(4);
+  ['שווי התיק', 'רווח/הפסד כולל', 'שינוי יומי', 'מס צפוי'].forEach((label) => {
+    expect(getByText(label)).toBeInTheDocument();
+  });
+  // The full breakdown is still there, below them.
+  expect(getByText('סיכום התיק')).toBeInTheDocument();
+});
+
+test('an empty portfolio shows no KPI tiles rather than a row of zeroes', () => {
+  const { container } = render(
+    <HomeView
+      {...makeProps({ israeliStocks: [], americanStocks: [], pensionFunds: [], cashFunds: [], bankBalances: [] })}
+    />
+  );
+  expect(container.querySelectorAll('.kpi-tile').length).toBe(0);
 });

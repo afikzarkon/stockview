@@ -318,3 +318,144 @@ describe('close lookup performance and correctness', () => {
     expect(elapsed).toBeLessThan(2000);
   });
 });
+
+// COST-BASIS ANCHORING ON DAY 0
+//
+// A lot is worth what was paid for it on the day it was bought, and the
+// market close only from the next day. Valuing day 0 at the close invents
+// a gap between what the investor put in and what the portfolio is
+// recorded as holding the instant they put it in.
+describe('a holding is valued at its cost basis on its purchase date', () => {
+  const lot = { stockName: '1159250', purchaseDate: '2026-01-24', purchasePrice: 13, quantity: 14 };
+  // TASE closes are in agorot: 232630 = 2,326.30 ILS.
+  const priceData = { taseHistoricalCloses: { 1159250: [{ date: '2026-01-24', close: 232630 }] } };
+
+  test('day 0 uses the execution price, not the close on that day', () => {
+    const result = computePortfolioValueAtDate('2026-01-24', { israeliStocks: [lot] }, priceData);
+    expect(result.valueILS).toBeCloseTo(182, 6); // 13 x 14
+  });
+
+  test('the day after, and every day after that, uses the market close', () => {
+    const result = computePortfolioValueAtDate('2026-01-25', { israeliStocks: [lot] }, priceData);
+    expect(result.valueILS).toBeCloseTo(14 * 2326.3, 6);
+  });
+
+  test('a date before the purchase holds nothing', () => {
+    const result = computePortfolioValueAtDate('2026-01-23', { israeliStocks: [lot] }, priceData);
+    expect(result.valueILS).toBeNull();
+  });
+
+  // The realistic case this actually exists for: an intraday fill a
+  // fraction of a percent away from the close. Without the anchoring that
+  // difference is silently discarded at the start of a series.
+  test('captures an ordinary intraday spread rather than rounding it away', () => {
+    const intraday = { stockName: 'X', purchaseDate: '2026-01-24', purchasePrice: 99, quantity: 10 };
+    const closes = { taseHistoricalCloses: { X: [{ date: '2026-01-24', close: 10000 }] } }; // 100.00 ILS
+    expect(
+      computePortfolioValueAtDate('2026-01-24', { israeliStocks: [intraday] }, closes).valueILS
+    ).toBeCloseTo(990, 6);
+    expect(
+      computePortfolioValueAtDate('2026-01-25', { israeliStocks: [intraday] }, closes).valueILS
+    ).toBeCloseTo(1000, 6);
+  });
+
+  // On one date a symbol can hold a lot bought years ago and one bought
+  // that morning; the two have to be valued differently in the same sum,
+  // which is why this is per lot and not per symbol.
+  test('values an old lot at the close and a same-day lot at cost, in one symbol', () => {
+    const holdings = {
+      israeliStocks: [
+        { stockName: 'X', purchaseDate: '2025-01-01', purchasePrice: 50, quantity: 10 },
+        { stockName: 'X', purchaseDate: '2026-01-24', purchasePrice: 13, quantity: 14 }
+      ]
+    };
+    const closes = { taseHistoricalCloses: { X: [{ date: '2025-01-01', close: 10000 }] } }; // 100 ILS
+    const result = computePortfolioValueAtDate('2026-01-24', holdings, closes);
+    // old lot at the carried-forward close (10 x 100) + new lot at cost (14 x 13)
+    expect(result.valueILS).toBeCloseTo(1000 + 182, 6);
+  });
+
+  test('an American lot uses the ILS actually paid, at the rate paid on the day', () => {
+    const holdings = {
+      americanStocks: [
+        { stockName: 'AAPL', purchaseDate: '2026-01-24', purchasePrice: 100, quantity: 10, exchangeRate: 3.6 }
+      ]
+    };
+    const priceDataUs = {
+      yahooHistoricalCloses: { AAPL: [{ date: '2026-01-24', close: 190 }] },
+      // A very different rate today - converting the opening value at it
+      // would put an FX move into the position that never happened.
+      fxHistoricalCloses: [{ date: '2026-01-24', close: 4.5 }]
+    };
+    const result = computePortfolioValueAtDate('2026-01-24', holdings, priceDataUs);
+    expect(result.valueILS).toBeCloseTo(100 * 10 * 3.6, 6);
+  });
+
+  // A lot bought today needs no close at all, so the absence of price
+  // history that far back is not missing data for it.
+  test('a brand-new holding with no price history yet is not reported as partial', () => {
+    const result = computePortfolioValueAtDate(
+      '2026-01-24',
+      { israeliStocks: [lot] },
+      { taseHistoricalCloses: {} }
+    );
+    expect(result.valueILS).toBeCloseTo(182, 6);
+    expect(result.isPartial).toBe(false);
+  });
+
+  test('a lot that DOES need a close still reports partial when there is none', () => {
+    const result = computePortfolioValueAtDate(
+      '2026-02-01',
+      { israeliStocks: [lot] },
+      { taseHistoricalCloses: {} }
+    );
+    expect(result.isPartial).toBe(true);
+  });
+});
+
+// The monthly tracker reads the same engine, so a month-end that happens
+// to be a purchase date must not report a different figure than the chart
+// shows for that same instant.
+test('the itemized breakdown anchors day 0 to cost basis too', () => {
+  const holdings = {
+    israeliStocks: [{ stockName: 'X', officialName: 'נייר', purchaseDate: '2026-01-31', purchasePrice: 13, quantity: 14 }]
+  };
+  const closes = { taseHistoricalCloses: { X: [{ date: '2026-01-31', close: 232630 }] } };
+
+  const breakdown = computeHistoricalBreakdownAtDate('2026-01-31', holdings, closes);
+  expect(breakdown.israeli[0].value).toBeCloseTo(182, 6);
+
+  const curve = computePortfolioValueAtDate('2026-01-31', holdings, closes);
+  expect(sumHistoricalBreakdown(breakdown)).toBeCloseTo(curve.valueILS, 6);
+});
+
+// "Bought today" and "we know what was paid" are different facts. Anchoring
+// a lot with no recorded cost to zero would assert the position was worth
+// nothing the day it was opened, then show its full value appearing as a
+// gain the next day with no contribution to net against it.
+describe('a lot with no usable cost basis falls back to the market close', () => {
+  const closes = { taseHistoricalCloses: { X: [{ date: '2026-01-24', close: 10000 }] } }; // 100 ILS
+
+  test.each([
+    ['a missing purchase price', { stockName: 'X', purchaseDate: '2026-01-24', quantity: 10 }],
+    ['a zero purchase price', { stockName: 'X', purchaseDate: '2026-01-24', purchasePrice: 0, quantity: 10 }],
+    ['a negative purchase price', { stockName: 'X', purchaseDate: '2026-01-24', purchasePrice: -5, quantity: 10 }]
+  ])('%s is valued at the close, not at zero', (_label, lot) => {
+    const result = computePortfolioValueAtDate('2026-01-24', { israeliStocks: [lot] }, closes);
+    expect(result.valueILS).toBeCloseTo(1000, 6);
+  });
+
+  test('the same applies to an American lot with no exchange rate recorded', () => {
+    const holdings = {
+      americanStocks: [{ stockName: 'AAPL', purchaseDate: '2026-01-24', purchasePrice: 100, quantity: 10 }]
+    };
+    const priceDataUs = {
+      yahooHistoricalCloses: { AAPL: [{ date: '2026-01-24', close: 190 }] },
+      fxHistoricalCloses: [{ date: '2026-01-24', close: 3.7 }]
+    };
+    // No exchangeRate on the lot, so cost in ILS is unknowable - the close
+    // at the day's rate is used rather than reporting the position at 0.
+    const result = computePortfolioValueAtDate('2026-01-24', holdings, priceDataUs);
+    expect(result.valueILS).toBeCloseTo(10 * 190 * 3.7, 6);
+  });
+});

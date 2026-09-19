@@ -12,6 +12,8 @@ import {
   annualizeReturnPercent,
   TRADING_DAYS_PER_YEAR
 } from './portfolioStats';
+import { computeHistoricalPortfolioSeries } from './historicalPortfolioValue';
+import { buildPortfolioCashFlows } from './portfolioCashFlows';
 
 describe('buildEquitySeries', () => {
   test('sorts by date and normalizes to {date, value}', () => {
@@ -415,5 +417,127 @@ describe('computeStatsFromSeries with cash flows', () => {
     expect(stats.totalReturnPercent).toBeCloseTo(50, 6);
     expect(stats.naiveReturnPercent).toBeCloseTo(50, 6);
     expect(stats.netCashFlow).toBe(0);
+  });
+});
+
+// END-TO-END: the reported bug, from holdings through to the displayed
+// "Return Since Inception".
+//
+// A position's first valuation used to come from the market close on its
+// purchase date while only the execution cost was recorded as a
+// contribution. Mid-series that gap is netted out of the sub-period it
+// falls in, so it surfaces as the gain it is - but at the START of a
+// series there is no earlier point to measure from, so the curve simply
+// began at the close-based value and the entire difference vanished.
+describe('return since inception anchors to what was actually invested', () => {
+  const holdings = {
+    israeliStocks: [
+      { stockName: '1159250', purchaseDate: '2026-01-24', purchasePrice: 13, quantity: 14 }
+    ],
+    americanStocks: []
+  };
+  // Closes in agorot: 232630 = 2,326.30 ILS on the purchase date,
+  // 249160 = 2,491.60 ILS today.
+  const priceData = {
+    taseHistoricalCloses: {
+      1159250: [
+        { date: '2026-01-24', close: 232630 },
+        { date: '2026-09-19', close: 249160 }
+      ]
+    }
+  };
+
+  const run = () => {
+    const series = computeHistoricalPortfolioSeries('2026-01-24', '2026-09-19', holdings, priceData);
+    const flows = buildPortfolioCashFlows(holdings);
+    return { series, flows, stats: computeStatsFromSeries(buildSeriesFromHistoricalValues(series), flows) };
+  };
+
+  test('the curve starts at the cost basis, not at the close on the purchase date', () => {
+    const { series } = run();
+    expect(series[0].date).toBe('2026-01-24');
+    expect(series[0].valueILS).toBeCloseTo(182, 6); // 13 x 14
+    // The close-based figure that used to be the starting value.
+    expect(series[0].valueILS).not.toBeCloseTo(14 * 2326.3, 0);
+  });
+
+  test('the contribution recorded is the money actually paid in', () => {
+    const { flows } = run();
+    expect(flows).toEqual([{ date: '2026-01-24', amount: 182 }]);
+  });
+
+  test('the curve ends at the current market value', () => {
+    const { series } = run();
+    expect(series[series.length - 1].valueILS).toBeCloseTo(34882.4, 4); // 14 x 2,491.60
+  });
+
+  test('the reported return reflects the full growth from invested capital', () => {
+    const { stats } = run();
+    // 34,882.40 / 182 - 1
+    expect(stats.totalReturnPercent).toBeCloseTo(19066.15, 2);
+    expect(stats.netCashFlow).toBe(182);
+  });
+});
+
+// Purchases away from the series start already behaved correctly - the
+// contribution is netted out of the sub-period it lands in, so the gap
+// between execution and close surfaces as the gain it is. These pin that
+// the day-0 anchoring neither broke that nor started double-counting it.
+//
+// Asserted as properties rather than against a hand-derived percentage:
+// re-deriving the expected figure here would mean reimplementing Modified
+// Dietz's own flow weighting in the test, which would pass whether or not
+// either copy was right.
+describe('a purchase away from the series start', () => {
+  const priceData = {
+    taseHistoricalCloses: {
+      OLD: [{ date: '2025-01-01', close: 10000 }], // 100 ILS, never moves
+      NEW: [{ date: '2026-03-15', close: 232630 }] // 2,326.30 ILS
+    }
+  };
+
+  const runWithPurchasePrice = (price) => {
+    const holdings = {
+      israeliStocks: [
+        { stockName: 'OLD', purchaseDate: '2025-01-01', purchasePrice: 100, quantity: 10 },
+        { stockName: 'NEW', purchaseDate: '2026-03-15', purchasePrice: price, quantity: 14 }
+      ],
+      americanStocks: []
+    };
+    const series = computeHistoricalPortfolioSeries('2025-01-01', '2026-09-19', holdings, priceData);
+    return {
+      series,
+      stats: computeStatsFromSeries(
+        buildSeriesFromHistoricalValues(series),
+        buildPortfolioCashFlows(holdings)
+      )
+    };
+  };
+
+  test('ends at the market value of everything held, whatever was paid for it', () => {
+    const endValue = 1000 + 14 * 2326.3;
+    expect(runWithPurchasePrice(13).series.slice(-1)[0].valueILS).toBeCloseTo(endValue, 4);
+    expect(runWithPurchasePrice(2326.3).series.slice(-1)[0].valueILS).toBeCloseTo(endValue, 4);
+  });
+
+  // The control: bought exactly at the close, so there is no execution gap
+  // and nothing in this portfolio ever moves. That has to read as flat.
+  test('reports no return when nothing moved and the fill matched the close', () => {
+    expect(runWithPurchasePrice(2326.3).stats.totalReturnPercent).toBeCloseTo(0, 6);
+  });
+
+  test('reports a gain when the fill was below the close, and only from that gap', () => {
+    const cheap = runWithPurchasePrice(13).stats;
+    const atClose = runWithPurchasePrice(2326.3).stats;
+    expect(cheap.totalReturnPercent).toBeGreaterThan(0);
+    expect(atClose.totalReturnPercent).toBeCloseTo(0, 6);
+    // Both hold identical assets at identical prices; the entire
+    // difference in reported return is the execution gap.
+    expect(cheap.netCashFlow).toBe(1000 + 182);
+    expect(atClose.netCashFlow).toBeCloseTo(1000 + 14 * 2326.3, 4);
+  });
+
+  test('a fill ABOVE the close reads as a loss, symmetrically', () => {
+    expect(runWithPurchasePrice(2500).stats.totalReturnPercent).toBeLessThan(0);
   });
 });

@@ -24,7 +24,12 @@ function EditableCell({
   min,
   parse,
   style,
-  className
+  className,
+  // The cell's column header. On mobile the table becomes one card per
+  // row and every value needs its own label, since the header row is no
+  // longer above it (see App.css's max-width: 720px block, which renders
+  // this through content: attr(data-label)).
+  label
 }) {
   const isEditing = editingField === `${id}-${field}`;
   const cellClassName = [isEditMode ? 'editable-cell' : '', className].filter(Boolean).join(' ');
@@ -39,6 +44,7 @@ function EditableCell({
       onClick={() => handleCellClick(id, field, exchange)}
       className={cellClassName}
       style={style}
+      data-label={label}
     >
       {isEditing ? (
         <input

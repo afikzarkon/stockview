@@ -6,12 +6,15 @@ import {
   ResponsiveContainer,
   LineChart,
   Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   Legend
 } from 'recharts';
+import { getChartTheme, tooltipStyles, AREA_GRADIENT_ID } from '../utils/chartTheme';
 import { buildSeriesFromHistoricalValues, computeStatsFromSeries } from '../utils/portfolioStats';
 import { buildPortfolioCashFlows } from '../utils/portfolioCashFlows';
 import { buildComparisonSeries } from '../utils/benchmarkComparison';
@@ -43,8 +46,6 @@ import {
   MANUAL_ENTRY_CATEGORIES
 } from '../utils/monthlySnapshotComparison';
 import RebalancingSection from './RebalancingSection';
-
-const SECTOR_COLORS = ['#667eea', '#f59e0b', '#16a34a', '#0ea5e9', '#dc2626', '#8b5cf6', '#0d9488', '#ea580c', '#64748b', '#c026d3'];
 
 const BENCHMARK_OPTIONS = [
   { key: 'sp500', label: 'S&P 500' },
@@ -187,8 +188,15 @@ function PortfolioAnalysisView({
   deleteMonthlyError = '',
   onAddManualMonthlySnapshot,
   addingManual = false,
-  addManualError = ''
+  addManualError = '',
+  // Charts render SVG, whose presentation attributes can't read CSS
+  // variables - so their colors are resolved from the active theme in JS
+  // (see utils/chartTheme.js) and re-applied whenever it changes.
+  theme = 'dark'
 }) {
+  const chart = useMemo(() => getChartTheme(theme), [theme]);
+  const chartTooltip = useMemo(() => tooltipStyles(theme), [theme]);
+  const SECTOR_COLORS = chart.categorical;
   // PERFORMANCE OVER TIME - computed on the fly, not read back from saved
   // snapshots.
   //
@@ -987,20 +995,48 @@ function PortfolioAnalysisView({
               <>
                 <div className="equity-chart-container">
                   <ResponsiveContainer width="100%" height={280}>
-                    <LineChart data={stats.series} margin={{ top: 10, right: 24, left: 8, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(102,126,234,0.15)" />
-                      <XAxis dataKey="date" tickFormatter={(d) => formatDate(d)} tick={{ fontSize: 12 }} />
+                    <AreaChart data={stats.series} margin={{ top: 10, right: 24, left: 8, bottom: 0 }}>
+                      {/* The fill fades to nothing at the baseline, so the
+                          area reads as depth under the line rather than as a
+                          solid block competing with it. */}
+                      <defs>
+                        <linearGradient id={AREA_GRADIENT_ID} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={chart.accent} stopOpacity={0.35} />
+                          <stop offset="100%" stopColor={chart.accent} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+                      <XAxis
+                        dataKey="date"
+                        tickFormatter={(d) => formatDate(d)}
+                        tick={{ fontSize: 12, fill: chart.axis }}
+                        stroke={chart.grid}
+                        tickLine={false}
+                      />
                       <YAxis
                         tickFormatter={(v) => `${Math.round(v / 1000)}k`}
-                        tick={{ fontSize: 12 }}
+                        tick={{ fontSize: 12, fill: chart.axis }}
+                        stroke={chart.grid}
+                        tickLine={false}
+                        axisLine={false}
                         width={50}
                       />
                       <Tooltip
+                        {...chartTooltip}
+                        cursor={{ stroke: chart.accent, strokeWidth: 1, strokeDasharray: '4 4' }}
                         labelFormatter={(d) => formatDate(d)}
                         formatter={(value) => [`${formatPriceWithSign(value)} ₪`, 'שווי תיק']}
                       />
-                      <Line type="monotone" dataKey="value" stroke="#667eea" strokeWidth={2.5} dot={false} />
-                    </LineChart>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke={chart.accent}
+                        strokeWidth={2.5}
+                        fill={`url(#${AREA_GRADIENT_ID})`}
+                        dot={false}
+                        activeDot={{ r: 4, strokeWidth: 2, stroke: chart.tooltipBg }}
+                      />
+                    </AreaChart>
                   </ResponsiveContainer>
                 </div>
                 <div className="distribution-grid" style={{ marginTop: 16 }}>
@@ -1609,10 +1645,24 @@ function PortfolioAnalysisView({
                   <div className="equity-chart-container">
                     <ResponsiveContainer width="100%" height={280}>
                       <LineChart data={comparisonSeries} margin={{ top: 10, right: 24, left: 8, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(102,126,234,0.15)" />
-                        <XAxis dataKey="date" tickFormatter={(d) => formatDate(d)} tick={{ fontSize: 12 }} />
-                        <YAxis tickFormatter={(v) => v.toFixed(0)} tick={{ fontSize: 12 }} width={45} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+                        <XAxis
+                          dataKey="date"
+                          tickFormatter={(d) => formatDate(d)}
+                          tick={{ fontSize: 12, fill: chart.axis }}
+                          stroke={chart.grid}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          tickFormatter={(v) => v.toFixed(0)}
+                          tick={{ fontSize: 12, fill: chart.axis }}
+                          stroke={chart.grid}
+                          tickLine={false}
+                          axisLine={false}
+                          width={45}
+                        />
                         <Tooltip
+                          {...chartTooltip}
                           labelFormatter={(d) => formatDate(d)}
                           formatter={(value, name) => [
                             `${Number(value).toFixed(1)}`,
@@ -1625,14 +1675,14 @@ function PortfolioAnalysisView({
                         <Line
                           type="monotone"
                           dataKey="portfolioIndexed"
-                          stroke="#667eea"
+                          stroke={chart.accent}
                           strokeWidth={2.5}
                           dot={false}
                         />
                         <Line
                           type="monotone"
                           dataKey="benchmarkIndexed"
-                          stroke="#f59e0b"
+                          stroke={chart.benchmark}
                           strokeWidth={2.5}
                           dot={false}
                           strokeDasharray="5 3"
@@ -1700,15 +1750,12 @@ function PortfolioAnalysisView({
                       cx="50%"
                       cy="50%"
                       outerRadius={120}
-                      fill="#8884d8"
+                      fill={chart.accent}
                       dataKey="value"
                     >
-                      <Cell fill="#667eea" />
-                      <Cell fill="#764ba2" />
-                      <Cell fill="#16a34a" />
-                      <Cell fill="#f59e0b" />
-                      <Cell fill="#0ea5e9" />
-                      <Cell fill="#ec4899" />
+                      {chart.categorical.slice(0, 6).map((color) => (
+                        <Cell key={color} fill={color} stroke={chart.tooltipBg} strokeWidth={2} />
+                      ))}
                     </Pie>
                   </PieChart>
                 </ResponsiveContainer>

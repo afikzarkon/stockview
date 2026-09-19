@@ -36,6 +36,81 @@ function quantityAsOfDate(lots, date) {
     .reduce((sum, lot) => sum + (lot.quantity || 0), 0);
 }
 
+// COST-BASIS ANCHORING ON DAY 0
+//
+// A lot is worth what was actually paid for it on the day it was bought,
+// and the market close only from the next day onwards.
+//
+// Valuing a lot at that day's CLOSE instead silently invents a gap between
+// what the investor put in and what the portfolio is recorded as holding
+// the moment they put it in. Everywhere in the middle of a series that gap
+// is harmless - the contribution is netted out of the sub-period it lands
+// in, so the difference between the execution price and the close shows up
+// as the gain it is. But at the very START of a series there is no earlier
+// point to measure from: the curve simply begins at the close-based value,
+// and the entire execution difference vanishes. A holding bought at 182
+// that the close valued at 32,568 began life "worth" 32,568, and the
+// 182 -> 32,568 move was never anybody's return.
+//
+// Anchoring day 0 to the cost basis closes that hole, and for an ordinary
+// intraday fill - where execution differs from the close by a fraction of
+// a percent - it is what makes execution quality part of the measured
+// performance rather than a rounding error the engine discards.
+//
+// Applied PER LOT, not per symbol: on any given date a symbol can hold
+// lots bought years ago (market close) alongside one bought that very
+// morning (cost basis), and the two have to be valued differently in the
+// same sum.
+// True only for a lot bought on this exact date AND carrying a usable cost
+// basis.
+//
+// The second half matters: "bought today" and "we know what was paid" are
+// different facts. A lot with no purchase price (or a zero one) has no cost
+// basis to anchor to, and valuing it at zero would assert the position was
+// worth nothing on the day it was opened - then show the full close value
+// appearing out of nowhere the next day, as a gain, with no contribution
+// to net it against. portfolioCashFlows.js drops a zero-amount flow for
+// exactly the same reason, so the two stay consistent: no recorded cost,
+// no anchor. Such a lot falls back to the market close, which is the best
+// available estimate of what it was worth.
+function hasCostBasisOn(lot, date) {
+  if (!lot.purchaseDate || lot.purchaseDate !== date) return false;
+  const price = Number(lot.purchasePrice);
+  return Number.isFinite(price) && price > 0;
+}
+
+// Total value of one symbol's lots on `date`, in the security's own price
+// units (agorot for TASE, USD for Yahoo - the caller converts).
+//
+// `close` may be null: a lot bought on `date` is valued from its own
+// purchase price and needs no close at all, which is why a brand-new
+// holding no longer marks the whole point partial just because its price
+// history doesn't reach back to it yet.
+//
+// Returns null when a lot genuinely needs a close and there is none -
+// that, and only that, is missing data.
+function valueLotsOnDate(lots, date, close) {
+  let total = 0;
+  let needsClose = false;
+
+  for (const lot of lots) {
+    if (!lot.purchaseDate || lot.purchaseDate > date) continue;
+    const quantity = lot.quantity || 0;
+    if (quantity <= 0) continue;
+
+    if (hasCostBasisOn(lot, date)) {
+      total += quantity * (lot.purchasePrice || 0);
+    } else {
+      needsClose = true;
+      if (close === null || close === undefined) continue;
+      total += quantity * close;
+    }
+  }
+
+  if (needsClose && (close === null || close === undefined)) return null;
+  return total;
+}
+
 // Sorted-once index per close series, so a lookup is a binary search
 // instead of a fresh copy-and-sort of the whole series.
 //
@@ -113,14 +188,18 @@ export const computePortfolioValueAtDate = (
 
   const israeliBySymbol = groupBySymbol(israeliStocks);
   Object.entries(israeliBySymbol).forEach(([symbol, lots]) => {
-    const quantity = quantityAsOfDate(lots, date);
-    if (quantity <= 0) return;
+    if (quantityAsOfDate(lots, date) <= 0) return;
+    // Closes are in agorot; purchase prices are entered in shekels, so the
+    // close is converted first and both sides of valueLotsOnDate are then
+    // in the same unit.
     const priceAgorot = closeOnOrBefore(date, taseHistoricalCloses[symbol]);
-    if (priceAgorot === null) {
+    const closeILS = priceAgorot === null ? null : priceAgorot / 100;
+    const value = valueLotsOnDate(lots, date, closeILS);
+    if (value === null) {
       isPartial = true;
       return;
     }
-    totalILS += quantity * (priceAgorot / 100);
+    totalILS += value;
     hasAnyValue = true;
   });
 
@@ -128,14 +207,39 @@ export const computePortfolioValueAtDate = (
   const hasAmericanHoldings = Object.keys(americanBySymbol).length > 0;
   const fxRate = hasAmericanHoldings ? closeOnOrBefore(date, fxHistoricalCloses) : null;
   Object.entries(americanBySymbol).forEach(([symbol, lots]) => {
-    const quantity = quantityAsOfDate(lots, date);
-    if (quantity <= 0) return;
+    if (quantityAsOfDate(lots, date) <= 0) return;
     const priceUSD = closeOnOrBefore(date, yahooHistoricalCloses[symbol]);
-    if (priceUSD === null || fxRate === null) {
+
+    // A lot bought today is worth the ILS actually paid: its own purchase
+    // price at the rate paid on the day, matching the contribution
+    // portfolioCashFlows.js records for it exactly. Converting it at
+    // today's rate instead would put an FX move into the position's
+    // opening value that the investor never experienced.
+    let value = 0;
+    let missing = false;
+    lots.forEach((lot) => {
+      if (!lot.purchaseDate || lot.purchaseDate > date) return;
+      const quantity = lot.quantity || 0;
+      if (quantity <= 0) return;
+
+      // An American lot also needs the rate it was bought at for its cost
+      // to be expressible in ILS at all; without one there is no anchor.
+      if (hasCostBasisOn(lot, date) && Number(lot.exchangeRate) > 0) {
+        value += quantity * lot.purchasePrice * lot.exchangeRate;
+        return;
+      }
+      if (priceUSD === null || fxRate === null) {
+        missing = true;
+        return;
+      }
+      value += quantity * priceUSD * fxRate;
+    });
+
+    if (missing) {
       isPartial = true;
       return;
     }
-    totalILS += quantity * priceUSD * fxRate;
+    totalILS += value;
     hasAnyValue = true;
   });
 
@@ -242,15 +346,18 @@ export const computeHistoricalBreakdownAtDate = (date, holdings = {}, priceData 
 
   const israeli = [];
   Object.entries(groupBySymbol(israeliStocks)).forEach(([symbol, lots]) => {
-    const quantity = quantityAsOfDate(lots, date);
-    if (quantity <= 0) return;
+    if (quantityAsOfDate(lots, date) <= 0) return;
     const priceAgorot = closeOnOrBefore(date, taseHistoricalCloses[symbol]);
-    if (priceAgorot === null) return;
+    // Same day-0 cost-basis rule as the curve above - a month-end that
+    // happens to be a purchase date must not report a different figure
+    // here than the chart shows for the same instant.
+    const value = valueLotsOnDate(lots, date, priceAgorot === null ? null : priceAgorot / 100);
+    if (value === null) return;
     const label = lots.find((lot) => lot.officialName)?.officialName;
     israeli.push({
       key: symbol,
       label: label ? `${label} (${symbol})` : symbol,
-      value: quantity * (priceAgorot / 100)
+      value
     });
   });
 
@@ -258,11 +365,30 @@ export const computeHistoricalBreakdownAtDate = (date, holdings = {}, priceData 
   const americanBySymbol = groupBySymbol(americanStocks);
   const fxRate = Object.keys(americanBySymbol).length ? closeOnOrBefore(date, fxHistoricalCloses) : null;
   Object.entries(americanBySymbol).forEach(([symbol, lots]) => {
-    const quantity = quantityAsOfDate(lots, date);
-    if (quantity <= 0) return;
+    if (quantityAsOfDate(lots, date) <= 0) return;
     const priceUSD = closeOnOrBefore(date, yahooHistoricalCloses[symbol]);
-    if (priceUSD === null || fxRate === null) return;
-    american.push({ key: symbol, label: symbol, value: quantity * priceUSD * fxRate });
+
+    let value = 0;
+    let missing = false;
+    lots.forEach((lot) => {
+      if (!lot.purchaseDate || lot.purchaseDate > date) return;
+      const quantity = lot.quantity || 0;
+      if (quantity <= 0) return;
+      // An American lot also needs the rate it was bought at for its cost
+      // to be expressible in ILS at all; without one there is no anchor.
+      if (hasCostBasisOn(lot, date) && Number(lot.exchangeRate) > 0) {
+        value += quantity * lot.purchasePrice * lot.exchangeRate;
+        return;
+      }
+      if (priceUSD === null || fxRate === null) {
+        missing = true;
+        return;
+      }
+      value += quantity * priceUSD * fxRate;
+    });
+
+    if (missing) return;
+    american.push({ key: symbol, label: symbol, value });
   });
 
   // Accounts that didn't exist yet on the requested date reconstruct to 0
