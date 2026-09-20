@@ -4,7 +4,7 @@
 const mockAxios = { post: jest.fn() };
 jest.mock('axios', () => mockAxios);
 
-const { fetchTaseHistoricalCloses, taseDateToIso } = require('./taseHistoryApi');
+const { fetchTaseHistoricalCloses, fetchTaseQuoteFromEod, taseDateToIso } = require('./taseHistoryApi');
 
 describe('taseDateToIso', () => {
   test('converts TASE\'s DD/MM/YYYY format to YYYY-MM-DD', () => {
@@ -105,5 +105,78 @@ describe('fetchTaseHistoricalCloses', () => {
     });
     const result = await fetchTaseHistoricalCloses('629014', '2026-09-15');
     expect(result).toEqual([{ date: '2026-09-16', close: 100 }]);
+  });
+});
+
+// The second source in quotesRoutes.js's quote chain - same endpoint as
+// above, asked for a single day instead of a window.
+describe('fetchTaseQuoteFromEod', () => {
+  beforeEach(() => {
+    mockAxios.post.mockReset();
+  });
+
+  // Real row captured from the live endpoint for Teva with pType 0.
+  const TEVA_TODAY = {
+    TradeDate: '17/09/2026',
+    CloseRate: 11960,
+    Change: 1.36,
+    OpenRate: 11780,
+    IfTraded: true
+  };
+
+  test('asks for pType 0 (today only) and the zero-padded 8-digit oId', async () => {
+    mockAxios.post.mockResolvedValue({ data: { TotalRec: 1, Items: [TEVA_TODAY] } });
+    await fetchTaseQuoteFromEod('629014');
+    expect(mockAxios.post).toHaveBeenCalledWith(
+      'https://api.tase.co.il/api/security/historyeod',
+      expect.objectContaining({ pType: 0, oId: '00629014', pageNum: 1 }),
+      expect.any(Object)
+    );
+  });
+
+  test('maps the latest row to the quote payload shape, in agorot as-is (no scaling)', async () => {
+    mockAxios.post.mockResolvedValue({ data: { TotalRec: 1, Items: [TEVA_TODAY] } });
+    const result = await fetchTaseQuoteFromEod('629014');
+    expect(result).toMatchObject({ currentPrice: 11960, changePercent: 1.36 });
+  });
+
+  test('preserves a negative daily change', async () => {
+    mockAxios.post.mockResolvedValue({
+      data: { TotalRec: 1, Items: [{ ...TEVA_TODAY, CloseRate: 7811, Change: -1.72 }] }
+    });
+    const result = await fetchTaseQuoteFromEod('604611');
+    expect(result).toMatchObject({ currentPrice: 7811, changePercent: -1.72 });
+  });
+
+  test('an empty Items array (unknown or untraded security) yields nulls instead of throwing', async () => {
+    mockAxios.post.mockResolvedValue({ data: { TotalRec: 0, Items: [] } });
+    await expect(fetchTaseQuoteFromEod('99999999')).resolves.toEqual({
+      currentPrice: null,
+      changePercent: null
+    });
+  });
+
+  test('a missing Items field yields nulls instead of throwing', async () => {
+    mockAxios.post.mockResolvedValue({ data: {} });
+    await expect(fetchTaseQuoteFromEod('629014')).resolves.toEqual({
+      currentPrice: null,
+      changePercent: null
+    });
+  });
+
+  // Number(null) is 0, not NaN - checking isFinite on the raw value is what
+  // stops a null rate from being reported as a real price of 0, the same
+  // trap fetchTaseHistoricalCloses guards against above.
+  test('a null CloseRate becomes null, not a price of 0', async () => {
+    mockAxios.post.mockResolvedValue({
+      data: { TotalRec: 1, Items: [{ ...TEVA_TODAY, CloseRate: null }] }
+    });
+    const result = await fetchTaseQuoteFromEod('629014');
+    expect(result.currentPrice).toBeNull();
+  });
+
+  test('a network error propagates so the chain can move to the next source', async () => {
+    mockAxios.post.mockRejectedValue(new Error('ETIMEDOUT'));
+    await expect(fetchTaseQuoteFromEod('629014')).rejects.toThrow('ETIMEDOUT');
   });
 });

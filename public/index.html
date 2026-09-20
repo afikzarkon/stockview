@@ -4,25 +4,66 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <!-- Sets the theme attribute before first paint, so the page never
-         flashes the wrong theme while React/useTheme (src/hooks/useTheme.js)
-         is still loading - dark is the default, light is the stored
-         opt-out. -->
+    <meta name="theme-color" content="#0b0f19" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f1f5f9" media="(prefers-color-scheme: light)" />
+
+    <!-- Fonts. preconnect (including the crossorigin one for the font files
+         themselves, which come from a different origin than the stylesheet)
+         opens the connections while the HTML is still parsing, so the text
+         isn't waiting on a cold handshake. display=swap renders in the
+         fallback immediately rather than leaving the page blank.
+         Heebo carries Hebrew; Inter the Latin/numeric fallback; JetBrains
+         Mono the security ids and tickers. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Resolves and applies the theme BEFORE first paint, so the page is
+         never painted in the wrong theme and then corrected - a flash that
+         is especially ugly going from light to dark.
+
+         Mirrors src/hooks/useTheme.js's resolution exactly: an explicit
+         stored choice wins, otherwise the OS setting, otherwise dark. A
+         resolved value is deliberately NOT written back here - doing so
+         would freeze whatever the OS happened to be at first load and stop
+         following it from then on.
+
+         .sw-theme-booting suppresses the color transitions for this first
+         paint (see App.css), so the page arrives in its theme rather than
+         animating into it. It is removed on the next frame, after which
+         real toggles animate normally. -->
     <script>
       (function () {
+        var root = document.documentElement;
+        var theme = 'dark';
         try {
           var stored = localStorage.getItem('stockview_theme');
-          document.documentElement.setAttribute('data-theme', stored === 'light' ? 'light' : 'dark');
+          if (stored === 'light' || stored === 'dark') {
+            theme = stored;
+          } else if (window.matchMedia) {
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
         } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'dark');
+          /* blocked storage - fall through to the default */
+        }
+        root.setAttribute('data-theme', theme);
+        root.classList.add('sw-theme-booting');
+        var clear = function () {
+          root.classList.remove('sw-theme-booting');
+        };
+        if (window.requestAnimationFrame) {
+          window.requestAnimationFrame(function () {
+            window.requestAnimationFrame(clear);
+          });
+        } else {
+          window.setTimeout(clear, 0);
         }
       })();
     </script>
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
+    <meta name="description" content="StockView - ניהול ומעקב תיק השקעות" />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <!--
       manifest.json provides metadata used when your web app is installed on a
@@ -38,7 +79,7 @@
       work correctly both with client-side routing and a non-root public URL.
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
-    <title>Portoflio Viewer</title>
+    <title>StockView - ניהול תיק השקעות</title>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

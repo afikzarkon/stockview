@@ -18,7 +18,10 @@ export function buildItemizedMonthlyBreakdown(analysis, pensionFunds, cashFunds,
   const israeli = [];
   const american = [];
   (analysis?.stockDistribution || []).forEach((stock) => {
-    const item = { key: stock.name, label: stock.name, value: stock.value };
+    // key stays the raw security id / ticker so a month saved today still
+    // compares item-for-item against one saved before names were resolved;
+    // the label is the readable "name (id)" form.
+    const item = { key: stock.name, label: stock.displayName || stock.name, value: stock.value };
     if (stock.exchange === 'israeli') israeli.push(item);
     else if (stock.exchange === 'american') american.push(item);
   });

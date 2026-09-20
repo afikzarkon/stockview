@@ -3,11 +3,22 @@ import { calculatePensionRealGainTax, calculateBankSavingsFundTax, monthKeyFromD
 import { calculateLedgerPeriodReturn, hasAmbiguousLedgerPeriod } from '../utils/portfolioMath';
 import { computeBankSavingsFundValue } from '../utils/bankSavingsFund';
 
+// The four ledger-backed account tables: provident funds, money-market
+// funds, current accounts and bank savings.
+//
+// `sections` picks which of them to render, because each now belongs to a
+// different page - /provident-funds wants only the provident table,
+// /cash-and-checking wants the money-market and current-account pair, and
+// so on. It defaults to all four, so a caller that wants the whole set
+// (and the original behaviour) passes nothing.
+export const ACCOUNT_SECTIONS = ['pension', 'cash', 'bank', 'bank_savings'];
+
 function FinancialAccountsTables({
   pensionFunds,
   cashFunds,
   bankBalances,
   bankSavingsFunds = [],
+  sections = ACCOUNT_SECTIONS,
   cpi,
   showAdditionalData,
   isEditMode,
@@ -78,9 +89,11 @@ function FinancialAccountsTables({
     handleInlineEdit(fund.id, 'deposits', updatedDeposits, 'bank_savings');
   };
 
+  const shows = (name) => sections.includes(name);
+
   return (
     <>
-      {pensionFunds.length > 0 && (
+      {shows('pension') && pensionFunds.length > 0 && (
         <div className="stocks-section">
           <h2 className="section-title">קופות גמל</h2>
           <div className="table-container">
@@ -315,7 +328,7 @@ function FinancialAccountsTables({
         </div>
       )}
 
-      {cashFunds.length > 0 && (
+      {shows('cash') && cashFunds.length > 0 && (
         <div className="stocks-section">
           <h2 className="section-title">כספית שקלית</h2>
           <div className="table-container">
@@ -456,7 +469,7 @@ function FinancialAccountsTables({
         </div>
       )}
 
-      {bankBalances.length > 0 && (
+      {shows('bank') && bankBalances.length > 0 && (
         <div className="stocks-section">
           <h2 className="section-title">עו"ש</h2>
           <div className="table-container">
@@ -567,7 +580,7 @@ function FinancialAccountsTables({
         </div>
       )}
 
-      {bankSavingsFunds.length > 0 && (
+      {shows('bank_savings') && bankSavingsFunds.length > 0 && (
         <div className="stocks-section">
           <h2 className="section-title">קופות חיסכון בבנק</h2>
           <div className="table-container">

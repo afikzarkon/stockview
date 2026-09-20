@@ -38,6 +38,23 @@ import { calculateModifiedDietzReturn } from './modifiedDietz';
 
 export const MONTHLY_CATEGORY_KEYS = ['israeli', 'american', 'pension', 'cashFunds', 'bank', 'bankSavings'];
 
+// Which categories the monthly tracker DERIVES, and which it still asks the
+// user about.
+//
+// Derived: stocks are priced from the historical closes for the lots held
+// on the date, and provident funds are reconstructed from their recorded
+// values plus their dated deposit ledger. The app already holds everything
+// needed to work these out, so asking the user to type them in as well was
+// pure duplication - two sources for one number, free to disagree, with
+// nothing to say which was right.
+//
+// Manual: current accounts, money-market funds and bank savings carry no
+// traded price to look up. A current account in particular is a single
+// overwritten balance whose movements can't be told apart from spending,
+// so its flows can only come from the user.
+export const AUTO_DERIVED_CATEGORIES = ['israeli', 'american', 'pension'];
+export const MANUAL_ENTRY_CATEGORIES = ['cashFunds', 'bank', 'bankSavings'];
+
 // Categories with a real dated ledger (stock purchase lots, or a
 // deposits: [{date,amount}] array) that lets us know exactly how much
 // money entered and when - the only categories a Modified Dietz
@@ -145,6 +162,12 @@ function monthEndDateString(monthKey) {
 // covers, by the time this snapshot was taken the money was already
 // in/out." allSnapshots is the full list (any order/shape is fine, only
 // .month and .breakdown.cashFlows are read).
+// Reads EVERY category, not just the manual-entry ones. Nothing writes a
+// declared flow for stocks or provident funds any more (see
+// MANUAL_ENTRY_CATEGORIES above), but months saved while that was possible
+// still carry them - and a comparison against one of those months has to
+// keep producing the number it always produced. Reading them costs nothing
+// and stops previously-correct history from silently changing.
 export function buildManualCashFlows(allSnapshots, baseMonth, compareMonth) {
   const flows = MONTHLY_CATEGORY_KEYS.reduce((acc, key) => ({ ...acc, [key]: [] }), {});
   (allSnapshots || []).forEach((snap) => {

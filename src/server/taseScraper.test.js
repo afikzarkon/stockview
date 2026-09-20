@@ -9,13 +9,11 @@
 // succeeded the instant the shell rendered, well before the numbers
 // arrived, and extraction ran against a still-loading page.
 //
-// puppeteer and cheerio are mocked out here (not actually exercised by
-// these tests) - requiring the real packages pulls in browser-launching
-// machinery and undici respectively, both of which this test environment
-// can't fully load, and neither is relevant to testing the pure regex
-// logic below.
+// puppeteer is mocked out here (not actually exercised by these tests) -
+// requiring the real package pulls in browser-launching machinery this
+// test environment can't fully load, and it is irrelevant to testing the
+// pure regex logic below.
 jest.mock('puppeteer', () => ({}));
-jest.mock('cheerio', () => ({}));
 
 const { hasUsableTasePriceText, parseTasePriceToken } = require('./taseScraper');
 

@@ -91,23 +91,37 @@ async function requestAutoSuggest(query, cookie) {
   return response.data;
 }
 
-// Domestic (non-foreign) TASE-listed equities and ETFs only - the raw
-// endpoint also matches mutual funds ("קרנות נאמנות", not exchange-traded -
-// they have no live TASE quote to scrape), indices, commodities, and
-// foreign-listed stocks against the same query text, none of which belong
-// in an "Israeli stock" search result. Confirmed live against the real
-// endpoint: a TASE-listed ETF (e.g. "קסם S&P 500 ETF", "תכלית סל ת\"א 35")
-// comes back with PaperType "קרנות סל" and a real PaperId that resolves the
-// same way a stock's does (verified against Teva's PaperId matching the id
-// already used elsewhere in this app). PaperId "0" is Bizportal's
-// placeholder for entries that don't carry a real TASE security id (seen
-// on some foreign-stock rows).
-const DOMESTIC_PAPER_TYPES = new Set(['מניות', 'קרנות סל']);
+// Domestic (non-foreign-listed) TASE securities a user can actually hold in
+// this app: ordinary shares ("מניות"), exchange-traded funds ("קרנות סל")
+// and mutual funds / index trackers ("קרנות נאמנות"). The raw endpoint also
+// matches indices ("מדדי חו\"ל", "מדדים" - not holdable instruments, just
+// reference series), bonds and foreign-listed stocks against the same query
+// text, none of which belong in an "Israeli security" search result.
+//
+// "קרנות נאמנות" used to be excluded here on the grounds that a mutual fund
+// isn't exchange-traded and so has no live quote to scrape. That is the
+// wrong trade-off: users DO hold index-tracking mutual funds (searching
+// "מחקה" returns nothing else), and a holding whose live price can't be
+// resolved still shows its purchase data correctly rather than being
+// unaddable. Confirmed live: "תכלית" returns 5 קרנות סל + 5 קרנות נאמנות,
+// "מחקה" returns 10 קרנות נאמנות and previously produced an empty result.
+//
+// PaperId "0" is Bizportal's placeholder for entries that carry no real
+// TASE security id (seen on some foreign-stock rows).
+const HOLDABLE_PAPER_TYPES = new Set(['מניות', 'קרנות סל', 'קרנות נאמנות']);
 
-function isDomesticStockEntry(entry) {
+// Bizportal's own URL segment per instrument class - a more reliable
+// classification than re-parsing the Hebrew type string downstream.
+const PAPER_TYPE_KIND = {
+  מניות: 'stock',
+  'קרנות סל': 'etf',
+  'קרנות נאמנות': 'mutualFund'
+};
+
+function isHoldableSecurityEntry(entry) {
   return Boolean(
     entry &&
-      DOMESTIC_PAPER_TYPES.has(entry.PaperType) &&
+      HOLDABLE_PAPER_TYPES.has(entry.PaperType) &&
       String(entry.IS_foreign) === '0' &&
       entry.PaperId &&
       String(entry.PaperId) !== '0'
@@ -129,11 +143,18 @@ async function searchIsraeliSecuritiesByName(query) {
 
   if (!Array.isArray(data)) return [];
 
-  return data.filter(isDomesticStockEntry).map((entry) => ({
+  return data.filter(isHoldableSecurityEntry).map((entry) => ({
     securityId: String(entry.PaperId),
     officialName: entry.PaperName,
-    symbol: entry.PaperSymbol || null
+    symbol: entry.PaperSymbol || null,
+    kind: PAPER_TYPE_KIND[entry.PaperType] || null,
+    isFund: entry.PaperType !== 'מניות'
   }));
 }
 
-module.exports = { searchIsraeliSecuritiesByName, invalidateBizportalCookie };
+module.exports = {
+  searchIsraeliSecuritiesByName,
+  invalidateBizportalCookie,
+  isHoldableSecurityEntry,
+  HOLDABLE_PAPER_TYPES
+};

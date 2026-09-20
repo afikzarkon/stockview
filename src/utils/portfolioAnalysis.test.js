@@ -153,3 +153,45 @@ describe('calculatePortfolioAnalysis', () => {
     });
   });
 });
+
+describe('stock distribution display names', () => {
+  test('carries a readable "name (security id)" label alongside the raw key for an Israeli holding', () => {
+    const analysis = calculatePortfolioAnalysis(
+      [{ stockName: '629014', officialName: 'טבע', quantity: 10, purchasePrice: 30, currentPrice: 35, purchaseDate: '2023-01-15' }],
+      [],
+      [],
+      [],
+      [],
+      []
+    );
+    const entry = analysis.stockDistribution.find((s) => s.name === '629014');
+    // `name` stays the key everything else matches on; displayName is what
+    // a reader should see - a bare 7-digit number identifies nothing.
+    expect(entry.name).toBe('629014');
+    expect(entry.displayName).toBe('טבע (629014)');
+  });
+
+  test('falls back to the security id when no name has been resolved', () => {
+    const analysis = calculatePortfolioAnalysis(
+      [{ stockName: '1234567', quantity: 1, purchasePrice: 1, currentPrice: 1, purchaseDate: '2023-01-15' }],
+      [],
+      [],
+      [],
+      [],
+      []
+    );
+    expect(analysis.stockDistribution[0].displayName).toBe('1234567');
+  });
+
+  test('an American ticker is already readable, so its display name is just the ticker', () => {
+    const analysis = calculatePortfolioAnalysis(
+      [],
+      [{ stockName: 'AAPL', quantity: 1, purchasePrice: 100, currentPrice: 120, exchangeRate: 3.6, currentExchangeRate: 3.7, purchaseDate: '2023-01-15' }],
+      [],
+      [],
+      [],
+      []
+    );
+    expect(analysis.stockDistribution[0].displayName).toBe('AAPL');
+  });
+});

@@ -109,10 +109,6 @@ describe('dividendRoutes', () => {
       payoutRatio: null,
       exDividendDateEpoch: null,
       nextDividendDateEpoch: null,
-      earningsDateEpoch: null,
-      isEarningsDateEstimate: null,
-      epsEstimateAverage: null,
-      revenueEstimateAverage: null,
       history: []
     });
   });

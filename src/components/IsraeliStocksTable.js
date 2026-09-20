@@ -1,52 +1,85 @@
 import React from 'react';
 import EditableCell from './EditableCell';
+import PendingPriceValue from './PendingPriceValue';
+import ValuePill from './ValuePill';
+import AssetCell from './AssetCell';
 import { profitClass, formatDailyChangePercent } from '../utils/formatters';
 import { calculateStockRealGainTax, monthKeyFromDate } from '../utils/cpiTax';
-import { KNOWN_SECTOR_KEYS, sectorLabelHe, UNCLASSIFIED_SECTOR_KEY } from '../utils/sectorLabels';
+import { sectorLabelHe } from '../utils/sectorLabels';
+import { effectiveExchangeForIsraeliStock, resolveIsraeliSector } from '../utils/israeliEtfClassifier';
+import { sectorFromTaseBranch } from '../utils/israeliSectorMapping';
 
-// "נכס זר?" + "סקטור" - both presentation-layer classification fields
-// (see israeliEtfClassifier.js / sectorAnalysis.js), not price/quantity
-// data, so they're plain controlled inputs rather than going through the
-// click-to-edit EditableCell pattern the rest of this row uses - there's
-// no ambiguity about "is this being edited right now" to track for a
-// checkbox/select that commits on every change.
-function IsraeliClassificationFields({ stock, isEditMode, handleInlineEdit }) {
-  const isForeignAsset = stock.isForeignAsset; // null/undefined = auto-detect by name
+// The column headers, named once and used for BOTH the <th> row and each
+// cell's data-label. Mobile turns every row into a card whose values each
+// need their own label; sourcing them from the same object is what stops a
+// renamed header from leaving a card labelled with the old name.
+const COL = {
+  name: 'שם מנייה',
+  date: 'תאריך קנייה',
+  buyPrice: 'מחיר קנייה (₪)',
+  quantity: 'כמות',
+  sector: 'סקטור',
+  totalBuy: 'סה"כ קנייה בש"ח',
+  currentPrice: 'מחיר נוכחי (₪)',
+  totalValue: 'סה"כ שווי היום (₪)',
+  profit: 'סה"כ רווח/הפסד בש"ח',
+  indexAtBuy: 'מדד ביום הקנייה',
+  indexToday: 'מדד היום (הידוע)',
+  tax: 'מס רווח הון (₪)',
+  afterTax: 'רווח לאחר מס (₪)',
+  inflationary: 'רווח אינפלציוני (₪)',
+  realGain: 'רווח ריאלי (₪)',
+  profitPercent: 'אחוז רווח/הפסד',
+  dailyPercent: 'אחוז שינוי יומי',
+  dailyProfit: 'רווח/הפסד יומי בש"ח',
+  actions: 'פעולות'
+};
+
+// The security's name AND its security id ("מספר נייר"), which is what
+// identifies it on the exchange and what every price/history lookup in
+// this app is keyed by.
+//
+// Returned as parts rather than one string so the cell can set them on two
+// lines - the name reading normally, the number in mono beneath it (see
+// AssetCell). A holding whose name was never resolved has only the number,
+// which on its own reads as nothing, so it is labelled.
+export function israeliStockNameParts(stock) {
+  const securityId = String(stock.stockName || '').trim();
+  const name = String(stock.officialName || '').trim();
+  if (!name) return { name: `נייר ${securityId}`, securityId: null };
+  return { name, securityId };
+}
+
+// The same identity as a single string, for the places that need plain
+// text rather than markup (title attributes, exports).
+export function israeliStockNameLabel(stock) {
+  const { name, securityId } = israeliStockNameParts(stock);
+  return securityId ? `${name} (${securityId})` : name;
+}
+
+function IsraeliAssetCell({ stock, prefix = null }) {
+  const { name, securityId } = israeliStockNameParts(stock);
+  return <AssetCell name={name} securityId={securityId} prefix={prefix} />;
+}
+
+// "סקטור" - resolved automatically (fund/ETF vs. the exchange's own branch
+// classification for a share, see israeliEtfClassifier.js's
+// resolveIsraeliSector), so it's plain text rather than an input.
+//
+// The "נכס זר?" dropdown that used to sit beside it is gone: whether a
+// holding is foreign exposure is now derived from its name and the
+// exchange's instrument type (a name containing "חוץ" is a foreign
+// tracking fund by the exchange's own naming), not something to ask the
+// user to classify by hand. The badge below shows what was derived, so the
+// classification driving the pie chart is still visible rather than hidden.
+function IsraeliClassificationFields({ stock }) {
+  const sectorKey = resolveIsraeliSector(stock, sectorFromTaseBranch);
+  const isForeign = effectiveExchangeForIsraeliStock(stock) === 'american';
   return (
-    <>
-      <td>
-        <select
-          value={isForeignAsset === true ? 'foreign' : isForeignAsset === false ? 'domestic' : 'auto'}
-          disabled={!isEditMode}
-          onChange={(e) => {
-            const v = e.target.value;
-            const newValue = v === 'foreign' ? true : v === 'domestic' ? false : null;
-            handleInlineEdit(stock.id, 'isForeignAsset', newValue, 'israeli');
-          }}
-        >
-          <option value="auto">אוטומטי (לפי שם)</option>
-          <option value="foreign">נכס זר</option>
-          <option value="domestic">נכס מקומי</option>
-        </select>
-      </td>
-      <td>
-        <select
-          value={stock.sector || UNCLASSIFIED_SECTOR_KEY}
-          disabled={!isEditMode}
-          onChange={(e) => {
-            const v = e.target.value;
-            handleInlineEdit(stock.id, 'sector', v === UNCLASSIFIED_SECTOR_KEY ? '' : v, 'israeli');
-          }}
-        >
-          <option value={UNCLASSIFIED_SECTOR_KEY}>לא סווג</option>
-          {KNOWN_SECTOR_KEYS.map((key) => (
-            <option key={key} value={key}>
-              {sectorLabelHe(key)}
-            </option>
-          ))}
-        </select>
-      </td>
-    </>
+    <td title={stock.branch || undefined} data-label={COL.sector}>
+      {sectorLabelHe(sectorKey)}
+      {isForeign && <span className="israeli-foreign-badge"> · נכס חוץ</span>}
+    </td>
   );
 }
 
@@ -68,8 +101,9 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         handleInlineEdit={handleInlineEdit}
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
-        displayValue={stock.officialName ? `${stock.officialName} (${stock.stockName})` : stock.stockName}
+        displayValue={<IsraeliAssetCell stock={stock} />}
         style={nameCellStyle}
+        label={COL.name}
       />
       <EditableCell
         id={stock.id}
@@ -84,6 +118,7 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
         displayValue={formatDate(stock.purchaseDate)}
+        label={COL.date}
       />
       <EditableCell
         id={stock.id}
@@ -100,6 +135,7 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
         displayValue={formatPrice(stock.purchasePrice)}
+        label={COL.buyPrice}
       />
       <EditableCell
         id={stock.id}
@@ -116,17 +152,16 @@ function IsraeliEditableFields({ stock, editingField, isEditMode, handleCellClic
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
         displayValue={stock.quantity}
+        label={COL.quantity}
       />
-      {showAdditionalData && (
-        <IsraeliClassificationFields stock={stock} isEditMode={isEditMode} handleInlineEdit={handleInlineEdit} />
-      )}
+      {showAdditionalData && <IsraeliClassificationFields stock={stock} />}
     </>
   );
 }
 
 // Renders the computed (non-editable) figures for one Israeli stock row —
 // used for both the single-stock row and each expanded detail row.
-function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPercentage, TAX_RATE, cpi, showAdditionalData, formatPrice, formatPriceWithSign, isEditMode, handleDelete }) {
+function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPercentage, TAX_RATE, cpi, showAdditionalData, formatPrice, formatPriceWithSign, isEditMode, handleDelete, pricesPending }) {
   const displayCurrentPrice = normalizeIsraeliPrice(stock.currentPrice);
   const totalPurchase = (stock.purchasePrice || 0) * (stock.quantity || 0);
   const totalCurrentValue = (displayCurrentPrice || 0) * (stock.quantity || 0);
@@ -162,23 +197,33 @@ function IsraeliComputedCells({ stock, normalizeIsraeliPrice, calculateProfitPer
 
   return (
     <>
-      <td>{formatPrice(totalPurchase)}</td>
-      <td>{formatPrice(displayCurrentPrice)}</td>
-      <td>{formatPrice(totalCurrentValue)}</td>
-      <td className={profitClass(profit)}>{formatPriceWithSign(profit)}</td>
-      {showAdditionalData && <td>{indexAtPurchase != null ? indexAtPurchase : '-'}</td>}
-      {showAdditionalData && <td>{currentIndex != null ? currentIndex : '-'}</td>}
-      {showAdditionalData && <td className="profit-negative">{formatPriceWithSign(-capitalGainsTaxILS)}</td>}
-      {showAdditionalData && <td className={profitClass(afterTaxProfitILS)}>{formatPriceWithSign(afterTaxProfitILS)}</td>}
-      {showAdditionalData && <td className={profitClass(inflationaryGain)}>{formatPriceWithSign(inflationaryGain)}</td>}
-      {showAdditionalData && <td className={profitClass(realGain)}>{formatPriceWithSign(realGain)}</td>}
-      <td className={profitClass(profit)}>{profitPercentage}%</td>
-      <td className={profitClass(stock.dailyChangePercent)}>{formatDailyChangePercent(stock.dailyChangePercent)}%</td>
-      <td className={profitClass(stock.dailyChangePercent)}>
+      <td data-label={COL.totalBuy}>{formatPrice(totalPurchase)}</td>
+      <td data-label={COL.currentPrice}>
+        <PendingPriceValue value={displayCurrentPrice} pending={pricesPending} format={formatPrice} />
+      </td>
+      <td data-label={COL.totalValue}>
+        <PendingPriceValue value={totalCurrentValue} pending={pricesPending} format={formatPrice} />
+      </td>
+      <td className={profitClass(profit)} data-label={COL.profit}>{formatPriceWithSign(profit)}</td>
+      {showAdditionalData && <td data-label={COL.indexAtBuy}>{indexAtPurchase != null ? indexAtPurchase : '-'}</td>}
+      {showAdditionalData && <td data-label={COL.indexToday}>{currentIndex != null ? currentIndex : '-'}</td>}
+      {showAdditionalData && <td className="profit-negative" data-label={COL.tax}>{formatPriceWithSign(-capitalGainsTaxILS)}</td>}
+      {showAdditionalData && <td className={profitClass(afterTaxProfitILS)} data-label={COL.afterTax}>{formatPriceWithSign(afterTaxProfitILS)}</td>}
+      {showAdditionalData && <td className={profitClass(inflationaryGain)} data-label={COL.inflationary}>{formatPriceWithSign(inflationaryGain)}</td>}
+      {showAdditionalData && <td className={profitClass(realGain)} data-label={COL.realGain}>{formatPriceWithSign(realGain)}</td>}
+      <td data-label={COL.profitPercent}>
+        <ValuePill value={profit}>{profitPercentage}%</ValuePill>
+      </td>
+      <td data-label={COL.dailyPercent}>
+        <ValuePill value={stock.dailyChangePercent}>
+          {formatDailyChangePercent(stock.dailyChangePercent)}%
+        </ValuePill>
+      </td>
+      <td className={profitClass(stock.dailyChangePercent)} data-label={COL.dailyProfit}>
         {formatPriceWithSign(((stock.dailyChangePercent || 0) / 100) * totalCurrentValue)} ₪
       </td>
       {isEditMode && (
-        <td>
+        <td data-label={COL.actions}>
           <button onClick={() => handleDelete(stock.id, 'israeli')} className="delete-button">
             מחק
           </button>
@@ -208,7 +253,12 @@ function IsraeliStocksTable({
   formatPriceWithSign,
   handleDelete,
   toggleGroup,
-  editingField
+  editingField,
+  // True until the first live price cycle completes - drives the skeleton
+  // placeholders on cells that have no price to show yet (see
+  // PendingPriceValue.js). Nothing here waits on it; the table renders
+  // immediately either way.
+  pricesPending = false
 }) {
   return (
     <>
@@ -219,26 +269,25 @@ function IsraeliStocksTable({
             <table className="stocks-table">
               <thead>
                 <tr>
-                  <th>שם מנייה</th>
-                  <th>תאריך קנייה</th>
-                  <th>מחיר קנייה (₪)</th>
-                  <th>כמות</th>
-                  {showAdditionalData && <th>נכס זר?</th>}
-                  {showAdditionalData && <th>סקטור</th>}
-                  <th>סה"כ קנייה בש"ח</th>
-                  <th>מחיר נוכחי (₪)</th>
-                  <th>סה"כ שווי היום (₪)</th>
-                  <th>סה"כ רווח/הפסד בש"ח</th>
-                  {showAdditionalData && <th>מדד ביום הקנייה</th>}
-                  {showAdditionalData && <th>מדד היום (הידוע)</th>}
-                  {showAdditionalData && <th>מס רווח הון (₪)</th>}
-                  {showAdditionalData && <th>רווח לאחר מס (₪)</th>}
-                  {showAdditionalData && <th>רווח אינפלציוני (₪)</th>}
-                  {showAdditionalData && <th>רווח ריאלי (₪)</th>}
-                  <th>אחוז רווח/הפסד</th>
-                  <th>אחוז שינוי יומי</th>
-                  <th>רווח/הפסד יומי בש"ח</th>
-                  {isEditMode && <th>פעולות</th>}
+                  <th>{COL.name}</th>
+                  <th>{COL.date}</th>
+                  <th>{COL.buyPrice}</th>
+                  <th>{COL.quantity}</th>
+                  {showAdditionalData && <th>{COL.sector}</th>}
+                  <th>{COL.totalBuy}</th>
+                  <th>{COL.currentPrice}</th>
+                  <th>{COL.totalValue}</th>
+                  <th>{COL.profit}</th>
+                  {showAdditionalData && <th>{COL.indexAtBuy}</th>}
+                  {showAdditionalData && <th>{COL.indexToday}</th>}
+                  {showAdditionalData && <th>{COL.tax}</th>}
+                  {showAdditionalData && <th>{COL.afterTax}</th>}
+                  {showAdditionalData && <th>{COL.inflationary}</th>}
+                  {showAdditionalData && <th>{COL.realGain}</th>}
+                  <th>{COL.profitPercent}</th>
+                  <th>{COL.dailyPercent}</th>
+                  <th>{COL.dailyProfit}</th>
+                  {isEditMode && <th>{COL.actions}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -265,7 +314,8 @@ function IsraeliStocksTable({
                     formatPrice,
                     formatPriceWithSign,
                     isEditMode,
-                    handleDelete
+                    handleDelete,
+                    pricesPending
                   };
 
                   if (stocks.length === 1) {
@@ -292,16 +342,27 @@ function IsraeliStocksTable({
                           >
                             {isExpanded ? '▼' : '▶'}
                           </button>
-                          {stocks[0].officialName ? `${stocks[0].officialName} (${stockName})` : stockName}
+                          <IsraeliAssetCell stock={stocks[0]} />
                         </td>
                         <td>פתח קיבוץ</td>
                         <td>פתח קיבוץ</td>
                         <td>{summary.totalQuantity}</td>
-                        {showAdditionalData && <td>פתח קיבוץ</td>}
-                        {showAdditionalData && <td>פתח קיבוץ</td>}
+                        {showAdditionalData && <IsraeliClassificationFields stock={stocks[0]} />}
                         <td>{formatPrice(summary.totalPurchaseValue)}</td>
-                        <td>{formatPrice(summary.averageCurrentPrice)}</td>
-                        <td>{formatPrice(summary.totalCurrentValue)}</td>
+                        <td>
+                          <PendingPriceValue
+                            value={summary.averageCurrentPrice}
+                            pending={pricesPending}
+                            format={formatPrice}
+                          />
+                        </td>
+                        <td>
+                          <PendingPriceValue
+                            value={summary.totalCurrentValue}
+                            pending={pricesPending}
+                            format={formatPrice}
+                          />
+                        </td>
                         <td className={profitClass(summary.totalProfit)}>{formatPriceWithSign(summary.totalProfit)}</td>
                         {showAdditionalData && (
                           <td colSpan={2} style={{ color: 'var(--sw-text-secondary)', fontSize: '0.85em' }}>ראה פירוט לכל שורה (מחיצים שונים)</td>
@@ -342,9 +403,13 @@ function IsraeliStocksTable({
                             </>
                           );
                         })()}
-                        <td className={profitClass(summary.totalProfit)}>{summary.profitPercentage}%</td>
-                        <td className={profitClass(stocks[0].dailyChangePercent)}>
-                          {formatDailyChangePercent(stocks[0].dailyChangePercent)}%
+                        <td>
+                          <ValuePill value={summary.totalProfit}>{summary.profitPercentage}%</ValuePill>
+                        </td>
+                        <td>
+                          <ValuePill value={stocks[0].dailyChangePercent}>
+                            {formatDailyChangePercent(stocks[0].dailyChangePercent)}%
+                          </ValuePill>
                         </td>
                         <td className={profitClass(stocks[0].dailyChangePercent)}>
                           {formatPriceWithSign(((stocks[0].dailyChangePercent || 0) / 100) * summary.totalCurrentValue)} ₪

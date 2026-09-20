@@ -99,7 +99,14 @@ export const calculatePortfolioAnalysis = (
     if (!stockDistribution[stock.stockName]) {
       stockDistribution[stock.stockName] = {
         ...newDistributionEntry(effectiveExchangeForIsraeliStock(stock)),
-        name: stock.stockName
+        // `name` stays the raw key every downstream consumer matches on
+        // (for an Israeli holding that's its TASE security id). displayName
+        // is what a human should see: the security's name AND its number,
+        // since the number alone identifies nothing to a reader. Kept as a
+        // separate field rather than overwriting `name`, so item keys still
+        // line up across monthly checkpoints saved before names existed.
+        name: stock.stockName,
+        displayName: stock.officialName ? `${stock.officialName} (${stock.stockName})` : stock.stockName
       };
     }
 
@@ -130,7 +137,11 @@ export const calculatePortfolioAnalysis = (
     const yearsHeld = daysHeld / 365;
 
     if (!stockDistribution[stock.stockName]) {
-      stockDistribution[stock.stockName] = { ...newDistributionEntry('american'), name: stock.stockName };
+      stockDistribution[stock.stockName] = {
+        ...newDistributionEntry('american'),
+        name: stock.stockName,
+        displayName: stock.stockName
+      };
     }
 
     stockDistribution[stock.stockName].value += value;
@@ -197,22 +208,46 @@ export const calculatePortfolioAnalysis = (
     const metrics = calculateAmericanStockMetrics(stock);
     addDateBucket(stock, metrics.totalCurrentValueILS);
   });
+  // Accounts with a deposit ledger are bucketed PER DEPOSIT, at the date
+  // each deposit was actually made, rather than as one lump at whatever
+  // date the account's value was last updated.
+  //
+  // This is what the "פיזור לפי תאריכי קנייה" breakdown is for: it answers
+  // "when did I put money in, and how much". A provident fund's whole
+  // balance landing on its last-updated date answered a different question
+  // and hid every contribution the user had recorded - a fund paid into
+  // monthly for five years showed up as a single entry in the current
+  // month. Now each deposit sits in the month it was made, right alongside
+  // the stock purchases, which is exactly the comparison this section is
+  // meant to support.
+  //
+  // Amounts are the deposits themselves (money in at that date), not a
+  // share of today's value - the same basis as a stock purchase lot's
+  // entry. An account with no ledger at all still falls back to its single
+  // value at its update date, so nothing disappears from the breakdown.
+  const addLedgerBuckets = (account, fallbackValue, fallbackDate) => {
+    const deposits = Array.isArray(account.deposits) ? account.deposits : [];
+    const dated = deposits.filter((d) => d && d.date);
+    if (dated.length === 0) {
+      addDateBucket({ purchaseDate: fallbackDate }, toNum(fallbackValue));
+      return;
+    }
+    dated.forEach((deposit) => {
+      addDateBucket({ purchaseDate: deposit.date }, toNum(deposit.amount));
+    });
+  };
+
   pensionFunds.forEach((item) => {
-    const value = toNum(item.currentValue != null ? item.currentValue : item.amount);
-    addDateBucket({ purchaseDate: item.updateDate }, value);
+    addLedgerBuckets(item, item.currentValue != null ? item.currentValue : item.amount, item.currentValueDate || item.updateDate);
   });
   cashFunds.forEach((item) => {
-    addDateBucket({ purchaseDate: item.updateDate }, toNum(item.amount));
+    addLedgerBuckets(item, item.amount, item.currentValueDate || item.updateDate);
   });
   bankBalances.forEach((item) => {
-    addDateBucket({ purchaseDate: item.updateDate }, toNum(item.amount));
+    addLedgerBuckets(item, item.amount, item.currentValueDate || item.updateDate);
   });
   bankSavingsFunds.forEach((fund) => {
-    const value = toNum(computeBankSavingsFundValue(fund));
-    const lastDepositDate = Array.isArray(fund.deposits) && fund.deposits.length
-      ? fund.deposits[fund.deposits.length - 1].date
-      : null;
-    addDateBucket({ purchaseDate: lastDepositDate }, value);
+    addLedgerBuckets(fund, computeBankSavingsFundValue(fund), null);
   });
 
   const stockList = Object.values(stockDistribution);

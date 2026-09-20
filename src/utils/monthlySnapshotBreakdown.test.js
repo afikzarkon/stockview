@@ -69,3 +69,33 @@ describe('buildItemizedMonthlyBreakdown', () => {
     expect(result.american).toEqual([]);
   });
 });
+
+// A monthly checkpoint's item KEY is what two months are matched on when
+// they're compared, so it must stay the raw security id / ticker even as
+// the displayed label gains the security's name. Changing the key would
+// silently stop a holding lining up with itself across months.
+describe('item keys vs. labels', () => {
+  const analysis = {
+    stockDistribution: [
+      { name: '629014', displayName: 'טבע (629014)', value: 1000, exchange: 'israeli' },
+      { name: 'AAPL', displayName: 'AAPL', value: 2000, exchange: 'american' }
+    ]
+  };
+
+  test('labels a holding with its name and security id, while keying it by the id alone', () => {
+    const breakdown = buildItemizedMonthlyBreakdown(analysis, [], [], [], []);
+    expect(breakdown.israeli).toEqual([{ key: '629014', label: 'טבע (629014)', value: 1000 }]);
+    expect(breakdown.american).toEqual([{ key: 'AAPL', label: 'AAPL', value: 2000 }]);
+  });
+
+  test('falls back to the key as the label for a holding with no resolved name', () => {
+    const breakdown = buildItemizedMonthlyBreakdown(
+      { stockDistribution: [{ name: '1234567', value: 500, exchange: 'israeli' }] },
+      [],
+      [],
+      [],
+      []
+    );
+    expect(breakdown.israeli).toEqual([{ key: '1234567', label: '1234567', value: 500 }]);
+  });
+});

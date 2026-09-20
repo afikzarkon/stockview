@@ -1,7 +1,6 @@
 // Dividend metrics built from Yahoo dividend data (server/dividendRoutes.js)
 // combined with a portfolio's actual American stock lots. Pure functions,
 // separate from the fetching hook, so they're independently testable.
-import { formatEpochDateISO } from './analystData';
 
 // Total dividends actually received on one stock: sums amountPerShare for
 // every historical payment on/after the earliest lot's purchase date,
@@ -26,25 +25,4 @@ export const computeReceivedDividends = (history, lots) => {
   return history
     .filter((d) => d.date >= earliestPurchaseDate)
     .reduce((sum, d) => sum + d.amountPerShare * totalQuantity, 0);
-};
-
-// Upcoming dividend calendar: one row per US symbol with a known future
-// ex-dividend/payment date, soonest first. Only future dates - a stale
-// exDividendDate left over from the last payment (Yahoo doesn't always
-// roll it forward immediately) isn't useful in a "coming up" list.
-export const buildUpcomingDividendCalendar = (dividendsBySymbol, todayISO) => {
-  const today = todayISO || new Date().toISOString().slice(0, 10);
-  const rows = [];
-  Object.entries(dividendsBySymbol || {}).forEach(([symbol, data]) => {
-    const nextDate =
-      formatEpochDateISO(data?.nextDividendDateEpoch) || formatEpochDateISO(data?.exDividendDateEpoch);
-    if (!nextDate || nextDate < today) return;
-    rows.push({
-      symbol,
-      date: nextDate,
-      dividendRate: data?.dividendRate ?? null,
-      dividendYieldPercent: data?.dividendYieldPercent ?? null
-    });
-  });
-  return rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 };

@@ -6,17 +6,22 @@
 //
 // American stocks: sector comes from Yahoo Finance, keyed by ticker
 // (sectorBySymbol, from useStockSectors.js/server/sectorRoutes.js) - fully
-// automatic. Israeli/TASE holdings have no Yahoo-compatible ticker, so
-// there's no automatic sector source for them - instead, an optional
-// manual `sector` field on the item itself (set via a dropdown in
-// FinancialAccountsTables.js, using the same SECTOR_LABELS_HE keys as the
-// American side so the two consolidate into the same buckets) is used
-// when present. A holding with neither falls into UNCLASSIFIED_SECTOR_KEY,
+// automatic.
+//
+// Israeli/TASE holdings are now automatic too (see
+// israeliEtfClassifier.js's resolveIsraeliSector): a fund/ETF/index
+// tracker is classified as such, and an ordinary share takes the sector
+// mapped from the exchange's own branch string that the security lookup
+// stored on the holding. An explicit `sector` on the item still wins, so
+// anything a user tagged by hand before this became automatic keeps its
+// tag. A holding none of that resolves falls into UNCLASSIFIED_SECTOR_KEY,
 // same as before.
 
 import { calculateAmericanStockMetrics } from './portfolioMath';
 import { normalizeIsraeliPrice, toNum } from './formatters';
 import { UNCLASSIFIED_SECTOR_KEY } from './sectorLabels';
+import { resolveIsraeliSector } from './israeliEtfClassifier';
+import { sectorFromTaseBranch } from './israeliSectorMapping';
 
 function addToSector(totalsBySector, sectorKey, value, symbol) {
   if (!totalsBySector[sectorKey]) {
@@ -27,8 +32,9 @@ function addToSector(totalsBySector, sectorKey, value, symbol) {
 }
 
 // sectorBySymbol: { [symbol]: { sector: string|null, industry: string|null } }
-// israeliStocks (optional): each item may carry its own manually-tagged
-// `sector` field (a SECTOR_LABELS_HE key, or absent/falsy for unclassified).
+// israeliStocks (optional): each item's sector is resolved automatically
+// from its instrument type / the exchange's branch string, unless it
+// already carries an explicit `sector` key.
 export const computeSectorDistribution = (americanStocks, sectorBySymbol, israeliStocks = []) => {
   const stocks = Array.isArray(americanStocks) ? americanStocks : [];
   const bySymbol = sectorBySymbol || {};
@@ -51,7 +57,7 @@ export const computeSectorDistribution = (americanStocks, sectorBySymbol, israel
     const value = toNum(normalizeIsraeliPrice(stock.currentPrice)) * toNum(stock.quantity);
     totalValueILS += value;
 
-    const sectorKey = stock.sector || UNCLASSIFIED_SECTOR_KEY;
+    const sectorKey = resolveIsraeliSector(stock, sectorFromTaseBranch);
     addToSector(totalsBySector, sectorKey, value, stock.stockName);
   });
 

@@ -81,14 +81,19 @@ async function fetchCbsSeries({ startPeriod, endPeriod, last } = {}) {
   return rows;
 }
 
+// "YYYY-MM" -> "mm-yyyy", the period format the CBS API expects (e.g.
+// '2023-01' -> '01-2023'). Sending yyyymm was the cause of the 500s seen
+// during development.
+function toCbsPeriod(monthKey) {
+  const [year, month] = monthKey.split('-');
+  return `${month}-${year}`;
+}
+
 // מחזיר את ערך המדד לחודש נתון ("YYYY-MM"), עם קאש קבוע (מדדי עבר לא משתנים).
 async function getIndexForMonth(cache, monthKey) {
   if (cache.monthIndexCache.has(monthKey)) return cache.monthIndexCache.get(monthKey);
 
-  const [year, month] = monthKey.split('-');
-  // פורמט התקופה שה-API של הלמ"ס מצפה לו הוא mm-yyyy (למשל '01-2023'),
-  // לא yyyymm - זו הייתה הסיבה לשגיאות 500 שראינו בבדיקה.
-  const period = `${month}-${year}`;
+  const period = toCbsPeriod(monthKey);
   const rows = await fetchCbsSeries({ startPeriod: period, endPeriod: period });
   const match = rows.find((r) => r.month === monthKey);
   if (match) {
@@ -96,6 +101,45 @@ async function getIndexForMonth(cache, monthKey) {
     return match.value;
   }
   return null;
+}
+
+// Resolves MANY months in ONE upstream call, by asking CBS for the single
+// contiguous range that spans them (earliest..latest) instead of issuing
+// one request per month.
+//
+// This is the single biggest cause of the app's slow first paint that this
+// route was responsible for: a portfolio with N distinct purchase/deposit
+// months made POST /api/cpi/months issue N *sequential* CBS requests, each
+// with a 10s timeout - so ~20 months could hold the CPI response (and with
+// it every index-linked tax figure on screen) for the better part of a
+// minute. A 20-month span is one request either way; the range response is
+// only a few dozen rows, and every row it returns is cached, so adjacent
+// months asked for later cost nothing at all.
+//
+// Only months genuinely missing from the cache trigger a fetch, and a
+// failure degrades to "whatever is already cached" rather than throwing -
+// the caller renders a fallback for months it has no index for.
+async function getIndexesForMonths(cache, monthKeys) {
+  const unique = [...new Set(monthKeys)].sort();
+  const missing = unique.filter((m) => !cache.monthIndexCache.has(m));
+
+  if (missing.length > 0) {
+    const startPeriod = toCbsPeriod(missing[0]);
+    const endPeriod = toCbsPeriod(missing[missing.length - 1]);
+    const rows = await fetchCbsSeries({ startPeriod, endPeriod });
+    // Cache every row in the window, not just the requested months - the
+    // range came back in one response either way, and the neighbouring
+    // months are very likely to be asked for next (a portfolio's purchase
+    // dates cluster).
+    rows.forEach((r) => cache.monthIndexCache.set(r.month, r.value));
+  }
+
+  const result = {};
+  unique.forEach((m) => {
+    const value = cache.monthIndexCache.get(m);
+    if (value != null) result[m] = value;
+  });
+  return result;
 }
 
 // מחזיר את "המדד הידוע" האחרון שפורסם, עם רענון פעם ביום.
@@ -157,17 +201,21 @@ function mountCpiRoutes(app) {
   // נוח למשיכה מרוכזת של כל התאריכים הרלוונטיים לתיק בבקשה אחת.
   app.post('/api/cpi/months', async (req, res) => {
     const months = Array.isArray(req.body && req.body.months) ? req.body.months : [];
-    const result = {};
-    for (const monthKey of months) {
-      if (!/^\d{4}-\d{2}$/.test(monthKey)) continue;
-      try {
-        const value = await getIndexForMonth(cache, monthKey);
-        if (value != null) result[monthKey] = value;
-      } catch (err) {
-        console.error('[cpi] failed to fetch index for month', monthKey, err.response ? `status ${err.response.status}: ${JSON.stringify(err.response.data).slice(0, 300)}` : err.message);
-      }
+    const valid = months.filter((m) => typeof m === 'string' && /^\d{4}-\d{2}$/.test(m));
+    if (valid.length === 0) return res.json({});
+    try {
+      return res.json(await getIndexesForMonths(cache, valid));
+    } catch (err) {
+      console.error('[cpi] failed to fetch indexes for months', valid, err.response ? `status ${err.response.status}: ${JSON.stringify(err.response.data).slice(0, 300)}` : err.message);
+      // Partial data beats none: serve whatever is already cached instead
+      // of failing the whole batch over one unreachable upstream call.
+      const cached = {};
+      valid.forEach((m) => {
+        const v = cache.monthIndexCache.get(m);
+        if (v != null) cached[m] = v;
+      });
+      return res.json(cached);
     }
-    return res.json(result);
   });
 }
 

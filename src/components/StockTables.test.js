@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import IsraeliStocksTable from './IsraeliStocksTable';
 import AmericanStocksTable from './AmericanStocksTable';
 import { groupStocksByName, calculateGroupSummary } from '../utils/stockGrouping';
@@ -13,10 +13,46 @@ import { TAX_RATE, calculateAmericanStockMetrics } from '../utils/portfolioMath'
 
 const noop = () => {};
 
+// For an Israeli holding, stockName IS the numeric TASE security id - the
+// readable name lives in officialName, and the classification fields come
+// from the exchange's own security lookup.
 const israeliStocks = [
-  { id: 1, stockName: 'TEVA', purchaseDate: '2023-01-15', purchasePrice: 30, quantity: 100, currentPrice: 3500, dailyChangePercent: 1.2 },
-  { id: 2, stockName: 'ICL', purchaseDate: '2023-02-01', purchasePrice: 20, quantity: 50, currentPrice: 2200, dailyChangePercent: -0.5 },
-  { id: 3, stockName: 'ICL', purchaseDate: '2023-05-01', purchasePrice: 22, quantity: 30, currentPrice: 2200, dailyChangePercent: -0.5 }
+  {
+    id: 1,
+    stockName: '629014',
+    officialName: 'טבע',
+    securityType: ' מניות',
+    branch: 'הייטק-ביומד-פארמה',
+    purchaseDate: '2023-01-15',
+    purchasePrice: 30,
+    quantity: 100,
+    currentPrice: 3500,
+    dailyChangePercent: 1.2
+  },
+  {
+    id: 2,
+    stockName: '1159250',
+    officialName: 'איישרס.חוץ P 500&S',
+    securityType: 'קרן חוץ נסחרת',
+    isForeignETF: true,
+    purchaseDate: '2023-02-01',
+    purchasePrice: 20,
+    quantity: 50,
+    currentPrice: 2200,
+    dailyChangePercent: -0.5
+  },
+  {
+    id: 3,
+    stockName: '1159250',
+    officialName: 'איישרס.חוץ P 500&S',
+    securityType: 'קרן חוץ נסחרת',
+    isForeignETF: true,
+    purchaseDate: '2023-05-01',
+    purchasePrice: 22,
+    quantity: 30,
+    currentPrice: 2200,
+    dailyChangePercent: -0.5
+  }
 ];
 
 const americanStocks = [
@@ -60,9 +96,9 @@ describe('IsraeliStocksTable', () => {
 
   test('renders expanded group detail rows and a delete button in edit mode', () => {
     const { container } = render(
-      <IsraeliStocksTable {...baseProps} isEditMode={true} expandedGroups={{ 'israeli-ICL': true }} editingField={null} />
+      <IsraeliStocksTable {...baseProps} isEditMode={true} expandedGroups={{ 'israeli-1159250': true }} editingField={null} />
     );
-    expect(container.querySelectorAll('.detail-row').length).toBe(2); // ICL has 2 lots
+    expect(container.querySelectorAll('.detail-row').length).toBe(2); // the ETF has 2 lots
     expect(container.querySelectorAll('.delete-button').length).toBeGreaterThan(0);
   });
 
@@ -71,6 +107,111 @@ describe('IsraeliStocksTable', () => {
       <IsraeliStocksTable {...baseProps} israeliStocks={[]} isEditMode={false} expandedGroups={{}} editingField={null} />
     );
     expect(container.querySelector('table')).toBeNull();
+  });
+
+  // Requirement: show the security id ("מספר נייר") alongside the name.
+  // A bare 7-digit number identifies nothing to a reader, and a bare name
+  // doesn't say which security it is. They're set on two lines - the name
+  // reading normally, the number in mono beneath it - rather than crammed
+  // into one "name (id)" string.
+  test('shows each security name and its security id on separate lines', () => {
+    const { container } = render(
+      <IsraeliStocksTable {...baseProps} isEditMode={false} expandedGroups={{}} editingField={null} />
+    );
+
+    expect(screen.getByText('טבע')).toBeInTheDocument();
+    expect(screen.getByText('איישרס.חוץ P 500&S')).toBeInTheDocument();
+
+    const ids = Array.from(container.querySelectorAll('.asset-cell-id')).map((el) => el.textContent);
+    expect(ids).toContain('629014');
+    expect(ids).toContain('1159250');
+  });
+
+  test('an identifier that IS the name renders one line, not an empty second one', () => {
+    const { container } = render(
+      <IsraeliStocksTable
+        {...baseProps}
+        israeliStocks={[
+          {
+            id: 7,
+            stockName: 'TEVA',
+            officialName: 'TEVA',
+            purchaseDate: '2023-01-01',
+            purchasePrice: 1,
+            quantity: 1,
+            currentPrice: 1
+          }
+        ]}
+        isEditMode={false}
+        expandedGroups={{}}
+        editingField={null}
+      />
+    );
+    expect(container.querySelectorAll('.asset-cell-id').length).toBe(0);
+  });
+
+  test('labels a holding whose name has not been resolved rather than showing a bare number', () => {
+    render(
+      <IsraeliStocksTable
+        {...baseProps}
+        israeliStocks={[{ id: 9, stockName: '1234567', purchaseDate: '2023-01-01', purchasePrice: 1, quantity: 1, currentPrice: 1 }]}
+        isEditMode={false}
+        expandedGroups={{}}
+        editingField={null}
+      />
+    );
+    expect(screen.getByText('נייר 1234567')).toBeInTheDocument();
+  });
+
+  // The "נכס זר?" column is gone - the classification is derived from the
+  // security's name and instrument type now, not asked of the user.
+  test('has no "נכס זר?" column, and shows the derived sector instead', () => {
+    const { container } = render(
+      <IsraeliStocksTable {...baseProps} isEditMode={true} showAdditionalData expandedGroups={{}} editingField={null} />
+    );
+    const headers = Array.from(container.querySelectorAll('th')).map((el) => el.textContent);
+    expect(headers).not.toContain('נכס זר?');
+    expect(headers).toContain('סקטור');
+    // No dropdown to set it by hand any more.
+    expect(container.querySelector('select')).toBeNull();
+  });
+
+  test('derives the sector automatically: a fund is classified as a fund, a share from its exchange branch', () => {
+    const { container } = render(
+      <IsraeliStocksTable {...baseProps} isEditMode={false} showAdditionalData expandedGroups={{}} editingField={null} />
+    );
+    const rows = Array.from(container.querySelectorAll('tbody tr'));
+    const tevaRow = rows.find((r) => within(r).queryByText('טבע'));
+    const etfRow = rows.find((r) => within(r).queryByText(/איישרס/));
+
+    expect(within(tevaRow).getByText('בריאות')).toBeInTheDocument();
+    expect(within(etfRow).getByText('קרנות סל / מחקות מדד')).toBeInTheDocument();
+    // The derived foreign-exposure classification is still visible, as a
+    // badge rather than an input.
+    expect(within(etfRow).getByText(/נכס חוץ/)).toBeInTheDocument();
+    expect(within(tevaRow).queryByText(/נכס חוץ/)).toBeNull();
+  });
+
+  // Skeletons, not confident zeroes, for holdings with no price yet.
+  test('shows a skeleton for a price that has not loaded yet, and a real value once one is known', () => {
+    const { container } = render(
+      <IsraeliStocksTable
+        {...baseProps}
+        israeliStocks={[{ id: 9, stockName: '1234567', officialName: 'חדש', purchaseDate: '2023-01-01', purchasePrice: 1, quantity: 1, currentPrice: 0 }]}
+        isEditMode={false}
+        expandedGroups={{}}
+        editingField={null}
+        pricesPending
+      />
+    );
+    expect(container.querySelectorAll('.value-skeleton').length).toBeGreaterThan(0);
+
+    const { container: loaded } = render(
+      <IsraeliStocksTable {...baseProps} isEditMode={false} expandedGroups={{}} editingField={null} pricesPending />
+    );
+    // Every holding here has a persisted price, so nothing is skeletonized -
+    // the page shows real numbers immediately instead of waiting.
+    expect(loaded.querySelectorAll('.value-skeleton').length).toBe(0);
   });
 });
 
@@ -131,5 +272,27 @@ describe('AmericanStocksTable', () => {
       <AmericanStocksTable {...baseProps} americanStocks={[]} isEditMode={false} showAdditionalData={true} expandedGroups={{}} editingField={null} />
     );
     expect(container.querySelector('table')).toBeNull();
+  });
+
+  test('shows a skeleton for a price that has not loaded yet, rather than a confident 0.00', () => {
+    const { container } = render(
+      <AmericanStocksTable
+        {...baseProps}
+        americanStocks={[{ id: 99, stockName: 'NEW', purchaseDate: '2024-01-01', purchasePrice: 10, quantity: 1, currentPrice: 0, exchangeRate: 3.6 }]}
+        isEditMode={false}
+        showAdditionalData={true}
+        expandedGroups={{}}
+        editingField={null}
+        pricesPending
+      />
+    );
+    expect(container.querySelectorAll('.value-skeleton').length).toBeGreaterThan(0);
+  });
+
+  test('shows the persisted prices immediately, without skeletons, while a refresh runs', () => {
+    const { container } = render(
+      <AmericanStocksTable {...baseProps} isEditMode={false} showAdditionalData={true} expandedGroups={{}} editingField={null} pricesPending />
+    );
+    expect(container.querySelectorAll('.value-skeleton').length).toBe(0);
   });
 });

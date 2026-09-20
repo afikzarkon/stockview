@@ -51,7 +51,7 @@ function StockFormView({
             </div>
             {formData.itemType === 'stock' && showIsraeliSearch && (
               <div className="form-group">
-                <label htmlFor="israeliStockSearch">חיפוש מנייה ישראלית לפי שם</label>
+                <label htmlFor="israeliStockSearch">חיפוש נייר ערך ישראלי (שם או מספר נייר)</label>
                 <div
                   className="sw-search-box"
                   onBlur={(e) => {
@@ -69,7 +69,7 @@ function StockFormView({
                       setShowIsraeliSuggestions(true);
                     }}
                     onFocus={() => setShowIsraeliSuggestions(true)}
-                    placeholder="לדוגמה: טבע, בנק הפועלים..."
+                    placeholder="לדוגמה: טבע, קסם S&P 500, או 1159250"
                     autoComplete="off"
                   />
                   {showIsraeliSuggestions && searchText.trim().length >= 2 && (
@@ -78,7 +78,7 @@ function StockFormView({
                         <div className="sw-search-suggestion-empty">מחפש…</div>
                       ) : israeliSearchResults.length === 0 ? (
                         <div className="sw-search-suggestion-empty">
-                          לא נמצאו תוצאות - אפשר להזין את ה-ID ידנית למטה.
+                          לא נמצאו תוצאות - אפשר להזין את מספר הנייר ידנית למטה.
                         </div>
                       ) : (
                         israeliSearchResults.map((r) => (
@@ -93,7 +93,10 @@ function StockFormView({
                             }}
                           >
                             {r.officialName}
-                            <span className="sw-search-exchange">({r.securityId})</span>
+                            <span className="sw-search-exchange">
+                              ({r.securityId}
+                              {r.isFund ? ' · קרן/מחקה מדד' : ''})
+                            </span>
                           </button>
                         ))
                       )}
@@ -106,7 +109,7 @@ function StockFormView({
             {formData.itemType === 'stock' && (
               <div className="form-group">
                 <label htmlFor="stockName">
-                  {formData.exchange === 'israeli' ? 'ID מנייה מ-TASE *' : 'שם מנייה *'}
+                  {formData.exchange === 'israeli' ? 'מספר נייר (TASE) *' : 'שם מנייה *'}
                 </label>
                 <input
                   type="text"
@@ -115,13 +118,15 @@ function StockFormView({
                   value={formData.stockName}
                   onChange={handleInputChange}
                   required
-                  placeholder={formData.exchange === 'israeli' ? 'לדוגמה: 1159243 (ID של המנייה מ-TASE)' : 'לדוגמה: AAPL, MSFT, TSLA'}
+                  placeholder={formData.exchange === 'israeli' ? 'לדוגמה: 1159250 (מספר הנייר בבורסה)' : 'לדוגמה: AAPL, MSFT, TSLA'}
                 />
                 {formData.exchange === 'israeli' && (
                   <small className="form-help">
                     {formData.officialName
-                      ? `נבחר: ${formData.officialName}`
-                      : 'עבור מניות ישראליות, הזן את ה-ID של המנייה מ-TASE (מספר כמו 1159243), או השתמש בחיפוש לפי שם מעל'}
+                      ? `נבחר: ${formData.officialName} (${formData.stockName})${
+                          formData.isFund ? ' · קרן סל / מחקה מדד' : ''
+                        }`
+                      : 'הזינו את מספר הנייר בבורסה (למשל 1159250), או חפשו לפי שם/מספר בתיבה שמעל - גם קרנות סל, קרנות נאמנות ומחקות מדד'}
                   </small>
                 )}
               </div>

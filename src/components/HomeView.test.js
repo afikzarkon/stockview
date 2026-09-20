@@ -53,9 +53,58 @@ function makeProps(overrides = {}) {
   };
 }
 
-test('renders the portfolio summary and tables for a populated portfolio', () => {
+// The dashboard is an overview now: the holdings tables were moved out to a
+// page per asset class, so the figures the app is opened to check are not
+// buried under several screens of rows.
+test('shows the summary cards for a populated portfolio, and no holdings tables', () => {
+  const { container, getByText } = render(<HomeView {...makeProps()} />);
+  expect(container.querySelectorAll('table').length).toBe(0);
+  expect(getByText('סיכום התיק')).toBeInTheDocument();
+  ['סה"כ מצב ההון', 'סיכום השקעות נטו (₪)'].forEach((title) => {
+    expect(getByText(title)).toBeInTheDocument();
+  });
+});
+
+// Each market/fund card is the way into the page holding its rows; without
+// that the pages are reachable only from the sidebar.
+test('each asset card opens the page that holds its rows', () => {
+  const onNavigate = jest.fn();
+  const { container } = render(<HomeView {...makeProps({ onNavigate })} />);
+  const links = Array.from(container.querySelectorAll('.summary-card-link'));
+
+  // One per asset class - the dashboard describes every part of the total
+  // it shows, and each part is a doorway to its own page.
+  const expected = [
+    'israeli-stocks',
+    'us-stocks',
+    'provident-funds',
+    'bank-savings',
+    'cash-and-checking'
+  ];
+  expect(links.length).toBe(expected.length);
+
+  expected.forEach((route, i) => {
+    fireEvent.click(links[i]);
+    expect(onNavigate).toHaveBeenCalledWith(route);
+  });
+});
+
+// The capital card states a total; the cards under it are meant to be what
+// that total is made of. A missing card means the overview silently
+// accounts for less than it totals.
+test('the summary cards account for every asset class in the total', () => {
   const { container } = render(<HomeView {...makeProps()} />);
-  expect(container.querySelectorAll('table').length).toBeGreaterThan(0);
+  const titles = Array.from(container.querySelectorAll('.summary-section-title')).map((el) => el.textContent);
+  [/בורסה ישראל/, /בורסה אמריקאית/, /קופות גמל/, /קופת חיסכון בבנק/, /כספית שקלית ועו"ש/].forEach((title) => {
+    expect(titles.some((t) => title.test(t))).toBe(true);
+  });
+});
+
+// A card with nowhere to go should not pretend to be a control.
+test('renders the cards as plain figures when there is nowhere to navigate', () => {
+  const { container } = render(<HomeView {...makeProps({ onNavigate: undefined })} />);
+  expect(container.querySelectorAll('.summary-card-link').length).toBe(0);
+  expect(container.querySelectorAll('.summary-section').length).toBeGreaterThan(0);
 });
 
 test('shows the no-data message for an empty portfolio', () => {
@@ -90,7 +139,7 @@ test('there is no manual "save daily info" button - the daily snapshot is taken 
 
   const savedAt = new Date('2024-06-01T10:00:00');
   rerender(<HomeView {...makeProps({ lastSnapshotSavedAt: savedAt })} />);
-  expect(getByText(`מידע יומי נשמר אוטומטית: ${savedAt.toLocaleTimeString('he-IL')}`)).toBeInTheDocument();
+  expect(getByText(`מידע יומי נשמר: ${savedAt.toLocaleTimeString('he-IL')}`)).toBeInTheDocument();
 
   rerender(<HomeView {...makeProps({ snapshotSaveError: 'שמירת תמונת המצב נכשלה, נסה שוב' })} />);
   expect(getByText('שמירת תמונת המצב נכשלה, נסה שוב')).toBeInTheDocument();
@@ -98,10 +147,10 @@ test('there is no manual "save daily info" button - the daily snapshot is taken 
 
 test('shows the legacy import button only when showLegacyImportButton is true', () => {
   const { queryByText, rerender } = render(<HomeView {...makeProps({ showLegacyImportButton: false })} />);
-  expect(queryByText('ייבוא חד-פעמי מהדפדפן')).toBeNull();
+  expect(queryByText('ייבוא מהדפדפן')).toBeNull();
 
   rerender(<HomeView {...makeProps({ showLegacyImportButton: true })} />);
-  expect(queryByText('ייבוא חד-פעמי מהדפדפן')).not.toBeNull();
+  expect(queryByText('ייבוא מהדפדפן')).not.toBeNull();
 });
 
 test('save button reflects hasUnsavedChanges and saveLoading state', () => {
@@ -131,8 +180,8 @@ test('shows export buttons for a populated portfolio and wires them to downloadP
 
   const { getByText } = render(<HomeView {...makeProps()} />);
 
-  fireEvent.click(getByText('ייצוא ל-Excel'));
-  fireEvent.click(getByText('ייצוא ל-PDF'));
+  fireEvent.click(getByText('ייצוא Excel'));
+  fireEvent.click(getByText('ייצוא PDF'));
 
   // Both handlers dynamically import('../utils/exportReport') now (code
   // splitting - see the comment in HomeView.js), which resolves on a later
@@ -161,8 +210,8 @@ test('hides export buttons for an empty portfolio', () => {
       })}
     />
   );
-  expect(queryByText('ייצוא ל-Excel')).toBeNull();
-  expect(queryByText('ייצוא ל-PDF')).toBeNull();
+  expect(queryByText('ייצוא Excel')).toBeNull();
+  expect(queryByText('ייצוא PDF')).toBeNull();
 });
 
 test('shows an error message if the PDF export throws', async () => {
@@ -171,16 +220,57 @@ test('shows an error message if the PDF export throws', async () => {
   });
 
   const { findByText } = render(<HomeView {...makeProps()} />);
-  fireEvent.click(await findByText('ייצוא ל-PDF'));
+  fireEvent.click(await findByText('ייצוא PDF'));
 
   expect(await findByText('שגיאה בייצוא ל-PDF, נסה שוב')).toBeInTheDocument();
   pdfSpy.mockRestore();
 });
 
-test('shows the edit-mode notice only in edit mode', () => {
-  const { queryByText, rerender } = render(<HomeView {...makeProps({ isEditMode: false })} />);
-  expect(queryByText('מצב עריכה פעיל - לחץ על תאים לעריכה')).toBeNull();
+// Edit mode and the extra-columns toggle act on table cells, and there are
+// no tables here any more - offering them would be a control with nothing
+// to control. They live on the asset pages (see pages/AssetPages.test.js).
+test('omits the table-only controls, having no table to act on', () => {
+  const { queryByText } = render(<HomeView {...makeProps({ isEditMode: false })} />);
+  expect(queryByText('מצב עריכה')).toBeNull();
+  expect(queryByText('נתונים מורחבים')).toBeNull();
+});
 
-  rerender(<HomeView {...makeProps({ isEditMode: true })} />);
-  expect(queryByText('מצב עריכה פעיל - לחץ על תאים לעריכה')).not.toBeNull();
+test('puts every page action in one toolbar, split into primary and secondary', () => {
+  const { container } = render(<HomeView {...makeProps()} />);
+
+  // Exactly one filled primary action - the thing the page is for.
+  const primary = container.querySelectorAll('.page-toolbar-primary .toolbar-btn-primary');
+  expect(primary.length).toBe(1);
+  expect(primary[0]).toHaveTextContent('הוספת מידע');
+
+  // View/export controls live together in the quieter secondary cluster.
+  const secondary = container.querySelector('.page-toolbar-secondary');
+  expect(secondary).not.toBeNull();
+  ['ייצוא Excel', 'ייצוא PDF'].forEach((label) => {
+    expect(secondary).toHaveTextContent(label);
+  });
+
+  // And no page action is left stranded outside it.
+  expect(container.querySelector('.control-buttons')).toBeNull();
+  expect(container.querySelector('.page-header-actions')).toBeNull();
+});
+
+test('surfaces the headline figures as KPI tiles above the detailed summary', () => {
+  const { container, getByText } = render(<HomeView {...makeProps()} />);
+  const tiles = container.querySelectorAll('.kpi-tile');
+  expect(tiles.length).toBe(4);
+  ['שווי התיק', 'רווח/הפסד כולל', 'שינוי יומי', 'מס צפוי'].forEach((label) => {
+    expect(getByText(label)).toBeInTheDocument();
+  });
+  // The full breakdown is still there, below them.
+  expect(getByText('סיכום התיק')).toBeInTheDocument();
+});
+
+test('an empty portfolio shows no KPI tiles rather than a row of zeroes', () => {
+  const { container } = render(
+    <HomeView
+      {...makeProps({ israeliStocks: [], americanStocks: [], pensionFunds: [], cashFunds: [], bankBalances: [] })}
+    />
+  );
+  expect(container.querySelectorAll('.kpi-tile').length).toBe(0);
 });

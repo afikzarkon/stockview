@@ -4,7 +4,9 @@ import {
   isLegacyRollup,
   buildManualCashFlows,
   MONTHLY_CATEGORY_KEYS,
-  MONTHLY_CATEGORY_LABELS_HE
+  MONTHLY_CATEGORY_LABELS_HE,
+  AUTO_DERIVED_CATEGORIES,
+  MANUAL_ENTRY_CATEGORIES
 } from './monthlySnapshotComparison';
 
 const january = {
@@ -445,5 +447,32 @@ describe('compareMonthlySnapshots', () => {
     });
     const total = rows.find((r) => r.key === 'total');
     expect(total.baseValue).toBe(100000);
+  });
+});
+
+describe('category split between derived and manually-entered data', () => {
+  test('stocks and provident funds are derived; the liquid accounts are entered by hand', () => {
+    expect(AUTO_DERIVED_CATEGORIES).toEqual(['israeli', 'american', 'pension']);
+    expect(MANUAL_ENTRY_CATEGORIES).toEqual(['cashFunds', 'bank', 'bankSavings']);
+  });
+
+  test('every category belongs to exactly one of the two groups', () => {
+    expect([...AUTO_DERIVED_CATEGORIES, ...MANUAL_ENTRY_CATEGORIES].sort()).toEqual(
+      [...MONTHLY_CATEGORY_KEYS].sort()
+    );
+    AUTO_DERIVED_CATEGORIES.forEach((key) => expect(MANUAL_ENTRY_CATEGORIES).not.toContain(key));
+  });
+
+  // Nothing writes a declared stock/pension flow any more, but months saved
+  // while that was possible still carry them - a comparison against one of
+  // those months must keep producing the number it always produced.
+  test('a legacy declared flow on a now-derived category is still read back', () => {
+    const flows = buildManualCashFlows(
+      [{ month: '2026-02', breakdown: { cashFlows: { israeli: 5000, bank: 1000 } } }],
+      '2026-01',
+      '2026-03'
+    );
+    expect(flows.israeli).toEqual([{ date: '2026-02-28', amount: 5000 }]);
+    expect(flows.bank).toEqual([{ date: '2026-02-28', amount: 1000 }]);
   });
 });

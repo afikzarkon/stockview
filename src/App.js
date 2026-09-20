@@ -4,7 +4,12 @@ import { formatPriceWithSign, normalizeIsraeliStocksFromStorage } from './utils/
 import { calculatePortfolioSummary } from './utils/portfolioSummary';
 import { applyLedgerValueEditPayload } from './utils/portfolioMath';
 import { calculatePortfolioAnalysis } from './utils/portfolioAnalysis';
-import { fetchCurrentPrice, fetchIsraeliStockPrice, fetchHistoricalExchangeRate } from './api/stockPrices';
+import {
+  fetchCurrentPrice,
+  fetchIsraeliStockPrice,
+  fetchHistoricalExchangeRate,
+  fetchIsraeliSecurityMeta
+} from './api/stockPrices';
 import { apiUrl } from './apiBase';
 import { useAuth } from './hooks/useAuth';
 import { usePortfolioData } from './hooks/usePortfolioData';
@@ -17,12 +22,20 @@ import { buildItemizedMonthlyBreakdown } from './utils/monthlySnapshotBreakdown'
 import { useRebalanceTargets } from './hooks/useRebalanceTargets';
 import { useTheme } from './hooks/useTheme';
 import { monthKeyFromDate } from './utils/cpiTax';
+import { useRoute } from './hooks/useRoute';
 import StockFormView from './components/StockFormView';
 import PortfolioAnalysisView from './components/PortfolioAnalysisView';
+import MonthlyTrackerView from './components/MonthlyTrackerView';
+import TaxOffsetView from './components/TaxOffsetView';
 import StockResearchView from './components/StockResearchView';
 import HomeView from './components/HomeView';
+import IsraeliStocksPage from './components/pages/IsraeliStocksPage';
+import UsStocksPage from './components/pages/UsStocksPage';
+import ProvidentFundsPage from './components/pages/ProvidentFundsPage';
+import CashAndCheckingPage from './components/pages/CashAndCheckingPage';
+import BankSavingsPage from './components/pages/BankSavingsPage';
 import AuthView from './components/AuthView';
-import TopNav from './components/TopNav';
+import AppShell from './components/AppShell';
 import ThemeToggleButton from './components/ThemeToggleButton';
 
 const LEGACY_KEYS = [
@@ -103,14 +116,24 @@ function App() {
     resetPortfolio
   } = usePortfolioData(user, authHeader);
 
-  const [showForm, setShowForm] = useState(false);
-  const [showAnalysis, setShowAnalysis] = useState(false);
-  const [showStockResearch, setShowStockResearch] = useState(false);
+  // Which page is open is now the URL's business, not three booleans that
+  // could each be true at once and had no answer for a refresh or the back
+  // button. See hooks/useRoute.js.
+  const { page: activePage, navigate } = useRoute();
   const [isAddingNewStock, setIsAddingNewStock] = useState(false);
   const [formData, setFormData] = useState({
     itemType: 'stock',
     stockName: '',
+    // Resolved from the TASE security lookup when a holding is picked in
+    // the search box (see handleSelectIsraeliStock) - the official name
+    // plus the classification fields that make the foreign-asset/sector
+    // columns automatic. Israeli holdings only; blank for everything else.
     officialName: '',
+    securityType: '',
+    securitySubType: '',
+    branch: '',
+    isFund: false,
+    isForeignETF: false,
     securityId: '',
     purchaseDate: '',
     purchasePrice: '',
@@ -146,7 +169,15 @@ function App() {
   // completes (see usePriceRefresh.js) - gates useAutoSnapshot below so it
   // never captures a value from a stale/incomplete initial render.
   const [firstPriceCycleComplete, setFirstPriceCycleComplete] = useState(false);
-  usePriceRefresh({
+  // Non-blocking by design: this never gates a render. The tables draw
+  // immediately from the prices persisted with the portfolio, and these
+  // flags only drive a progress indicator while fresher prices arrive in
+  // the background (see usePriceRefresh.js).
+  const {
+    refreshing: pricesRefreshing,
+    lastRefreshAt: pricesLastRefreshAt,
+    hasLoadedLivePrices
+  } = usePriceRefresh({
     israeliStocks,
     americanStocks,
     setIsraeliStocks,
@@ -190,7 +221,7 @@ function App() {
 
   const {
     snapshots,
-    snapshotsLoading,
+
     saveSnapshotNow,
     saveError: snapshotSaveError,
     lastSavedAt: lastSnapshotSavedAt
@@ -275,14 +306,13 @@ function App() {
     setIsEditMode(false);
     setEditingStock(null);
     setIsAddingNewStock(true);
-    setShowForm(true);
+    navigate('add');
   };
 
   const handleLogout = async () => {
     await logout();
     resetPortfolio();
-    setShowForm(false);
-    setShowAnalysis(false);
+    navigate('home');
     setLegacyImportBanner('');
   };
 
@@ -368,7 +398,11 @@ function App() {
       // already resolved via the search box below it (see
       // handleSelectIsraeliStock) - the two would otherwise silently drift
       // out of sync (an id that no longer matches the displayed name).
-      ...(name === 'stockName' ? { officialName: '' } : {})
+      // A manual edit of the raw id invalidates the whole resolved
+      // identity, classification included - not just the name.
+      ...(name === 'stockName'
+        ? { officialName: '', securityType: '', securitySubType: '', branch: '', isFund: false, isForeignETF: false }
+        : {})
     }));
   };
 
@@ -379,12 +413,42 @@ function App() {
   // and the newly-resolved official company name in one update, instead of
   // two separate handleInputChange calls that could otherwise render a
   // stock with only one of the two set if something went wrong in between.
-  const handleSelectIsraeliStock = (result) => {
+  // Also pulls the security's full classification metadata from the
+  // exchange (instrument type, branch, foreign-ETF flag) and parks it on
+  // formData, so the holding is stored already classified. That is what
+  // makes the "נכס זר?" column unnecessary and the sector column automatic
+  // (see utils/israeliEtfClassifier.js): the answers come from the
+  // exchange's own description of the security instead of from the user.
+  // Best-effort - a failed lookup just leaves the holding with the name and
+  // id, which still classifies by name alone.
+  const handleSelectIsraeliStock = async (result) => {
     setFormData(prev => ({
       ...prev,
       stockName: result.securityId,
-      officialName: result.officialName
+      officialName: result.officialName,
+      securityType: result.securityType || '',
+      branch: result.branch || '',
+      isFund: result.isFund === true,
+      isForeignETF: result.isForeignETF === true
     }));
+
+    const meta = await fetchIsraeliSecurityMeta(result.securityId);
+    if (!meta) return;
+    setFormData(prev =>
+      // Guard against a slow lookup landing after the user has already
+      // moved on to a different security.
+      prev.stockName !== result.securityId
+        ? prev
+        : {
+            ...prev,
+            officialName: meta.officialName || prev.officialName,
+            securityType: meta.securityType || '',
+            securitySubType: meta.securitySubType || '',
+            branch: meta.branch || '',
+            isFund: meta.isFund === true,
+            isForeignETF: meta.isForeignETF === true
+          }
+    );
   };
 
   // Triggers fillHistoricalExchangeRate whenever the combination that
@@ -424,6 +488,9 @@ function App() {
     // קבלת מחיר נוכחי ואחוז שינוי יומי מ-API
     let currentPrice = 0;
     let dailyChangePercent = 0;
+    // Classification metadata resolved from the exchange for an Israeli
+    // holding whose id was typed rather than picked from the search box.
+    let israeliMeta = null;
     
     if (formData.exchange === 'american') {
       const priceData = await fetchCurrentPrice(formData.stockName.trim());
@@ -433,12 +500,22 @@ function App() {
       }
     } else if (formData.exchange === 'israeli') {
       const stockId = formData.stockName.trim();
-      const priceData = await fetchIsraeliStockPrice(stockId);
+      // Price and classification metadata are independent lookups, so they
+      // run concurrently rather than one after the other.
+      const [priceData, meta] = await Promise.all([
+        fetchIsraeliStockPrice(stockId),
+        // Only needed when the id was typed directly instead of picked from
+        // the search box (which already resolved it, see
+        // handleSelectIsraeliStock) - this is the path that used to leave a
+        // holding with nothing but a number.
+        formData.officialName ? Promise.resolve(null) : fetchIsraeliSecurityMeta(stockId)
+      ]);
       if (priceData && priceData.currentPrice !== null) {
         const normalizedPrice = priceData.currentPrice / 100; // המרה מאגורות לשקלים
         currentPrice = normalizedPrice;
         dailyChangePercent = priceData.changePercent || 0;
       }
+      if (meta) israeliMeta = meta;
       // אם לא מתקבל מחיר, המחיר נשאר 0 (כפי שהוגדר בתחילת הפונקציה)
     }
     
@@ -451,13 +528,32 @@ function App() {
         // via the search box in StockFormView - '' for anything picked
         // via the raw-id fallback path, same as legacy holdings that
         // predate this field, so display code must treat it as optional.
-        officialName: formData.exchange === 'israeli' ? (formData.officialName || '') : '',
+        officialName:
+          formData.exchange === 'israeli'
+            ? formData.officialName || (israeliMeta && israeliMeta.officialName) || ''
+            : '',
         purchaseDate: formData.purchaseDate,
         purchasePrice: parseFloat(formData.purchasePrice),
         quantity: parseInt(formData.quantity),
         exchangeRate: formData.exchange === 'american' ? parseFloat(formData.exchangeRate) : null,
         currentPrice: currentPrice,
-        dailyChangePercent: dailyChangePercent
+        dailyChangePercent: dailyChangePercent,
+        // Classification fields, Israeli holdings only - what makes the
+        // foreign-asset and sector columns automatic (see
+        // utils/israeliEtfClassifier.js). All optional: a holding saved
+        // before this existed simply classifies by name alone, which is
+        // why nothing downstream may assume they're present.
+        ...(formData.exchange === 'israeli'
+          ? {
+              securityType: formData.securityType || (israeliMeta && israeliMeta.securityType) || '',
+              securitySubType:
+                formData.securitySubType || (israeliMeta && israeliMeta.securitySubType) || '',
+              branch: formData.branch || (israeliMeta && israeliMeta.branch) || '',
+              isFund: formData.isFund === true || Boolean(israeliMeta && israeliMeta.isFund),
+              isForeignETF:
+                formData.isForeignETF === true || Boolean(israeliMeta && israeliMeta.isForeignETF)
+            }
+          : {})
       };
       console.log('💾 שומר מנייה/כספית חדשה:', stockData);
       if (formData.exchange === 'israeli') {
@@ -604,7 +700,7 @@ function App() {
       }
     }
 
-    setShowForm(false);
+    navigate('home');
     setIsAddingNewStock(false);
     
     // איפוס הטופס
@@ -612,6 +708,11 @@ function App() {
       itemType: 'stock',
       stockName: '',
       officialName: '',
+      securityType: '',
+      securitySubType: '',
+      branch: '',
+      isFund: false,
+      isForeignETF: false,
       securityId: '',
       purchaseDate: '',
       purchasePrice: '',
@@ -630,19 +731,12 @@ function App() {
   };
 
   const handleBackToHome = () => {
-    setShowForm(false);
+    navigate('home');
   };
 
-  // Single navigation entry point for TopNav (and, via onBack, the pages'
-  // own existing back buttons) - clears whichever "show X" flag isn't the
-  // target page. 'home' clears both, same as the original handleBackToHome.
-  const handleNavigate = (page) => {
-    setShowForm(false);
-    setShowAnalysis(page === 'analysis');
-    setShowStockResearch(page === 'research');
-  };
-
-  const activePage = showAnalysis ? 'analysis' : showStockResearch ? 'research' : 'home';
+  // Single navigation entry point - SideNav, the dashboard's summary cards
+  // and the pages' own back buttons all go through it.
+  const handleNavigate = navigate;
 
   // פונקציה למחיקת מנייה
   const handleDelete = (id, exchange) => {
@@ -729,6 +823,11 @@ function App() {
     setFormData({
       stockName: '',
       officialName: '',
+      securityType: '',
+      securitySubType: '',
+      branch: '',
+      isFund: false,
+      isForeignETF: false,
       securityId: '',
       purchasePrice: '',
       initialInvestment: '',
@@ -753,6 +852,11 @@ function App() {
     setFormData({
       stockName: '',
       officialName: '',
+      securityType: '',
+      securitySubType: '',
+      branch: '',
+      isFund: false,
+      isForeignETF: false,
       securityId: '',
       purchasePrice: '',
       initialInvestment: '',
@@ -899,97 +1003,6 @@ function App() {
     );
   }
 
-  if (showForm) {
-    return (
-      <>
-        <TopNav
-          activePage={activePage}
-          onNavigate={handleNavigate}
-          user={user}
-          onLogout={handleLogout}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-        />
-        <StockFormView
-          isEditMode={isEditMode}
-          formData={formData}
-          pensionFunds={pensionFunds}
-          handleSubmit={handleSubmit}
-          handleInputChange={handleInputChange}
-          handleBackToHome={handleBackToHome}
-          handleSaveEdit={handleSaveEdit}
-          handleCancelEdit={handleCancelEdit}
-          exchangeRateFetching={exchangeRateFetching}
-          exchangeRateNotFound={exchangeRateNotFound}
-          onPullExchangeRate={handlePullExchangeRate}
-          onSelectIsraeliStock={handleSelectIsraeliStock}
-        />
-      </>
-    );
-  }
-
-  if (showAnalysis) {
-    return (
-      <>
-        <TopNav
-          activePage={activePage}
-          onNavigate={handleNavigate}
-          user={user}
-          onLogout={handleLogout}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-        />
-        <PortfolioAnalysisView
-          analysis={analysis}
-          formatPriceWithSign={formatPriceWithSign}
-          onBack={() => handleNavigate('home')}
-          snapshots={snapshots}
-          snapshotsLoading={snapshotsLoading}
-          americanStocks={americanStocks}
-          israeliStocks={israeliStocks}
-          pensionFunds={pensionFunds}
-          bankSavingsFunds={bankSavingsFunds}
-          cpi={cpi}
-          rebalanceTargets={rebalanceTargets}
-          rebalanceTargetsLoading={rebalanceTargetsLoading}
-          rebalanceSaving={rebalanceSaving}
-          rebalanceSaveError={rebalanceSaveError}
-          onSaveRebalanceTargets={saveRebalanceTargets}
-          monthlySnapshots={monthlySnapshots}
-          monthlySnapshotsLoading={monthlySnapshotsLoading}
-          onSaveMonthlySnapshot={handleSaveMonthlySnapshot}
-          savingMonthly={savingMonthly}
-          saveMonthlyError={saveMonthlyError}
-          onUpdateMonthlySnapshot={updateMonthlySnapshot}
-          updatingMonth={updatingMonth}
-          updateMonthlyError={updateMonthlyError}
-          onDeleteMonthlySnapshot={deleteMonthlySnapshot}
-          deletingMonth={deletingMonth}
-          deleteMonthlyError={deleteMonthlyError}
-          onAddManualMonthlySnapshot={addManualMonthlySnapshot}
-          addingManual={addingManual}
-          addManualError={addManualError}
-        />
-      </>
-    );
-  }
-
-  if (showStockResearch) {
-    return (
-      <>
-        <TopNav
-          activePage={activePage}
-          onNavigate={handleNavigate}
-          user={user}
-          onLogout={handleLogout}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-        />
-        <StockResearchView onBack={() => handleNavigate('home')} theme={theme} />
-      </>
-    );
-  }
-
   const summary = calculatePortfolioSummary(
     israeliStocks,
     americanStocks,
@@ -1000,51 +1013,171 @@ function App() {
     bankSavingsFunds
   );
 
+  // The holdings themselves, plus the shared cell-editing machinery every
+  // table uses. Bundled rather than listed per page: each asset page takes
+  // the same set and renders the slice it is about, so a new one does not
+  // mean re-threading twenty props by hand.
+  const holdings = {
+    israeliStocks,
+    americanStocks,
+    pensionFunds,
+    cashFunds,
+    bankBalances,
+    bankSavingsFunds
+  };
+
+  const tableProps = {
+    ...holdings,
+    summary,
+    cpi,
+    isEditMode,
+    setIsEditMode,
+    showAmericanColumns,
+    setShowAmericanColumns,
+    expandedGroups,
+    editingField,
+    handleCellClick,
+    handleInlineEdit,
+    finishInlineEdit,
+    handleKeyDown,
+    handleDelete,
+    toggleGroup
+  };
+
+  // Save state, import state and the price-refresh indicator - everything
+  // PortfolioActionsToolbar shows, on whichever page is showing it.
+  const toolbarProps = {
+    showLegacyImportButton,
+    legacyImportLoading,
+    handleLegacyImportOnce,
+    savePortfolio,
+    hasUnsavedChanges,
+    saveLoading,
+    lastSavedAt,
+    saveError,
+    snapshotSaveError,
+    lastSnapshotSavedAt,
+    legacyImportBanner,
+    handleAddInfo,
+    pricesRefreshing,
+    pricesLastRefreshAt,
+    hasLoadedLivePrices
+  };
+
+  // One page per route. The shell is rendered once, around whichever page
+  // the URL names, rather than repeated inside every branch.
+  const renderPage = () => {
+    switch (activePage) {
+      case 'add':
+        return (
+          <StockFormView
+            isEditMode={isEditMode}
+            formData={formData}
+            pensionFunds={pensionFunds}
+            handleSubmit={handleSubmit}
+            handleInputChange={handleInputChange}
+            handleBackToHome={handleBackToHome}
+            handleSaveEdit={handleSaveEdit}
+            handleCancelEdit={handleCancelEdit}
+            exchangeRateFetching={exchangeRateFetching}
+            exchangeRateNotFound={exchangeRateNotFound}
+            onPullExchangeRate={handlePullExchangeRate}
+            onSelectIsraeliStock={handleSelectIsraeliStock}
+          />
+        );
+
+      case 'israeli-stocks':
+        return <IsraeliStocksPage {...tableProps} {...toolbarProps} />;
+
+      case 'us-stocks':
+        return <UsStocksPage {...tableProps} {...toolbarProps} />;
+
+      case 'provident-funds':
+        return <ProvidentFundsPage {...tableProps} {...toolbarProps} />;
+
+      case 'cash-and-checking':
+        return <CashAndCheckingPage {...tableProps} {...toolbarProps} />;
+
+      case 'bank-savings':
+        return <BankSavingsPage {...tableProps} {...toolbarProps} />;
+
+      case 'monthly-tracker':
+        return (
+          <MonthlyTrackerView
+            {...holdings}
+            formatPriceWithSign={formatPriceWithSign}
+            monthlySnapshots={monthlySnapshots}
+            monthlySnapshotsLoading={monthlySnapshotsLoading}
+            onSaveMonthlySnapshot={handleSaveMonthlySnapshot}
+            savingMonthly={savingMonthly}
+            saveMonthlyError={saveMonthlyError}
+            onUpdateMonthlySnapshot={updateMonthlySnapshot}
+            updatingMonth={updatingMonth}
+            updateMonthlyError={updateMonthlyError}
+            onDeleteMonthlySnapshot={deleteMonthlySnapshot}
+            deletingMonth={deletingMonth}
+            deleteMonthlyError={deleteMonthlyError}
+            onAddManualMonthlySnapshot={addManualMonthlySnapshot}
+            addingManual={addingManual}
+            addManualError={addManualError}
+          />
+        );
+
+      case 'tax-offset':
+        return (
+          <TaxOffsetView
+            israeliStocks={israeliStocks}
+            americanStocks={americanStocks}
+            pensionFunds={pensionFunds}
+            bankSavingsFunds={bankSavingsFunds}
+            cpi={cpi}
+            formatPriceWithSign={formatPriceWithSign}
+          />
+        );
+
+      case 'analytics':
+        return (
+          <PortfolioAnalysisView
+            {...holdings}
+            theme={theme}
+            analysis={analysis}
+            formatPriceWithSign={formatPriceWithSign}
+            cpi={cpi}
+            rebalanceTargets={rebalanceTargets}
+            rebalanceTargetsLoading={rebalanceTargetsLoading}
+            rebalanceSaving={rebalanceSaving}
+            rebalanceSaveError={rebalanceSaveError}
+            onSaveRebalanceTargets={saveRebalanceTargets}
+          />
+        );
+
+      case 'research':
+        return <StockResearchView onBack={() => navigate('home')} theme={theme} />;
+
+      default:
+        return (
+          <HomeView
+            {...holdings}
+            {...toolbarProps}
+            summary={summary}
+            cpi={cpi}
+            onNavigate={navigate}
+          />
+        );
+    }
+  };
+
   return (
-    <>
-      <TopNav
-        activePage={activePage}
-        onNavigate={handleNavigate}
-        user={user}
-        onLogout={handleLogout}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-      />
-      <HomeView
-        showLegacyImportButton={showLegacyImportButton}
-        legacyImportLoading={legacyImportLoading}
-        handleLegacyImportOnce={handleLegacyImportOnce}
-        savePortfolio={savePortfolio}
-        hasUnsavedChanges={hasUnsavedChanges}
-        saveLoading={saveLoading}
-        lastSavedAt={lastSavedAt}
-        saveError={saveError}
-        snapshotSaveError={snapshotSaveError}
-        lastSnapshotSavedAt={lastSnapshotSavedAt}
-        legacyImportBanner={legacyImportBanner}
-        summary={summary}
-        israeliStocks={israeliStocks}
-        americanStocks={americanStocks}
-        pensionFunds={pensionFunds}
-        cashFunds={cashFunds}
-        bankBalances={bankBalances}
-        bankSavingsFunds={bankSavingsFunds}
-        cpi={cpi}
-        handleAddInfo={handleAddInfo}
-        isEditMode={isEditMode}
-        setIsEditMode={setIsEditMode}
-        showAmericanColumns={showAmericanColumns}
-        setShowAmericanColumns={setShowAmericanColumns}
-        expandedGroups={expandedGroups}
-        editingField={editingField}
-        handleCellClick={handleCellClick}
-        handleInlineEdit={handleInlineEdit}
-        finishInlineEdit={finishInlineEdit}
-        handleKeyDown={handleKeyDown}
-        handleDelete={handleDelete}
-        toggleGroup={toggleGroup}
-      />
-    </>
+    <AppShell
+      activePage={activePage}
+      onNavigate={handleNavigate}
+      user={user}
+      onLogout={handleLogout}
+      theme={theme}
+      onToggleTheme={toggleTheme}
+    >
+      {renderPage()}
+    </AppShell>
   );
 }
 
