@@ -51,7 +51,30 @@ export function useHistoricalPortfolioValue({
   pensionFunds = [],
   cashFunds = [],
   bankBalances = [],
-  bankSavingsFunds = []
+  bankSavingsFunds = [],
+  // Valuation basis for the ledger-backed accounts, passed through to
+  // computePortfolioValueAtDate.
+  //
+  // A PERFORMANCE series wants this on: an account is worth 0 until the
+  // app has any evidence it existed, so a balance recorded last month is
+  // not asserted to have been there for the previous three years. A
+  // point-in-time reconstruction (the monthly tracker's auto-fill) wants
+  // it off, so a long-held account still reports its best-reconstructed
+  // balance for a month that predates the first recording.
+  //
+  // With it on, the caller MUST build its cash flows with
+  // includeLedgerOpeningBalances - see buildPortfolioCashFlows.
+  anchorLedgerAccountsToFirstRecord = false,
+  // The USD/ILS history is fetched automatically when there are American
+  // holdings to price. This asks for it anyway - a USD benchmark has to be
+  // converted to shekels before it can be compared with an ILS portfolio
+  // (see benchmarkPointsInILS), and that is needed even for an
+  // Israeli-only portfolio being measured against the S&P 500.
+  needsFxHistory = false,
+  // One rate for every date instead of each date's own, which makes the
+  // American side a pure dollar return expressed in shekels. Null keeps
+  // the historical rates. See computePortfolioValueAtDate.
+  americanExchangeRate = null
 }) {
   const [priceData, setPriceData] = useState(EMPTY_PRICE_DATA);
   const [loading, setLoading] = useState(false);
@@ -67,6 +90,7 @@ export function useHistoricalPortfolioValue({
     }
     const israeliSymbols = israeliKey ? israeliKey.split(',') : [];
     const americanSymbols = americanKey ? americanKey.split(',') : [];
+    const wantsFx = americanSymbols.length > 0 || needsFxHistory;
     let cancelled = false;
     setLoading(true);
     setError('');
@@ -80,7 +104,7 @@ export function useHistoricalPortfolioValue({
           americanSymbols.length
             ? postJson('/api/american-stocks-history', { symbols: americanSymbols, from: fromDate })
             : Promise.resolve({ history: {} }),
-          americanSymbols.length
+          wantsFx
             ? fetch(apiUrl(`/api/exchange-rate-history?from=${encodeURIComponent(fromDate)}`), {
                 credentials: 'include'
               }).then((r) => r.json())
@@ -105,7 +129,7 @@ export function useHistoricalPortfolioValue({
     return () => {
       cancelled = true;
     };
-  }, [fromDate, toDate, israeliKey, americanKey]);
+  }, [fromDate, toDate, israeliKey, americanKey, needsFxHistory]);
 
   const holdings = useMemo(
     () => ({ israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances, bankSavingsFunds }),
@@ -113,8 +137,14 @@ export function useHistoricalPortfolioValue({
   );
 
   const series = useMemo(
-    () => (fromDate && toDate ? computeHistoricalPortfolioSeries(fromDate, toDate, holdings, priceData) : []),
-    [fromDate, toDate, holdings, priceData]
+    () =>
+      fromDate && toDate
+        ? computeHistoricalPortfolioSeries(fromDate, toDate, holdings, priceData, {
+            anchorLedgerAccountsToFirstRecord,
+            americanExchangeRate
+          })
+        : [],
+    [fromDate, toDate, holdings, priceData, anchorLedgerAccountsToFirstRecord, americanExchangeRate]
   );
 
   // The itemized breakdown on one date inside the fetched range - used by

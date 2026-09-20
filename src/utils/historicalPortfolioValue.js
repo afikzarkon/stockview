@@ -18,6 +18,21 @@
 // ledgerAccountHistory.js and bankSavingsFund.js. They're opt-in per call:
 // pass them and they're included, leave them out and the series covers the
 // traded holdings only.
+//
+// WHICH HOLDINGS TO PASS IS THE CALLER'S DECISION, AND IT IS A REAL ONE.
+//
+// This module values whatever it is given; it has no opinion about what a
+// performance figure should cover. utils/portfolioSegments.js holds that
+// opinion, and the performance chart asks it: EQUITIES ONLY by default,
+// optionally narrowed to one market.
+//
+// The reason is that the non-equity accounts do not move with the market
+// but do sit in both the numerator and the denominator of every sub-period,
+// so including them pulls each percentage toward zero. A holding that
+// doubled beside an equal balance of idle cash measures +50%, and the
+// investor learns nothing about their stock picking. Passing a subset here
+// is what keeps the two questions - "how did my shares do" and "how did my
+// net worth do" - separately answerable.
 import { valueOfLedgerAccountAtDate, valueOfLedgerAccountsAtDate } from './ledgerAccountHistory';
 import { computeBankSavingsFundValue } from './bankSavingsFund';
 
@@ -168,6 +183,16 @@ function closeOnOrBefore(date, closes) {
 //   taseHistoricalCloses: { [securityId]: [{date, close}] } - close in agorot
 //   yahooHistoricalCloses: { [symbol]: [{date, close}] } - close in USD
 //   fxHistoricalCloses: [{date, close}] - USD/ILS rate
+// `options.anchorLedgerAccountsToFirstRecord` is passed straight through to
+// the ledger accounts (see valueOfLedgerAccountAtDate): leave it off for a
+// point-in-time reconstruction, turn it on for a performance series, and in
+// that case pair it with buildPortfolioCashFlows' matching option.
+//
+// The returned point also carries `byCategory` - what each asset class
+// contributed to the total - and `missingSymbols`, the holdings that could
+// not be priced. Neither is used to draw the chart; both exist so the
+// figure can be inspected and explained rather than only trusted (see
+// utils/performanceAudit.js).
 export const computePortfolioValueAtDate = (
   date,
   {
@@ -178,13 +203,16 @@ export const computePortfolioValueAtDate = (
     bankBalances = [],
     bankSavingsFunds = []
   } = {},
-  priceData = {}
+  priceData = {},
+  { anchorLedgerAccountsToFirstRecord = false, americanExchangeRate = null } = {}
 ) => {
   const { taseHistoricalCloses = {}, yahooHistoricalCloses = {}, fxHistoricalCloses = [] } = priceData;
 
   let totalILS = 0;
   let hasAnyValue = false;
   let isPartial = false;
+  const missingSymbols = [];
+  const byCategory = { israeli: 0, american: 0, pension: 0, cashFunds: 0, bank: 0, bankSavings: 0 };
 
   const israeliBySymbol = groupBySymbol(israeliStocks);
   Object.entries(israeliBySymbol).forEach(([symbol, lots]) => {
@@ -197,15 +225,38 @@ export const computePortfolioValueAtDate = (
     const value = valueLotsOnDate(lots, date, closeILS);
     if (value === null) {
       isPartial = true;
+      missingSymbols.push(symbol);
       return;
     }
     totalILS += value;
+    byCategory.israeli += value;
     hasAnyValue = true;
   });
 
   const americanBySymbol = groupBySymbol(americanStocks);
   const hasAmericanHoldings = Object.keys(americanBySymbol).length > 0;
-  const fxRate = hasAmericanHoldings ? closeOnOrBefore(date, fxHistoricalCloses) : null;
+
+  // ONE RATE FOR EVERY DATE, when the caller supplies one.
+  //
+  // This is what turns the American curve into a pure dollar return while
+  // leaving it denominated in shekels. A constant multiplier cancels out
+  // of every ratio the return is built from - value(t2)/value(t1) is
+  // identical whether both sides carry the factor or neither does - so
+  // what the chart measures is the holdings' own performance, with the
+  // currency move removed rather than merely ignored.
+  //
+  // The lot's own purchase rate is overridden too. Anchoring day 0 to the
+  // rate actually paid while pricing every later date at a single fixed
+  // rate would leave exactly one FX move in the series, at its very start,
+  // where there is no earlier point to measure it against - the one place
+  // an FX difference cannot be netted out. Either the whole series carries
+  // the currency or none of it does.
+  const useFixedFx = Number.isFinite(americanExchangeRate) && americanExchangeRate > 0;
+  const fxRate = !hasAmericanHoldings
+    ? null
+    : useFixedFx
+    ? americanExchangeRate
+    : closeOnOrBefore(date, fxHistoricalCloses);
   Object.entries(americanBySymbol).forEach(([symbol, lots]) => {
     if (quantityAsOfDate(lots, date) <= 0) return;
     const priceUSD = closeOnOrBefore(date, yahooHistoricalCloses[symbol]);
@@ -224,8 +275,10 @@ export const computePortfolioValueAtDate = (
 
       // An American lot also needs the rate it was bought at for its cost
       // to be expressible in ILS at all; without one there is no anchor.
-      if (hasCostBasisOn(lot, date) && Number(lot.exchangeRate) > 0) {
-        value += quantity * lot.purchasePrice * lot.exchangeRate;
+      // Under a fixed rate that IS the anchor rate - see useFixedFx above.
+      const costBasisRate = useFixedFx ? americanExchangeRate : Number(lot.exchangeRate);
+      if (hasCostBasisOn(lot, date) && costBasisRate > 0) {
+        value += quantity * lot.purchasePrice * costBasisRate;
         return;
       }
       if (priceUSD === null || fxRate === null) {
@@ -237,9 +290,11 @@ export const computePortfolioValueAtDate = (
 
     if (missing) {
       isPartial = true;
+      missingSymbols.push(symbol);
       return;
     }
     totalILS += value;
+    byCategory.american += value;
     hasAnyValue = true;
   });
 
@@ -247,20 +302,29 @@ export const computePortfolioValueAtDate = (
   // from market prices. A category that's empty (or simply not passed)
   // contributes nothing and never marks the point partial - "no provident
   // fund" is not missing data.
-  const ledgerValue =
-    valueOfLedgerAccountsAtDate(pensionFunds, date) +
-    valueOfLedgerAccountsAtDate(cashFunds, date) +
-    valueOfLedgerAccountsAtDate(bankBalances, date);
-  const bankSavingsValue = (bankSavingsFunds || []).reduce(
+  const ledgerOptions = { anchorToFirstRecord: anchorLedgerAccountsToFirstRecord };
+  byCategory.pension = valueOfLedgerAccountsAtDate(pensionFunds, date, ledgerOptions);
+  byCategory.cashFunds = valueOfLedgerAccountsAtDate(cashFunds, date, ledgerOptions);
+  byCategory.bank = valueOfLedgerAccountsAtDate(bankBalances, date, ledgerOptions);
+  byCategory.bankSavings = (bankSavingsFunds || []).reduce(
     (sum, fund) => sum + (computeBankSavingsFundValue(fund, date) || 0),
     0
   );
+
+  const ledgerValue = byCategory.pension + byCategory.cashFunds + byCategory.bank;
+  const bankSavingsValue = byCategory.bankSavings;
   if (ledgerValue !== 0 || bankSavingsValue !== 0) {
     totalILS += ledgerValue + bankSavingsValue;
     hasAnyValue = true;
   }
 
-  return { date, valueILS: hasAnyValue ? totalILS : null, isPartial };
+  return {
+    date,
+    valueILS: hasAnyValue ? totalILS : null,
+    isPartial,
+    missingSymbols,
+    byCategory
+  };
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -313,10 +377,10 @@ export const buildSampleDates = (fromDate, toDate) => {
 // rather than one point per calendar day - a chart has far fewer visually
 // distinct pixels than that many days anyway, and prices only change on
 // ~250 trading days a year regardless of how finely it's sampled.
-export const computeHistoricalPortfolioSeries = (fromDate, toDate, holdings, priceData) => {
+export const computeHistoricalPortfolioSeries = (fromDate, toDate, holdings, priceData, options) => {
   if (!fromDate || !toDate || fromDate > toDate) return [];
   return buildSampleDates(fromDate, toDate).map((date) =>
-    computePortfolioValueAtDate(date, holdings, priceData)
+    computePortfolioValueAtDate(date, holdings, priceData, options)
   );
 };
 

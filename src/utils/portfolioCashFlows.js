@@ -23,6 +23,7 @@
 // field for the liquid accounts, and why a current account's balance
 // changes are not treated as flows at all (see below).
 import { toNum } from './formatters';
+import { earliestEvidenceDate, openingBalanceOfLedgerAccount } from './ledgerAccountHistory';
 
 const isDatedFlow = (date) => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(date);
 
@@ -41,22 +42,62 @@ function pushDepositLedger(flows, accounts) {
   });
 }
 
-// holdings: { israeliStocks, americanStocks, pensionFunds, cashFunds,
-// bankSavingsFunds }. Returns [{ date, amount }] sorted ascending by date,
-// positive = money in.
+// An account's OPENING BALANCE as a dated flow: the money it already held
+// the first time the app has any record of it.
 //
-// bankBalances (עו"ש) is deliberately NOT a source: a current account
-// carries a single overwritten balance with no ledger behind it, so a
-// change in it is indistinguishable from spending, salary, or a transfer to
-// a brokerage account that is already counted as a stock purchase. Guessing
-// would double-count real flows; leaving it out keeps the adjustment to
-// flows the app can actually evidence.
+// This exists because of how a ledger account is valued in a performance
+// series. With `anchorToFirstRecord` (see ledgerAccountHistory.js) an
+// account is worth 0 before its first record, so its balance ARRIVES on
+// that date. Something has to say that the arrival was a contribution
+// rather than a gain, or the time-weighted return books the whole balance
+// as performance - a ₪20,000 current account appearing mid-series would
+// read as the portfolio suddenly earning ₪20,000.
+//
+// Only the unexplained part is recorded. An account whose first ledger
+// entry is a deposit is already fully accounted for by that deposit, and
+// adds nothing here; a bare balance with no ledger behind it is all
+// opening balance.
+function pushOpeningBalances(flows, accounts) {
+  (accounts || []).forEach((account) => {
+    const opening = earliestEvidenceDate(account);
+    if (!opening) return;
+    pushFlow(flows, opening, openingBalanceOfLedgerAccount(account));
+  });
+}
+
+// holdings: { israeliStocks, americanStocks, pensionFunds, cashFunds,
+// bankBalances, bankSavingsFunds }. Returns [{ date, amount }] sorted
+// ascending by date, positive = money in.
+//
+// `includeLedgerOpeningBalances` pairs with the matching option on the
+// valuation side and MUST be set the same way: a series that zeroes
+// accounts before their first record needs these flows to explain the
+// balances that then appear, and a series that back-projects those
+// balances must not have them (the money never "arrives" in it, so a flow
+// would be double-counted). They are two halves of one decision - see
+// valueOfLedgerAccountAtDate.
+//
+// A current account's ONGOING balance changes are still not a source, with
+// or without that option. A single overwritten balance with no ledger
+// behind it cannot distinguish a deposit from spending, salary, or a
+// transfer to a brokerage account already counted as a stock purchase.
+// Guessing would double-count real flows; the opening balance above is the
+// one piece that can be evidenced, because it is the difference between
+// "no account" and "an account holding this much".
 export const buildPortfolioCashFlows = ({
   israeliStocks = [],
   americanStocks = [],
   pensionFunds = [],
   cashFunds = [],
-  bankSavingsFunds = []
+  bankBalances = [],
+  bankSavingsFunds = [],
+  includeLedgerOpeningBalances = false,
+  // One rate for every American lot, instead of the rate each was bought
+  // at. Pairs with computePortfolioValueAtDate's americanExchangeRate and
+  // MUST match it: a contribution is netted out of the value change it
+  // caused, so a flow recorded at a different rate than the holding was
+  // valued at would leave the difference behind as a phantom gain or loss.
+  americanExchangeRate = null
 } = {}) => {
   const flows = [];
 
@@ -64,18 +105,36 @@ export const buildPortfolioCashFlows = ({
     pushFlow(flows, lot?.purchaseDate, toNum(lot?.purchasePrice) * toNum(lot?.quantity));
   });
 
+  const useFixedFx = Number.isFinite(americanExchangeRate) && americanExchangeRate > 0;
   (americanStocks || []).forEach((lot) => {
     // The ILS actually paid: price x quantity x the rate on the day, the
     // same basis as totalPurchaseILS in portfolioMath.js. Using today's
     // rate instead would fold an FX move into the flow and quietly cancel
     // out part of the very performance being measured.
-    const costILS = toNum(lot?.purchasePrice) * toNum(lot?.quantity) * toNum(lot?.exchangeRate);
+    //
+    // Unless the whole series is being valued at one fixed rate, in which
+    // case the flow takes that rate for the same reason in reverse: the
+    // flow and the value it moved have to be in the same money.
+    const rate = useFixedFx ? americanExchangeRate : toNum(lot?.exchangeRate);
+    const costILS = toNum(lot?.purchasePrice) * toNum(lot?.quantity) * rate;
     pushFlow(flows, lot?.purchaseDate, costILS);
   });
 
   pushDepositLedger(flows, pensionFunds);
   pushDepositLedger(flows, cashFunds);
   pushDepositLedger(flows, bankSavingsFunds);
+
+  if (includeLedgerOpeningBalances) {
+    // Bank savings funds are deliberately absent. They are not valued
+    // from a carried-forward balance at all - computeBankSavingsFundValue
+    // compounds each deposit forward from its own date, so such a fund is
+    // already worth exactly 0 before its first deposit and needs no
+    // opening balance to get there. Its deposits are its flows, and they
+    // are recorded above.
+    pushOpeningBalances(flows, pensionFunds);
+    pushOpeningBalances(flows, cashFunds);
+    pushOpeningBalances(flows, bankBalances);
+  }
 
   return flows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 };

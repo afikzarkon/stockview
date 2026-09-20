@@ -25,6 +25,19 @@
 // buildEquitySeries below still normalizes the saved-snapshot shape, since
 // snapshots remain the source for the monthly checkpoint comparison; it's
 // just no longer where performance comes from.
+//
+// WHAT THE SERIES COVERS is decided before it reaches this module. Every
+// function here is scope-agnostic: give it a series and the flows that
+// belong to that series, and it returns that selection's return. The
+// selection itself is made in utils/portfolioSegments.js, which defaults to
+// equities only and can narrow further to a single market.
+//
+// The pairing matters and is the caller's responsibility: a series covering
+// only Israeli equities must be given only Israeli flows. Feeding it the
+// whole portfolio's contributions would net American purchases out of
+// Israeli sub-periods, which is not a smaller error than including the
+// holdings themselves - it is a stranger one, since the money would be
+// subtracted from a portfolio it never entered.
 
 import { calculateModifiedDietzReturn } from './modifiedDietz';
 import { cashFlowsInPeriod } from './portfolioCashFlows';
@@ -40,14 +53,40 @@ export const buildEquitySeries = (snapshots) => {
 };
 
 // Normalizes the dynamic historical-value series (utils/historicalPortfolioValue.js
-// returns {date, valueILS, isPartial}) into the same {date, value}[] shape,
-// dropping dates the portfolio couldn't be valued on at all.
+// returns {date, valueILS, isPartial}) into the same {date, value}[] shape.
+//
+// PARTIAL POINTS ARE DROPPED, not plotted.
+//
+// A point is partial when some holding could not be priced on that date, so
+// its value is the sum of the REST of the portfolio - a different portfolio
+// from the one every other point measures. Plotted as if it were a
+// valuation it reads as a crash and a recovery that never happened: in a
+// portfolio holding a ₪5,000 position with no price history, a series
+// running 8,000 -> 4,500 -> 6,000 reported -25% for holdings that had
+// actually gained 100%. It also wrecks volatility, which is the standard
+// deviation of exactly those invented swings.
+//
+// Dropping the date is the honest alternative: the curve says nothing about
+// a day it cannot value, instead of saying something false. The dropped
+// dates are not hidden - the caller is told how many there were and which
+// holdings caused them, so "we could not price X" is reported as the data
+// gap it is (see computeStatsFromSeries's skippedPartialPoints).
 export const buildSeriesFromHistoricalValues = (historicalSeries) => {
   if (!Array.isArray(historicalSeries)) return [];
   return historicalSeries
-    .filter((p) => p && p.date && Number.isFinite(p.valueILS) && p.valueILS > 0)
+    .filter((p) => p && p.date && !p.isPartial && Number.isFinite(p.valueILS) && p.valueILS > 0)
     .map((p) => ({ date: p.date, value: p.valueILS }))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+};
+
+// The dates buildSeriesFromHistoricalValues had to skip, and the holdings
+// responsible - so the UI can name what is missing rather than leaving a
+// silent gap in the curve.
+export const summarizePartialPoints = (historicalSeries) => {
+  const partial = (Array.isArray(historicalSeries) ? historicalSeries : []).filter((p) => p && p.isPartial);
+  const symbols = new Set();
+  partial.forEach((p) => (p.missingSymbols || []).forEach((sym) => symbols.add(sym)));
+  return { count: partial.length, symbols: [...symbols].sort() };
 };
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;

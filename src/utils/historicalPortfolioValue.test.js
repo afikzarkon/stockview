@@ -22,7 +22,7 @@ describe('computePortfolioValueAtDate', () => {
     };
     // 2024-03-15 has no exact close - carries forward the 2024-01-01 close.
     const result = computePortfolioValueAtDate('2024-03-15', holdings, priceData);
-    expect(result).toEqual({ date: '2024-03-15', valueILS: 1000, isPartial: false }); // 10 * 100
+    expect(result).toMatchObject({ date: '2024-03-15', valueILS: 1000, isPartial: false }); // 10 * 100
   });
 
   test('computes an American holding value converted to ILS via the carried-forward FX rate', () => {
@@ -59,7 +59,7 @@ describe('computePortfolioValueAtDate', () => {
     };
     const priceData = { taseHistoricalCloses: { '629014': [{ date: '2024-01-01', close: 10000 }] } };
     const result = computePortfolioValueAtDate('2024-03-01', holdings, priceData);
-    expect(result).toEqual({ date: '2024-03-01', valueILS: null, isPartial: false });
+    expect(result).toMatchObject({ date: '2024-03-01', valueILS: null, isPartial: false });
   });
 
   test('flags isPartial and skips a holding with no price data at all on or before the date', () => {
@@ -79,11 +79,11 @@ describe('computePortfolioValueAtDate', () => {
 
   test('returns valueILS null (not 0 or NaN) when there are no holdings at all', () => {
     const result = computePortfolioValueAtDate('2024-03-01', { israeliStocks: [], americanStocks: [] }, {});
-    expect(result).toEqual({ date: '2024-03-01', valueILS: null, isPartial: false });
+    expect(result).toMatchObject({ date: '2024-03-01', valueILS: null, isPartial: false });
   });
 
   test('handles missing holdings/priceData arguments gracefully', () => {
-    expect(computePortfolioValueAtDate('2024-03-01')).toEqual({ date: '2024-03-01', valueILS: null, isPartial: false });
+    expect(computePortfolioValueAtDate('2024-03-01')).toMatchObject({ date: '2024-03-01', valueILS: null, isPartial: false });
   });
 });
 

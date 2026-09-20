@@ -53,9 +53,58 @@ function makeProps(overrides = {}) {
   };
 }
 
-test('renders the portfolio summary and tables for a populated portfolio', () => {
+// The dashboard is an overview now: the holdings tables were moved out to a
+// page per asset class, so the figures the app is opened to check are not
+// buried under several screens of rows.
+test('shows the summary cards for a populated portfolio, and no holdings tables', () => {
+  const { container, getByText } = render(<HomeView {...makeProps()} />);
+  expect(container.querySelectorAll('table').length).toBe(0);
+  expect(getByText('סיכום התיק')).toBeInTheDocument();
+  ['סה"כ מצב ההון', 'סיכום השקעות נטו (₪)'].forEach((title) => {
+    expect(getByText(title)).toBeInTheDocument();
+  });
+});
+
+// Each market/fund card is the way into the page holding its rows; without
+// that the pages are reachable only from the sidebar.
+test('each asset card opens the page that holds its rows', () => {
+  const onNavigate = jest.fn();
+  const { container } = render(<HomeView {...makeProps({ onNavigate })} />);
+  const links = Array.from(container.querySelectorAll('.summary-card-link'));
+
+  // One per asset class - the dashboard describes every part of the total
+  // it shows, and each part is a doorway to its own page.
+  const expected = [
+    'israeli-stocks',
+    'us-stocks',
+    'provident-funds',
+    'bank-savings',
+    'cash-and-checking'
+  ];
+  expect(links.length).toBe(expected.length);
+
+  expected.forEach((route, i) => {
+    fireEvent.click(links[i]);
+    expect(onNavigate).toHaveBeenCalledWith(route);
+  });
+});
+
+// The capital card states a total; the cards under it are meant to be what
+// that total is made of. A missing card means the overview silently
+// accounts for less than it totals.
+test('the summary cards account for every asset class in the total', () => {
   const { container } = render(<HomeView {...makeProps()} />);
-  expect(container.querySelectorAll('table').length).toBeGreaterThan(0);
+  const titles = Array.from(container.querySelectorAll('.summary-section-title')).map((el) => el.textContent);
+  [/בורסה ישראל/, /בורסה אמריקאית/, /קופות גמל/, /קופת חיסכון בבנק/, /כספית שקלית ועו"ש/].forEach((title) => {
+    expect(titles.some((t) => title.test(t))).toBe(true);
+  });
+});
+
+// A card with nowhere to go should not pretend to be a control.
+test('renders the cards as plain figures when there is nowhere to navigate', () => {
+  const { container } = render(<HomeView {...makeProps({ onNavigate: undefined })} />);
+  expect(container.querySelectorAll('.summary-card-link').length).toBe(0);
+  expect(container.querySelectorAll('.summary-section').length).toBeGreaterThan(0);
 });
 
 test('shows the no-data message for an empty portfolio', () => {
@@ -177,18 +226,13 @@ test('shows an error message if the PDF export throws', async () => {
   pdfSpy.mockRestore();
 });
 
-test('reflects edit mode in the toolbar - as the toggle\'s own pressed state and a subtitle', () => {
-  const { queryByText, getByText, rerender } = render(<HomeView {...makeProps({ isEditMode: false })} />);
-  expect(queryByText(/מצב עריכה פעיל/)).toBeNull();
-  // The edit toggle specifically - other toggles in the cluster have their
-  // own independent pressed state.
-  expect(getByText('מצב עריכה')).toHaveAttribute('aria-pressed', 'false');
-
-  rerender(<HomeView {...makeProps({ isEditMode: true })} />);
-  expect(queryByText(/מצב עריכה פעיל/)).not.toBeNull();
-  // The state is carried by the control itself, not only by a banner -
-  // and is exposed to assistive tech rather than by styling alone.
-  expect(getByText('✓ מצב עריכה')).toHaveAttribute('aria-pressed', 'true');
+// Edit mode and the extra-columns toggle act on table cells, and there are
+// no tables here any more - offering them would be a control with nothing
+// to control. They live on the asset pages (see pages/AssetPages.test.js).
+test('omits the table-only controls, having no table to act on', () => {
+  const { queryByText } = render(<HomeView {...makeProps({ isEditMode: false })} />);
+  expect(queryByText('מצב עריכה')).toBeNull();
+  expect(queryByText('נתונים מורחבים')).toBeNull();
 });
 
 test('puts every page action in one toolbar, split into primary and secondary', () => {
@@ -202,7 +246,7 @@ test('puts every page action in one toolbar, split into primary and secondary', 
   // View/export controls live together in the quieter secondary cluster.
   const secondary = container.querySelector('.page-toolbar-secondary');
   expect(secondary).not.toBeNull();
-  ['מצב עריכה', 'נתונים מורחבים', 'ייצוא Excel', 'ייצוא PDF'].forEach((label) => {
+  ['ייצוא Excel', 'ייצוא PDF'].forEach((label) => {
     expect(secondary).toHaveTextContent(label);
   });
 

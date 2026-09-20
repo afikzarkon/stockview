@@ -1,6 +1,12 @@
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import SideNav from './SideNav';
 import AppShell from './AppShell';
+import { NAV_GROUPS, ROUTES, routeByKey } from '../router/routes';
+
+// Every destination the sidebar is supposed to offer, derived from the
+// route table rather than restated here - so a route added there without a
+// nav entry, or vice versa, fails rather than going unnoticed.
+const NAV_KEYS = NAV_GROUPS.flatMap((group) => group.keys);
 
 const noop = () => {};
 
@@ -19,16 +25,32 @@ function makeProps(overrides = {}) {
 describe('SideNav', () => {
   test('renders every destination and marks the active one', () => {
     const { container } = render(<SideNav {...makeProps({ activePage: 'research' })} />);
-    expect(screen.getByText('בית')).toBeInTheDocument();
-    expect(screen.getByText('ניתוח תיק')).toBeInTheDocument();
-    expect(screen.getByText('חקר מניות')).toBeInTheDocument();
+    NAV_KEYS.forEach((key) => {
+      expect(screen.getByText(routeByKey(key).label)).toBeInTheDocument();
+    });
     expect(container.querySelectorAll('.side-nav-link.active').length).toBe(1);
+  });
+
+  // The nine pages the app was reorganised into all have to be reachable;
+  // a page with no way in is a page that does not exist.
+  test('offers a link for every non-hidden route', () => {
+    render(<SideNav {...makeProps()} />);
+    const linkable = ROUTES.filter((route) => !route.hidden);
+    expect(NAV_KEYS).toHaveLength(linkable.length);
+    linkable.forEach((route) => {
+      expect(NAV_KEYS).toContain(route.key);
+    });
+  });
+
+  test('groups the destinations rather than listing eleven of them flat', () => {
+    const { container } = render(<SideNav {...makeProps()} />);
+    expect(container.querySelectorAll('.side-nav-group').length).toBe(NAV_GROUPS.length);
   });
 
   // The highlight is invisible to a screen reader, so the current page has
   // to be stated rather than only styled.
   test('announces the current page to assistive tech, not only by styling', () => {
-    render(<SideNav {...makeProps({ activePage: 'analysis' })} />);
+    render(<SideNav {...makeProps({ activePage: 'analytics' })} />);
     const current = screen.getByRole('button', { current: 'page' });
     expect(current).toHaveTextContent('ניתוח תיק');
   });
@@ -37,12 +59,12 @@ describe('SideNav', () => {
     const onNavigate = jest.fn();
     render(<SideNav {...makeProps({ onNavigate })} />);
 
-    fireEvent.click(screen.getByText('ניתוח תיק'));
-    expect(onNavigate).toHaveBeenCalledWith('analysis');
-    fireEvent.click(screen.getByText('חקר מניות'));
-    expect(onNavigate).toHaveBeenCalledWith('research');
-    fireEvent.click(screen.getByText('בית'));
-    expect(onNavigate).toHaveBeenCalledWith('home');
+    // Every destination, not a sample of three - each one is a separate
+    // wiring that can be wrong on its own.
+    NAV_KEYS.forEach((key) => {
+      fireEvent.click(screen.getByText(routeByKey(key).label));
+      expect(onNavigate).toHaveBeenCalledWith(key);
+    });
   });
 
   test('shows the signed-in user and logs out', () => {
@@ -76,7 +98,7 @@ describe('SideNav', () => {
   test('hides the decorative icons from assistive tech', () => {
     const { container } = render(<SideNav {...makeProps()} />);
     const icons = container.querySelectorAll('.side-nav-icon');
-    expect(icons.length).toBe(3);
+    expect(icons.length).toBe(NAV_KEYS.length);
     icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
   });
 });
@@ -100,7 +122,7 @@ describe('AppShell', () => {
     );
     const main = screen.getByRole('main');
     expect(within(main).getByText('תוכן הדף')).toBeInTheDocument();
-    expect(within(main).queryByText('בית')).toBeNull();
+    expect(within(main).queryByText('דף הבית')).toBeNull();
     expect(container.querySelector('.app-shell')).not.toBeNull();
   });
 });

@@ -206,16 +206,13 @@ describe('fetchYahooDividendSummary', () => {
               fiveYearAvgDividendYield: 2.87 // deliberately not used - already a percent, unlike dividendYield above
             },
             calendarEvents: {
+              // Yahoo really does return this earnings sub-object; it is
+              // kept in the fixture precisely so the assertion below can
+              // show it is IGNORED rather than passed through.
               earnings: {
                 earningsDate: [1792499400],
-                earningsCallDate: [1785241800],
-                isEarningsDateEstimate: false,
                 earningsAverage: 0.87893,
-                earningsLow: 0.85077,
-                earningsHigh: 0.89022,
-                revenueAverage: 12901487840,
-                revenueLow: 12813800000,
-                revenueHigh: 13029000000
+                revenueAverage: 12901487840
               },
               exDividendDate: 1789430400,
               dividendDate: 1790812800
@@ -236,16 +233,19 @@ describe('fetchYahooDividendSummary', () => {
     expect(result.nextDividendDateEpoch).toBe(1790812800);
   });
 
-  test('parses earnings fields, taking the first entry of the earningsDate array', async () => {
+  // The board these fed ("לוח רבעונים") was removed, so they are no longer
+  // carried on the response - the payload stays limited to what something
+  // actually reads.
+  test('drops the earnings fields Yahoo returns alongside the dividend ones', async () => {
     mockAxios.get.mockResolvedValueOnce(realKoQuoteSummaryResponse);
     const result = await fetchYahooDividendSummaryFresh('KO');
-    expect(result.earningsDateEpoch).toBe(1792499400);
-    expect(result.isEarningsDateEstimate).toBe(false);
-    expect(result.epsEstimateAverage).toBeCloseTo(0.87893, 5);
-    expect(result.revenueEstimateAverage).toBe(12901487840);
+    expect(result).not.toHaveProperty('earningsDateEpoch');
+    expect(result).not.toHaveProperty('isEarningsDateEstimate');
+    expect(result).not.toHaveProperty('epsEstimateAverage');
+    expect(result).not.toHaveProperty('revenueEstimateAverage');
   });
 
-  test('returns nulls (not throwing) when summaryDetail/calendarEvents/earnings are all missing', async () => {
+  test('returns nulls (not throwing) when summaryDetail/calendarEvents are missing', async () => {
     mockAxios.get.mockResolvedValueOnce({ data: { quoteSummary: { result: [{}] } } });
     const result = await fetchYahooDividendSummaryFresh('NODATA');
     expect(result).toEqual({
@@ -253,11 +253,7 @@ describe('fetchYahooDividendSummary', () => {
       dividendYieldPercent: null,
       payoutRatio: null,
       exDividendDateEpoch: null,
-      nextDividendDateEpoch: null,
-      earningsDateEpoch: null,
-      isEarningsDateEstimate: null,
-      epsEstimateAverage: null,
-      revenueEstimateAverage: null
+      nextDividendDateEpoch: null
     });
   });
 });

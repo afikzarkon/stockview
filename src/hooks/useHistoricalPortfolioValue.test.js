@@ -41,7 +41,7 @@ describe('useHistoricalPortfolioValue', () => {
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.series).toEqual([{ date: '2024-01-01', valueILS: 1000, isPartial: false }]);
+    expect(result.current.series).toMatchObject([{ date: '2024-01-01', valueILS: 1000, isPartial: false }]);
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining('/api/israeli-stocks-history'),
       expect.objectContaining({ method: 'POST' })
@@ -81,7 +81,7 @@ describe('useHistoricalPortfolioValue', () => {
       })
     );
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.series).toEqual([{ date: '2024-01-01', valueILS: null, isPartial: true }]);
+    expect(result.current.series).toMatchObject([{ date: '2024-01-01', valueILS: null, isPartial: true }]);
     expect(result.current.error).toBeTruthy();
   });
 

@@ -1,7 +1,9 @@
 import {
   indexSeriesToBase100,
   alignBenchmarkClosesToDates,
-  buildComparisonSeries
+  buildComparisonSeries,
+  convertBenchmarkPointsToILS,
+  benchmarkPointsInILS
 } from './benchmarkComparison';
 
 describe('indexSeriesToBase100', () => {
@@ -109,5 +111,79 @@ describe('buildComparisonSeries', () => {
 
   test('empty portfolio series returns an empty array', () => {
     expect(buildComparisonSeries([], [{ date: '2026-01-01', close: 100 }])).toEqual([]);
+  });
+});
+
+describe('convertBenchmarkPointsToILS', () => {
+  const fx = [
+    { date: '2024-01-01', close: 4 },
+    { date: '2024-02-01', close: 3 }
+  ];
+
+  test('restates each close at the rate on its own date', () => {
+    const points = [
+      { date: '2024-01-01', close: 100 },
+      { date: '2024-02-01', close: 110 }
+    ];
+    expect(convertBenchmarkPointsToILS(points, fx)).toEqual([
+      { date: '2024-01-01', close: 400 },
+      { date: '2024-02-01', close: 330 }
+    ]);
+  });
+
+  // The whole reason the conversion exists. In dollars this index gained
+  // 10%; to a shekel investor, with the dollar falling from 4 to 3, it lost
+  // about 17.5%. Indexing both lines to 100 would have shown the +10%.
+  test('an FX move changes the answer, which is the point', () => {
+    const points = [
+      { date: '2024-01-01', close: 100 },
+      { date: '2024-02-01', close: 110 }
+    ];
+    const converted = convertBenchmarkPointsToILS(points, fx);
+    const usdReturn = points[1].close / points[0].close - 1;
+    const ilsReturn = converted[1].close / converted[0].close - 1;
+    expect(usdReturn).toBeCloseTo(0.1, 5);
+    expect(ilsReturn).toBeCloseTo(-0.175, 3);
+  });
+
+  test('carries the last known rate forward over a day the FX market was shut', () => {
+    const points = [{ date: '2024-01-15', close: 100 }];
+    expect(convertBenchmarkPointsToILS(points, fx)).toEqual([{ date: '2024-01-15', close: 400 }]);
+  });
+
+  // A converted close is only as real as the rate behind it; carrying the
+  // first known rate backwards would invent one.
+  test('drops dates with no rate on or before them rather than inventing one', () => {
+    const points = [
+      { date: '2023-06-01', close: 100 },
+      { date: '2024-01-01', close: 100 }
+    ];
+    expect(convertBenchmarkPointsToILS(points, fx)).toEqual([{ date: '2024-01-01', close: 400 }]);
+  });
+
+  test('returns nothing rather than unconverted dollars when no rates are available', () => {
+    expect(convertBenchmarkPointsToILS([{ date: '2024-01-01', close: 100 }], [])).toEqual([]);
+    expect(convertBenchmarkPointsToILS([{ date: '2024-01-01', close: 100 }], null)).toEqual([]);
+    expect(convertBenchmarkPointsToILS([], fx)).toEqual([]);
+  });
+});
+
+describe('benchmarkPointsInILS', () => {
+  const fx = [{ date: '2024-01-01', close: 4 }];
+  const points = [{ date: '2024-01-01', close: 100 }];
+
+  test('converts a dollar-quoted index', () => {
+    expect(benchmarkPointsInILS(points, 'USD', fx)).toEqual([{ date: '2024-01-01', close: 400 }]);
+  });
+
+  // A TASE index is already in shekels; converting it would apply an FX
+  // move that never happened to it.
+  test('leaves a shekel-quoted index exactly as it is', () => {
+    expect(benchmarkPointsInILS(points, 'ILS', fx)).toBe(points);
+  });
+
+  test('handles a missing series without throwing', () => {
+    expect(benchmarkPointsInILS(null, 'ILS', fx)).toEqual([]);
+    expect(benchmarkPointsInILS(null, 'USD', fx)).toEqual([]);
   });
 });

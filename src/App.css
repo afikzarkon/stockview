@@ -775,6 +775,64 @@ h3 {
   min-width: 0;
 }
 
+/* An overview card that opens the page holding its rows.
+   A button rather than a link with an onClick - it performs an in-app
+   navigation, and a button is what a screen reader and the keyboard both
+   already understand. It takes the card's place in the flex row, so the
+   card inside keeps the exact geometry it has when rendered on its own. */
+.summary-card-link {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  /* The rows inside are right-aligned figures; a button's centred default
+     would undo that. */
+  text-align: inherit;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.summary-card-link:hover,
+.summary-card-link:focus-visible {
+  transform: translateY(-2px);
+}
+
+.summary-card-link:hover .summary-section,
+.summary-card-link:focus-visible .summary-section {
+  border-color: var(--sw-accent);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+}
+
+.summary-card-link-hint {
+  position: absolute;
+  top: 18px;
+  inset-inline-start: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--sw-accent-strong);
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.summary-card-link:hover .summary-card-link-hint,
+.summary-card-link:focus-visible .summary-card-link-hint {
+  opacity: 1;
+}
+
+/* Touch has no hover to reveal the hint with, so it is simply always
+   visible there. */
+@media (hover: none) {
+  .summary-card-link-hint {
+    opacity: 1;
+  }
+}
+
 @media (max-width: 768px) {
   .summary-grid {
     grid-template-columns: 1fr;
@@ -2487,6 +2545,276 @@ h3 {
   font-weight: 600;
   color: var(--sw-text);
 }
+
+/* ── Market / scope selection above the performance chart ───────────── */
+
+.segment-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 12px 0;
+}
+
+.segment-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.segment-group-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--sw-text-dim);
+}
+
+/* A segmented control: one connected strip, so the options read as
+   alternatives rather than as separate buttons. */
+.segment-buttons {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius-sm);
+  background: var(--sw-surface-2);
+}
+
+.segment-button {
+  padding: 7px 14px;
+  border: none;
+  border-radius: calc(var(--sw-radius-sm) - 2px);
+  background: none;
+  color: var(--sw-text-dim);
+  font: inherit;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.segment-button:hover {
+  color: var(--sw-text);
+}
+
+.segment-button.active {
+  background: var(--sw-accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.segment-summary {
+  margin-bottom: 12px;
+}
+
+@media (max-width: 640px) {
+  /* The label sits above its strip rather than beside it, and the strip
+     scrolls instead of wrapping mid-control. */
+  .segment-controls {
+    gap: 12px;
+  }
+
+  .segment-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .segment-buttons {
+    overflow-x: auto;
+  }
+}
+
+/* ── בדיקת נתונים: the working behind the performance curve ─────────── */
+
+.audit-panel {
+  margin-top: 14px;
+  border: 1px solid var(--sw-border);
+  border-radius: 10px;
+  background: var(--sw-surface);
+  overflow: hidden;
+}
+
+.audit-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: none;
+  background: none;
+  color: var(--sw-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.audit-toggle:hover {
+  background: var(--sw-surface-2);
+}
+
+.audit-toggle-chevron {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--sw-text-dim);
+  transform: rotate(90deg);
+  transition: transform 0.18s ease;
+}
+
+.audit-toggle[aria-expanded='true'] .audit-toggle-chevron {
+  transform: rotate(0deg);
+}
+
+.audit-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--sw-border);
+}
+
+.audit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.audit-action {
+  padding: 7px 14px;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius-sm);
+  background: var(--sw-surface-2);
+  color: var(--sw-text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.audit-action:hover {
+  border-color: var(--sw-accent);
+  background: var(--sw-surface);
+}
+
+/* Thirteen columns of figures. Tabular numerals so a column reads as a
+   column, and a smaller size so more of it fits before the container has
+   to scroll sideways. */
+.audit-table {
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.audit-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--sw-surface-2);
+}
+
+/* ── פיזור לפי תאריכי קנייה: year accordion ─────────────────────────── */
+
+/* The years are a list of disclosure rows, each holding that year's
+   months. Built on the same --sw- surface/border tokens as the cards
+   above, so it inherits both themes without a second palette. */
+.year-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.year-accordion-item {
+  border: 1px solid var(--sw-border);
+  border-radius: 10px;
+  background: var(--sw-surface);
+  overflow: hidden;
+}
+
+.year-accordion-item.is-open {
+  border-color: var(--sw-accent-strong);
+}
+
+.year-accordion-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: none;
+  background: none;
+  color: var(--sw-text);
+  font: inherit;
+  /* The row is RTL like the rest of the page; the chevron leads and the
+     figures follow, which logical properties handle without a mirrored
+     rule. */
+  text-align: start;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.year-accordion-header:hover {
+  background: var(--sw-surface-2);
+}
+
+.year-accordion-chevron {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--sw-text-dim);
+  /* Points at the closed row's content edge, and rotates to point down
+     when the year is open. */
+  transform: rotate(90deg);
+  transition: transform 0.18s ease;
+}
+
+.year-accordion-item.is-open .year-accordion-chevron {
+  transform: rotate(0deg);
+}
+
+.year-accordion-year {
+  font-weight: 700;
+  font-size: 1.05rem;
+  /* Tabular figures so a column of years lines up digit for digit. */
+  font-variant-numeric: tabular-nums;
+}
+
+.year-accordion-value {
+  /* Takes the slack, pushing the count to the far edge and keeping every
+     row's total aligned with the one above it. */
+  margin-inline-start: auto;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.year-accordion-count {
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  color: var(--sw-text-dim);
+}
+
+.year-accordion-body {
+  padding: 0 16px 14px;
+  border-top: 1px solid var(--sw-border);
+}
+
+.year-accordion-body .date-list {
+  margin-top: 12px;
+}
+
+@media (max-width: 640px) {
+  /* Three figures plus a chevron do not fit on one phone-width line, so
+     the row wraps and the total moves under the year rather than being
+     squeezed to an ellipsis. */
+  .year-accordion-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  .year-accordion-value {
+    margin-inline-start: 0;
+    width: 100%;
+  }
+}
+
 
 .date-item-actions {
   display: flex;
@@ -4490,12 +4818,41 @@ select {
   color: var(--sw-text);
 }
 
+/* The groups' scroll container. With eleven destinations the list can
+   outgrow a short viewport, so it scrolls on its own and leaves the brand
+   pinned at the top and the user/theme footer pinned at the bottom - both
+   stay reachable without scrolling the nav back. */
+.side-nav-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* Not scrollbar-width: none - a scrollable region with no visible
+     affordance is a region users don't know they can scroll. */
+  scrollbar-width: thin;
+}
+
+.side-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.side-nav-group-label {
+  padding: 0 12px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--sw-text-dim);
+}
+
 .side-nav-list {
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex: 1;
   margin: 0;
   padding: 0;
 }
@@ -4945,10 +5302,34 @@ select {
     display: none;
   }
 
+  /* Eleven destinations will not fit across a phone. Rather than shrink
+     them past legibility, the bar scrolls sideways and the group labels
+     drop out - the icons carry the grouping visually at this size. */
+  .side-nav-scroll {
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .side-nav-group {
+    flex-direction: row;
+    gap: 4px;
+  }
+
+  .side-nav-group-label {
+    display: none;
+  }
+
   .side-nav-list {
     flex-direction: row;
-    justify-content: space-around;
     gap: 2px;
+  }
+
+  .side-nav-link {
+    white-space: nowrap;
   }
 
   .side-nav-link {
@@ -5201,3 +5582,32 @@ select {
 .kpi-row > .kpi-tile:nth-child(2) { animation-delay: 45ms; }
 .kpi-row > .kpi-tile:nth-child(3) { animation-delay: 90ms; }
 .kpi-row > .kpi-tile:nth-child(n + 4) { animation-delay: 135ms; }
+
+/* The US view's currency toggle. A real checkbox rather than a third
+   segmented control: it is an independent on/off modifier of the market
+   already chosen, not a fourth market. */
+.fx-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius-sm);
+  background: var(--sw-surface-2);
+  font-size: 0.85rem;
+  color: var(--sw-text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.fx-toggle:hover {
+  border-color: var(--sw-accent);
+}
+
+.fx-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--sw-accent);
+}
