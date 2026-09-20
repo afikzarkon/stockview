@@ -82,6 +82,92 @@ function HomeView({
       children
     );
 
+  // Every control that acts on this page, in one strip, split by weight:
+  // one filled primary action, and a quiet cluster of view/export
+  // secondaries. These used to be spread across three places - a bar above
+  // the title, a header row, and a block buried between the summary and
+  // the tables.
+  const secondaryActions = (
+    <>
+      <ToolbarButton
+        onClick={() => setIsEditMode(!isEditMode)}
+        pressed={isEditMode}
+        title="עריכת תאים ישירות בטבלאות"
+      >
+        {isEditMode ? '✓ מצב עריכה' : 'מצב עריכה'}
+      </ToolbarButton>
+      <ToolbarButton
+        onClick={() => setShowAmericanColumns(!showAmericanColumns)}
+        pressed={showAmericanColumns}
+        title="עמודות מס, מדד ורווח ריאלי"
+      >
+        נתונים מורחבים
+      </ToolbarButton>
+      {hasAnyData && (
+        <>
+          <ToolbarButton onClick={handleExportExcel} title="ייצוא הטבלאות לאקסל">
+            ייצוא Excel
+          </ToolbarButton>
+          <ToolbarButton onClick={handleExportPdf} title="ייצוא הטבלאות ל-PDF">
+            ייצוא PDF
+          </ToolbarButton>
+        </>
+      )}
+      {showLegacyImportButton && (
+        <ToolbarButton onClick={handleLegacyImportOnce} disabled={legacyImportLoading}>
+          {legacyImportLoading ? 'מייבא…' : 'ייבוא מהדפדפן'}
+        </ToolbarButton>
+      )}
+    </>
+  );
+
+  // Save is the primary action only while there is something to save;
+  // otherwise it states that everything is saved and stays out of the way.
+  const primaryAction = (
+    <>
+      <ToolbarPrimaryButton onClick={handleAddInfo}>+ הוספת מידע</ToolbarPrimaryButton>
+      <ToolbarButton onClick={savePortfolio} disabled={!hasUnsavedChanges || saveLoading} pressed={hasUnsavedChanges}>
+        {saveLoading ? 'שומר…' : hasUnsavedChanges ? 'שמור שינויים' : 'נשמר'}
+      </ToolbarButton>
+    </>
+  );
+
+  const status = (
+    <>
+      {hasAnyData && (
+        <span className={`price-refresh-status ${pricesRefreshing ? 'is-refreshing' : ''}`}>
+          <span className="price-refresh-dot" />
+          {pricesRefreshing
+            ? hasLoadedLivePrices
+              ? 'מעדכן מחירים…'
+              : 'טוען מחירים עדכניים…'
+            : pricesLastRefreshAt
+            ? `מחירים עודכנו ב-${pricesLastRefreshAt.toLocaleTimeString('he-IL')}`
+            : 'מוצגים מחירים אחרונים שנשמרו'}
+        </span>
+      )}
+      {lastSavedAt && (
+        <ToolbarStatus>נשמר לאחרונה: {lastSavedAt.toLocaleTimeString('he-IL')}</ToolbarStatus>
+      )}
+      {lastSnapshotSavedAt && (
+        <ToolbarStatus>מידע יומי נשמר: {lastSnapshotSavedAt.toLocaleTimeString('he-IL')}</ToolbarStatus>
+      )}
+      {saveError && <ToolbarStatus tone="negative">{saveError}</ToolbarStatus>}
+      {snapshotSaveError && <ToolbarStatus tone="negative">{snapshotSaveError}</ToolbarStatus>}
+      {exportError && <ToolbarStatus tone="negative">{exportError}</ToolbarStatus>}
+      {legacyImportBanner && <ToolbarStatus tone="positive">{legacyImportBanner}</ToolbarStatus>}
+    </>
+  );
+
+  const toneOf = (value) => (value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral');
+
+  // There is no portfolio-wide profit percentage on the summary - only
+  // per-market ones - so it is derived here from the two totals that do
+  // exist. Null rather than 0 when there is nothing invested to divide by,
+  // so an empty portfolio doesn't report a confident "0.00%".
+  const totalProfitPercent =
+    summary.totalPurchaseILS > 0 ? (summary.totalProfitILS / summary.totalPurchaseILS) * 100 : null;
+
   return (
     <div className="App">
       <div className="welcome-container">
