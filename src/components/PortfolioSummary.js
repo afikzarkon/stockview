@@ -14,6 +14,13 @@ import React from 'react';
 
 // A card's frame. Kept in one place so every card keeps the same padding,
 // title weight and row rhythm no matter which page renders it.
+//
+// The figures inside are .summary-item/.summary-label/.summary-value
+// triples. That markup is already a tile - a label and a value - so
+// turning these cards from a stacked list of rows into a scannable grid
+// of tiles is done entirely in App.css (see .summary-section), with the
+// gain/loss classes the values already carry rendered as tinted badges.
+// Nothing here had to change for it, which is why nothing here did.
 function SummaryCard({ children }) {
   return <div className="summary-section summary-col">{children}</div>;
 }

@@ -15,30 +15,60 @@ function readTokens() {
   return { dark: grab(':root {'), light: grab(":root[data-theme='light'] {") };
 }
 
-function toRgb(hex) {
-  const h = hex.replace('#', '').trim();
+// A token is either a hex literal or an rgba(). Both have to be handled,
+// because the dark theme's card surfaces are translucent glass.
+function parseColor(value) {
+  const text = String(value).trim();
+  const fn = text.match(/^rgba?\(([^)]+)\)$/i);
+  if (fn) {
+    const parts = fn[1].split(',').map((p) => parseFloat(p.trim()));
+    return { rgb: parts.slice(0, 3), alpha: parts.length > 3 ? parts[3] : 1 };
+  }
+  const h = text.replace('#', '');
   const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
-  return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
+  return { rgb: [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16)), alpha: 1 };
 }
 
-function luminance(hex) {
-  const [r, g, b] = toRgb(hex).map((v) => {
+// A TRANSLUCENT SURFACE HAS NO COLOR OF ITS OWN. What a reader actually
+// sees is it composited over whatever is behind it, so contrast has to be
+// measured against that composite rather than against the nominal token -
+// otherwise a glass card could be declared accessible on the strength of a
+// color that is never painted.
+//
+// The backdrop is the page's own --sw-bg. That is the conservative choice:
+// the ambient gradients drawn over it are low-alpha and only lighten it,
+// and a lighter backdrop behind a dark pane can only raise the contrast of
+// the light text on top.
+function flatten(value, backdrop) {
+  const fg = parseColor(value);
+  if (fg.alpha >= 1) return fg.rgb;
+  const bg = parseColor(backdrop).rgb;
+  return fg.rgb.map((channel, i) => channel * fg.alpha + bg[i] * (1 - fg.alpha));
+}
+
+function luminance(rgb) {
+  const [r, g, b] = rgb.map((v) => {
     const c = v / 255;
     return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
   });
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-function contrast(a, b) {
-  const l1 = luminance(a);
-  const l2 = luminance(b);
-  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-}
-
 const tokens = readTokens();
+
+// Kept for the hue-distance check below, which compares opaque brand
+// colors and needs their channels rather than a composite.
+const toRgb = (value) => parseColor(value).rgb;
 
 describe.each(['dark', 'light'])('%s theme contrast', (themeName) => {
   const t = tokens[themeName];
+  const pageBackdrop = t['--sw-bg'] || tokens.dark['--sw-bg'];
+
+  const contrast = (a, b) => {
+    const l1 = luminance(flatten(a, pageBackdrop));
+    const l2 = luminance(flatten(b, pageBackdrop));
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+  };
 
   test('body text on the page and on a card clears WCAG AA (4.5:1)', () => {
     expect(contrast(t['--sw-text'], t['--sw-bg'])).toBeGreaterThanOrEqual(4.5);
@@ -76,6 +106,22 @@ describe.each(['dark', 'light'])('%s theme contrast', (themeName) => {
       expect(dist).toBeGreaterThan(80);
     }));
   });
+});
+
+// The glass treatment is a palette decision, not only a CSS one: if these
+// surfaces ever go back to opaque, the blur behind them becomes work that
+// produces nothing, and the compositing above becomes a no-op that hides
+// the fact.
+test('the dark card surfaces are translucent, which is what the blur behind them is for', () => {
+  expect(parseColor(tokens.dark['--sw-surface']).alpha).toBeLessThan(1);
+  expect(parseColor(tokens.dark['--sw-surface-2']).alpha).toBeLessThan(1);
+});
+
+// Anything a sticky header is painted with has to be opaque, or the rows
+// scrolling beneath it show through the header text.
+test('the surface used behind sticky headers stays opaque', () => {
+  expect(parseColor(tokens.dark['--sw-surface-3']).alpha).toBe(1);
+  expect(parseColor(tokens.light['--sw-surface-3']).alpha).toBe(1);
 });
 
 test('both themes define the same token names, so no rule can resolve to nothing', () => {

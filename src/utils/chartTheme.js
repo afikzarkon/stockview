@@ -19,11 +19,15 @@ const DARK = {
   benchmark: '#f59e0b',
   positive: '#10b981',
   negative: '#ef4444',
-  grid: 'rgba(148, 163, 184, 0.14)',
-  axis: '#94a3b8',
-  tooltipBg: 'rgba(15, 23, 42, 0.92)',
-  tooltipBorder: 'rgba(148, 163, 184, 0.22)',
-  tooltipText: '#f1f5f9',
+  // Barely there on purpose. A grid is a reading aid for the axis, not a
+  // texture: at the old alpha a year of weekly points sat behind a visible
+  // lattice, and the lattice was the busiest thing on the chart. This is
+  // low enough to find a value against and to disappear otherwise.
+  grid: 'rgba(255, 255, 255, 0.055)',
+  axis: '#a1a1aa',
+  tooltipBg: 'rgba(9, 9, 11, 0.88)',
+  tooltipBorder: 'rgba(255, 255, 255, 0.14)',
+  tooltipText: '#fafafa',
   // Categorical series: distinct in hue AND in lightness, so they stay
   // separable in greyscale and to the most common color deficiencies -
   // a pie chart of ten sectors is unreadable otherwise.
@@ -48,7 +52,7 @@ const LIGHT = {
   benchmark: '#d97706',
   positive: '#047857',
   negative: '#dc2626',
-  grid: 'rgba(15, 23, 42, 0.08)',
+  grid: 'rgba(15, 23, 42, 0.05)',
   axis: '#64748b',
   tooltipBg: 'rgba(255, 255, 255, 0.96)',
   tooltipBorder: '#e2e8f0',
@@ -92,8 +96,7 @@ export const tooltipStyles = (theme) => {
   };
 };
 
-// Ids for the <linearGradient> defs used to fill the area under a trend
+// Id for the <linearGradient> def used to fill the area under a trend
 // line. Kept here so the gradient and the stroke that sits on top of it
 // can never drift apart.
 export const AREA_GRADIENT_ID = 'swAreaGradient';
-export const BENCHMARK_GRADIENT_ID = 'swBenchmarkGradient';

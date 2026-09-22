@@ -32,22 +32,36 @@
   color-scheme: dark;
 
   /* Depth: bg sits behind everything; surface is a card; surface-2/3 are
-     raised or inset areas within one. */
-  --sw-bg: #0b0f19;
-  --sw-bg-elevated: #0f172a;
-  --sw-surface: #111827;
-  --sw-surface-2: #172033;
-  --sw-surface-3: #1e293b;
+     raised or inset areas within one.
+     True black rather than a dark navy - on OLED the background is then
+     genuinely off, which is what makes the ambient gradients below read as
+     light in a room rather than as a lighter shade of panel. */
+  --sw-bg: #000000;
+  --sw-bg-elevated: #09090b;
+
+  /* TRANSLUCENT, and paired with a blur wherever they are painted: a card
+     is a pane over the page's glows, not an opaque tile on top of them. */
+  --sw-surface: rgba(24, 24, 27, 0.6);
+  --sw-surface-2: rgba(39, 39, 42, 0.55);
+
+  /* Deliberately OPAQUE, unlike the two above. This is the token for
+     surfaces that something scrolls underneath - a sticky table header
+     most of all - where translucency would let the rows show straight
+     through the header text. */
+  --sw-surface-3: #1b1b1f;
 
   /* Glassmorphism: a translucent card over the page's ambient glows. The
      blur is what sells it, so the fill stays low-alpha. */
-  --sw-glass: rgba(17, 24, 39, 0.72);
-  --sw-glass-strong: rgba(15, 23, 42, 0.88);
+  --sw-glass: rgba(9, 9, 11, 0.72);
+  --sw-glass-strong: rgba(0, 0, 0, 0.88);
   --sw-glass-blur: 16px;
 
-  --sw-border: rgba(148, 163, 184, 0.14);
-  --sw-border-strong: rgba(148, 163, 184, 0.22);
-  --sw-border-hover: rgba(148, 163, 184, 0.34);
+  /* Hairlines in plain white at low alpha, which is what keeps an edge
+     visible over both the black background and the colored glows without
+     picking up a hue of its own. */
+  --sw-border: rgba(255, 255, 255, 0.1);
+  --sw-border-strong: rgba(255, 255, 255, 0.16);
+  --sw-border-hover: rgba(255, 255, 255, 0.26);
 
   --sw-text: #f1f5f9;
   --sw-text-secondary: #94a3b8;
@@ -79,11 +93,12 @@
   --sw-shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.55);
   --sw-ring: 0 0 0 3px rgba(99, 102, 241, 0.35);
 
-  /* Shape - one scale, used everywhere. */
-  --sw-radius-sm: 8px;
-  --sw-radius: 12px;
-  --sw-radius-lg: 16px;
-  --sw-radius-xl: 20px;
+  /* Shape - one scale, used everywhere. Softer than before: the corner
+     radius is most of what separates a "panel" from a "card". */
+  --sw-radius-sm: 10px;
+  --sw-radius: 14px;
+  --sw-radius-lg: 20px;
+  --sw-radius-xl: 26px;
   --sw-radius-pill: 999px;
 
   --sw-transition: 180ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -249,10 +264,15 @@ body {
    so a full-bleed dark page reads as lit rather than flat. Fixed, so they
    don't drift while scrolling, and low-alpha enough that no text ever
    loses contrast over them. */
+/* Over true black the same fields have to be a touch stronger to register
+   at all, and a fourth adds a warm counterpoint low on the page so the
+   mesh does not read as one blue wash. Still far below the alpha at which
+   any text over them loses contrast. */
 [data-theme='dark'] body {
-  background: radial-gradient(1200px 620px at 15% -12%, rgba(99, 102, 241, 0.14), transparent 62%),
-    radial-gradient(1000px 560px at 100% 0%, rgba(34, 211, 238, 0.09), transparent 58%),
-    radial-gradient(900px 700px at 50% 110%, rgba(16, 185, 129, 0.06), transparent 60%), var(--sw-bg);
+  background: radial-gradient(1200px 620px at 12% -14%, rgba(99, 102, 241, 0.2), transparent 62%),
+    radial-gradient(1000px 560px at 100% -4%, rgba(34, 211, 238, 0.13), transparent 58%),
+    radial-gradient(900px 700px at 48% 112%, rgba(16, 185, 129, 0.09), transparent 60%),
+    radial-gradient(760px 520px at 88% 78%, rgba(168, 85, 247, 0.08), transparent 62%), var(--sw-bg);
   background-attachment: fixed;
 }
 
@@ -4648,6 +4668,12 @@ select {
 .distribution-card,
 .feature-card,
 .monthly-history-card,
+.summary-section,
+.kpi-tile,
+.table-container,
+.equity-chart-container,
+.pie-chart-container,
+.report-card,
 .stocks-section {
   border-radius: var(--sw-radius-lg);
   border: 1px solid var(--sw-border);
@@ -4655,11 +4681,41 @@ select {
   box-shadow: var(--sw-shadow);
 }
 
+/* GLASS. The surface tokens are translucent in dark mode, so without a
+   blur behind them a card would simply be a washed-out rectangle showing
+   a sharp copy of the gradients underneath. The blur is what turns that
+   into a pane.
+   Dark only: the light theme's surfaces are opaque white, where a blur
+   would cost the same work to produce no visible result. */
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  [data-theme='dark'] .analysis-section,
+  [data-theme='dark'] .portfolio-summary,
+  [data-theme='dark'] .form-container,
+  [data-theme='dark'] .distribution-card,
+  [data-theme='dark'] .feature-card,
+  [data-theme='dark'] .monthly-history-card,
+  [data-theme='dark'] .summary-section,
+  [data-theme='dark'] .kpi-tile,
+  [data-theme='dark'] .table-container,
+  [data-theme='dark'] .equity-chart-container,
+  [data-theme='dark'] .pie-chart-container,
+  [data-theme='dark'] .report-card,
+  [data-theme='dark'] .analysis-tabs,
+  [data-theme='dark'] .stocks-section {
+    -webkit-backdrop-filter: blur(var(--sw-glass-blur)) saturate(150%);
+    backdrop-filter: blur(var(--sw-glass-blur)) saturate(150%);
+  }
+}
+
+/* The hairline of light along a card's top edge - what reads as the edge
+   catching the ambient glow rather than as a border. */
 [data-theme='dark'] .analysis-section,
 [data-theme='dark'] .portfolio-summary,
 [data-theme='dark'] .distribution-card,
+[data-theme='dark'] .summary-section,
+[data-theme='dark'] .kpi-tile,
 [data-theme='dark'] .feature-card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 120px), var(--sw-surface);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 120px);
 }
 
 /* KPI tiles: the summary figures, given a little more presence than a
@@ -6779,5 +6835,118 @@ select {
   .audit-table th,
   .audit-table td {
     padding: 5px 6px;
+  }
+}
+
+/* =============================================================
+   SUMMARY CARDS AS A KPI GRID
+   =============================================================
+
+   These were label/value lines stacked seven to ten deep - a paragraph of
+   numbers in which nothing was emphasised, so finding one figure meant
+   reading all of them.
+
+   The markup is unchanged: a .summary-item already holds a label and a
+   value, which is a tile. Laying the card out as a grid rather than a
+   column turns each row into one, puts two or three on a line, and makes
+   the card something to scan instead of something to read. */
+.summary-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+.summary-section-title {
+  grid-column: 1 / -1;
+}
+
+/* A tile: the label above, quiet and small; the figure below, large
+   enough to be the thing the eye lands on. */
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 5px;
+  min-height: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius-sm);
+  background: var(--sw-surface-2);
+}
+
+.summary-item:last-child {
+  border-bottom: 1px solid var(--sw-border);
+}
+
+.summary-label {
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  color: var(--sw-text-secondary);
+  /* The labels are full sentences ending in a colon; at tile width they
+     wrap, and a tile whose label wraps to three lines would set the row
+     height for every tile beside it. */
+  overflow-wrap: anywhere;
+}
+
+.summary-value {
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-align: start;
+  color: var(--sw-text);
+}
+
+/* COLOUR-CODED BADGES, from the classes the values already carry.
+   Colour alone on plain text is easy to miss among a dozen figures and is
+   the first thing lost to a red/green deficiency; the tint, border and
+   shape carry the sign before the digits are read. */
+.summary-value.profit-positive,
+.summary-value.profit-negative {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: var(--sw-radius-pill);
+  border: 1px solid transparent;
+  font-size: 0.92rem;
+}
+
+.summary-value.profit-positive {
+  background: var(--sw-green-soft);
+  border-color: var(--sw-green-border);
+  color: var(--sw-green);
+}
+
+.summary-value.profit-negative {
+  background: var(--sw-red-soft);
+  border-color: var(--sw-red-border);
+  color: var(--sw-red);
+}
+
+/* Deliberately NO special treatment for the last tile. It is the card's
+   total in exactly one of the seven cards ("סה"כ מצב ההון"); in the rest
+   it is a daily change or a share of the portfolio, so emphasising it by
+   position would highlight an arbitrary figure six times out of seven. */
+
+.summary-section-title {
+  text-align: start;
+  justify-content: flex-start;
+}
+
+@media (max-width: 480px) {
+  .summary-section {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .summary-item {
+    padding: 8px 9px;
+  }
+
+  .summary-value {
+    font-size: 0.95rem;
   }
 }

@@ -1010,25 +1010,30 @@ function PortfolioAnalysisView({
                           <stop offset="100%" stopColor={chart.accent} stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+                      {/* Horizontal only, solid and faint. The dashed
+                          lattice it replaces was the busiest thing on the
+                          chart; a grid is there to read a value against,
+                          not to be seen. */}
+                      <CartesianGrid stroke={chart.grid} vertical={false} />
                       <XAxis
                         dataKey="date"
                         tickFormatter={(d) => formatDate(d)}
-                        tick={{ fontSize: 12, fill: chart.axis }}
+                        tick={{ fontSize: 11, fill: chart.axis }}
                         stroke={chart.grid}
                         tickLine={false}
-                        minTickGap={24}
+                        axisLine={false}
+                        minTickGap={28}
                       />
                       {/* Both series are based at 100, so the axis reads as
                           the growth since the first date rather than as an
                           index level nobody has to decode. */}
                       <YAxis
                         tickFormatter={(v) => `${v >= 100 ? '+' : ''}${(v - 100).toFixed(0)}%`}
-                        tick={{ fontSize: 12, fill: chart.axis }}
+                        tick={{ fontSize: 11, fill: chart.axis }}
                         stroke={chart.grid}
                         tickLine={false}
                         axisLine={false}
-                        width={54}
+                        width={52}
                       />
                       <Tooltip
                         {...chartTooltip}
