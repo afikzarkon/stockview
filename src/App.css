@@ -6845,115 +6845,127 @@ select {
 }
 
 /* =============================================================
-   SUMMARY CARDS AS A KPI GRID
+   SUMMARY CARDS AS A STATEMENT
    =============================================================
 
-   These were label/value lines stacked seven to ten deep - a paragraph of
-   numbers in which nothing was emphasised, so finding one figure meant
-   reading all of them.
+   Row per figure, the way a statement of accounts is read: label on the
+   reading edge, amount on the far one, a hairline between them.
 
-   The markup is unchanged: a .summary-item already holds a label and a
-   value, which is a tile. Laying the card out as a grid rather than a
-   column turns each row into one, puts two or three on a line, and makes
-   the card something to scan instead of something to read. */
+   These were tried as a grid of tiles. Tiles suit a handful of headline
+   numbers - which is what the KPI block above is for - but these cards
+   hold seven to ten related lines that are meant to be compared with each
+   other and to add up. Boxing each one separated figures that belong in a
+   column, and broke the single most useful property a list of money has:
+   the amounts no longer lined up, so they could not be scanned down or
+   checked against a total.
+
+   The card keeps its bento frame; it is the contents that are a list. */
 .summary-section {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
-  gap: 8px;
-  align-content: start;
-}
-
-.summary-section-title {
-  grid-column: 1 / -1;
-}
-
-/* A tile: the label above, quiet and small; the figure below, large
-   enough to be the thing the eye lands on. */
-.summary-item {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 5px;
-  min-height: 0;
-  padding: 9px 11px;
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius-sm);
-  background: var(--sw-surface-2);
+  gap: 0;
 }
 
-.summary-item:last-child {
+/* Two columns, the second sized to the widest amount in the card - so
+   every figure in it shares one right edge and the currency suffixes
+   stack in a straight line. */
+.summary-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 14px;
+  min-height: 0;
+  padding: 7px 4px;
+  border: none;
+  border-radius: var(--sw-radius-sm);
   border-bottom: 1px solid var(--sw-border);
+  background: none;
+}
+
+/* The final row closes the list; there is nothing under it to divide it
+   from. */
+.summary-item:last-child {
+  border-bottom: none;
+}
+
+/* A whole row lights up under the cursor, which is what lets the eye
+   carry a long label across to its amount without losing the line. */
+[data-theme='dark'] .summary-item:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+[data-theme='light'] .summary-item:hover {
+  background: rgba(15, 23, 42, 0.03);
 }
 
 .summary-label {
-  font-size: 0.7rem;
+  font-size: 0.82rem;
   font-weight: 500;
-  line-height: 1.35;
-  letter-spacing: 0.01em;
+  line-height: 1.4;
+  letter-spacing: 0;
   color: var(--sw-text-secondary);
-  /* The labels are full sentences ending in a colon; at tile width they
-     wrap, and a tile whose label wraps to three lines would set the row
-     height for every tile beside it. */
   overflow-wrap: anywhere;
 }
 
 .summary-value {
-  font-size: 1.02rem;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  text-align: start;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: end;
   color: var(--sw-text);
 }
 
-/* COLOUR-CODED BADGES, from the classes the values already carry.
-   Colour alone on plain text is easy to miss among a dozen figures and is
-   the first thing lost to a red/green deficiency; the tint, border and
-   shape carry the sign before the digits are read. */
+/* Colour, not a badge. A pill carries padding, and padding is exactly
+   what breaks the alignment this layout exists for - every amount would
+   start at a different place depending on whether it happened to be a
+   gain. In a column of figures the colour has the surrounding rows to be
+   read against, which is the context a lone badge has to supply for
+   itself. */
 .summary-value.profit-positive,
 .summary-value.profit-negative {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 9px;
-  border-radius: var(--sw-radius-pill);
-  border: 1px solid transparent;
-  font-size: 0.92rem;
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 0;
+  font-size: 0.9rem;
 }
 
 .summary-value.profit-positive {
-  background: var(--sw-green-soft);
-  border-color: var(--sw-green-border);
   color: var(--sw-green);
 }
 
 .summary-value.profit-negative {
-  background: var(--sw-red-soft);
-  border-color: var(--sw-red-border);
   color: var(--sw-red);
 }
 
-/* Deliberately NO special treatment for the last tile. It is the card's
-   total in exactly one of the seven cards ("סה"כ מצב ההון"); in the rest
-   it is a daily change or a share of the portfolio, so emphasising it by
-   position would highlight an arbitrary figure six times out of seven. */
-
+/* Cards sit side by side in the dashboard grid, and a title that wraps to
+   two lines in one of a pair would push its first row out of step with
+   the card beside it. */
 .summary-section-title {
   text-align: start;
   justify-content: flex-start;
 }
 
 @media (max-width: 480px) {
-  .summary-section {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
+  /* Two columns even here. An earlier rule stacked label over amount at
+     this width; that reads as a list of separate facts again, and the
+     alignment is the whole point. The label wraps instead - a statement
+     on paper does the same. */
+  .summary-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 6px 2px;
   }
 
-  .summary-item {
-    padding: 8px 9px;
+  .summary-label {
+    font-size: 0.78rem;
   }
 
   .summary-value {
-    font-size: 0.95rem;
+    font-size: 0.85rem;
   }
 }
 
