@@ -105,9 +105,17 @@ function HomeView({
                   grid that says so. The three beside it qualify it. */}
               <KpiTile
                 featured
-                label="שווי התיק"
+                label="שווי תיק כולל"
                 icon="₪"
                 value={`${formatPriceWithSign(summary.capitalTotalILS)} ₪`}
+                // The overall return, beside the figure it qualifies
+                // rather than under it.
+                badge={
+                  totalProfitPercent != null
+                    ? `${totalProfitPercent >= 0 ? '+' : ''}${totalProfitPercent.toFixed(1)}%`
+                    : null
+                }
+                badgeTone={totalProfitPercent != null ? toneOf(totalProfitPercent) : 'neutral'}
                 sub="סך כל הנכסים"
               />
               <KpiTile
@@ -126,7 +134,9 @@ function HomeView({
                 icon="◷"
                 tone={toneOf(summary.dailyProfitILS)}
                 value={`${formatPriceWithSign(summary.dailyProfitILS)} ₪`}
-                sub={`${summary.weightedDailyChange.toFixed(2)}% משוקלל`}
+                badge={`${summary.weightedDailyChange >= 0 ? '+' : ''}${summary.weightedDailyChange.toFixed(2)}%`}
+                badgeTone={toneOf(summary.dailyProfitILS)}
+                sub="משוקלל לפי שווי ההחזקות"
               />
               {/* Fills the rest of the featured tile's second row, so the
                   block stays rectangular. */}

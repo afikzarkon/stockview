@@ -7135,3 +7135,168 @@ select {
   background: rgba(255, 255, 255, 0.28);
   color: rgba(9, 9, 11, 0.6);
 }
+
+/* =============================================================
+   HOME - one continuous bento
+   =============================================================
+
+   The dashboard was two stacked layouts: a KPI strip, then a bordered
+   panel titled "סיכום התיק" holding four fixed rows of two cards. Two
+   grids with two different rhythms, one framed inside a second card, read
+   as two pages joined end to end rather than as a dashboard.
+
+   It is one grid now, four columns wide, with tiles of different spans -
+   the headline block, the market cards, the account cards - all on the
+   same rhythm and the same gutter.
+
+   .summary-row becomes `display: contents`: the row wrappers exist in the
+   markup to pair cards, and that pairing is now the grid's job. Dropping
+   them from the box tree promotes the cards themselves to grid items, so
+   the spans below can vary per card without touching the JSX. */
+.summary-grid-custom {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.summary-row {
+  display: contents;
+}
+
+/* A market or account card takes half the width; the capital overview,
+   which is the whole portfolio broken down, takes all of it. */
+.summary-grid-custom > .summary-row > * {
+  grid-column: span 2;
+  min-width: 0;
+}
+
+.summary-grid-custom > .summary-row-single > * {
+  grid-column: span 4;
+}
+
+/* The panel around the cards goes. It was a card containing cards - a
+   frame whose only job was to hold a heading, which the heading can do on
+   its own. */
+.portfolio-summary {
+  background: none;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0;
+  margin: 18px 0 0;
+}
+
+[data-theme='dark'] .portfolio-summary {
+  background: none;
+  background-image: none;
+}
+
+.portfolio-summary-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: start;
+  color: var(--sw-text-secondary);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  margin: 0 0 12px;
+}
+
+/* One gutter for the whole page. */
+.kpi-row {
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 900px) {
+  .summary-grid-custom {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summary-grid-custom > .summary-row > *,
+  .summary-grid-custom > .summary-row-single > * {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 560px) {
+  .summary-grid-custom {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .summary-grid-custom > .summary-row > *,
+  .summary-grid-custom > .summary-row-single > * {
+    grid-column: span 1;
+  }
+}
+
+/* =============================================================
+   KPI TILE - the mockup's figure treatment
+   ============================================================= */
+
+/* The icon as a corner watermark. At the label's size it read as part of
+   the text; at a third of the opacity in the corner it is a category
+   marker the eye can ignore. */
+.kpi-tile-mark {
+  position: absolute;
+  top: 14px;
+  inset-inline-end: 16px;
+  z-index: 1;
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--sw-text);
+  opacity: 0.16;
+  pointer-events: none;
+}
+
+.kpi-tile-label {
+  position: relative;
+  z-index: 1;
+}
+
+/* The figure and its change share a baseline: a percentage is a qualifier
+   of the number beside it, not a second statistic under it. */
+.kpi-tile-figure {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.kpi-tile-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: var(--sw-radius-sm);
+  border: 1px solid transparent;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* Lifted off the baseline it shares with a 3rem figure, so it sits with
+     the digits rather than hanging below them. */
+  align-self: center;
+}
+
+.kpi-tile-badge.is-positive {
+  background: var(--sw-green-soft);
+  border-color: var(--sw-green-border);
+  color: var(--sw-green);
+}
+
+.kpi-tile-badge.is-negative {
+  background: var(--sw-red-soft);
+  border-color: var(--sw-red-border);
+  color: var(--sw-red);
+}
+
+.kpi-tile-badge.is-neutral {
+  background: var(--sw-surface-2);
+  border-color: var(--sw-border);
+  color: var(--sw-text-secondary);
+}

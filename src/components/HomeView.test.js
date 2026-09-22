@@ -259,7 +259,7 @@ test('surfaces the headline figures as KPI tiles above the detailed summary', ()
   const { container, getByText } = render(<HomeView {...makeProps()} />);
   const tiles = container.querySelectorAll('.kpi-tile');
   expect(tiles.length).toBe(4);
-  ['שווי התיק', 'רווח/הפסד כולל', 'שינוי יומי', 'מס צפוי'].forEach((label) => {
+  ['שווי תיק כולל', 'רווח/הפסד כולל', 'שינוי יומי', 'מס צפוי'].forEach((label) => {
     expect(getByText(label)).toBeInTheDocument();
   });
   // The full breakdown is still there, below them.
@@ -274,7 +274,7 @@ test('gives the headline figure the featured block, and fills the row beside it'
   const { container } = render(<HomeView {...makeProps()} />);
   const featured = container.querySelectorAll('.kpi-tile.is-featured');
   expect(featured.length).toBe(1);
-  expect(featured[0].textContent).toContain('שווי התיק');
+  expect(featured[0].textContent).toContain('שווי תיק כולל');
 
   // 4 columns: featured takes 2x2, so the other three must occupy 2 + 2
   // single-row cells and one double-wide.

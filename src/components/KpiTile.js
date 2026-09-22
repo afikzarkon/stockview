@@ -17,7 +17,23 @@ import React from 'react';
 // its value several times larger. `wide` fills the remaining span on the
 // second row, which is what keeps the block rectangular instead of
 // leaving a hole beside the featured tile.
-function KpiTile({ label, value, sub, tone = 'neutral', icon, onClick, title, featured, wide }) {
+// `badge` sits on the same baseline as the figure rather than under it.
+// A change belongs beside the number it qualifies: read as a line of its
+// own it becomes a second statistic competing with the first, which is
+// what a row of four equally-weighted lines looked like.
+function KpiTile({
+  label,
+  value,
+  sub,
+  badge,
+  badgeTone = 'neutral',
+  tone = 'neutral',
+  icon,
+  onClick,
+  title,
+  featured,
+  wide
+}) {
   const Tag = onClick ? 'button' : 'div';
 
   const modifiers = [
@@ -37,15 +53,19 @@ function KpiTile({ label, value, sub, tone = 'neutral', icon, onClick, title, fe
       title={title}
     >
       <span className="kpi-tile-glow" aria-hidden="true" />
-      <span className="kpi-tile-head">
-        {icon && (
-          <span className="kpi-tile-icon" aria-hidden="true">
-            {icon}
-          </span>
-        )}
-        <span className="kpi-tile-label">{label}</span>
+      {/* A watermark in the corner, not a bullet before the label: at the
+          label's own size it read as part of the text and competed with
+          it for the first glance. */}
+      {icon && (
+        <span className="kpi-tile-mark" aria-hidden="true">
+          {icon}
+        </span>
+      )}
+      <span className="kpi-tile-label">{label}</span>
+      <span className="kpi-tile-figure">
+        <span className="kpi-tile-value">{value}</span>
+        {badge && <span className={`kpi-tile-badge is-${badgeTone}`}>{badge}</span>}
       </span>
-      <span className="kpi-tile-value">{value}</span>
       {sub && <span className="kpi-tile-sub">{sub}</span>}
     </Tag>
   );

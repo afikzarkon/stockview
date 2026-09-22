@@ -106,10 +106,27 @@ describe('KpiTile', () => {
     expect(onClick).toHaveBeenCalled();
   });
 
-  test('the decorative glow and icon are hidden from assistive tech', () => {
+  test('the decorative glow and corner mark are hidden from assistive tech', () => {
     const { container } = render(<KpiTile label="שווי" value="1" icon="₪" />);
     expect(container.querySelector('.kpi-tile-glow')).toHaveAttribute('aria-hidden', 'true');
-    expect(container.querySelector('.kpi-tile-icon')).toHaveAttribute('aria-hidden', 'true');
+    expect(container.querySelector('.kpi-tile-mark')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  // The change belongs beside the figure it qualifies, not under it as a
+  // second statistic - so it renders inside the figure row.
+  test('a badge sits with the figure and carries its own tone', () => {
+    const { container } = render(
+      <KpiTile label="שווי" value="1,000 ₪" badge="+4.2%" badgeTone="positive" />
+    );
+    const badge = container.querySelector('.kpi-tile-figure .kpi-tile-badge');
+    expect(badge).not.toBeNull();
+    expect(badge).toHaveTextContent('+4.2%');
+    expect(badge).toHaveClass('is-positive');
+  });
+
+  test('no badge element at all when there is no change to state', () => {
+    const { container } = render(<KpiTile label="שווי" value="1,000 ₪" />);
+    expect(container.querySelector('.kpi-tile-badge')).toBeNull();
   });
 
   test('KpiRow groups tiles together', () => {
