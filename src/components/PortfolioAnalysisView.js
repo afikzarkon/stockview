@@ -1327,8 +1327,8 @@ function PortfolioAnalysisView({
                       ]}
                       cx="50%"
                       cy="50%"
-                      outerRadius={96}
-                      innerRadius={54}
+                      outerRadius={100}
+                      innerRadius={76}
                       paddingAngle={1}
                       fill={chart.accent}
                       dataKey="value"
@@ -1337,7 +1337,7 @@ function PortfolioAnalysisView({
                       isAnimationActive={false}
                     >
                       {chart.categorical.slice(0, 6).map((color) => (
-                        <Cell key={color} fill={color} stroke={chart.tooltipBg} strokeWidth={2} />
+                        <Cell key={color} fill={color} stroke="none" />
                       ))}
                     </Pie>
                   </PieChart>
@@ -1418,8 +1418,8 @@ function PortfolioAnalysisView({
                           }))}
                           cx="50%"
                           cy="50%"
-                          outerRadius={96}
-                          innerRadius={54}
+                          outerRadius={100}
+                          innerRadius={76}
                           paddingAngle={1}
                           dataKey="value"
                           label={renderSliceCallout}

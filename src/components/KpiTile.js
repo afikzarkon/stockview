@@ -11,13 +11,28 @@ import React from 'react';
 // `tone` tints the figure and the tile's glow for gain/loss. It is applied
 // from the value's own sign by the caller rather than guessed here, since
 // not every figure is better when larger - a tax liability is not a gain.
-function KpiTile({ label, value, sub, tone = 'neutral', icon, onClick, title }) {
+// `featured` and `wide` are what make the row a bento rather than a strip
+// of equal boxes: one figure is the reason the page is open and the rest
+// qualify it, so the important one takes a block of the grid and prints
+// its value several times larger. `wide` fills the remaining span on the
+// second row, which is what keeps the block rectangular instead of
+// leaving a hole beside the featured tile.
+function KpiTile({ label, value, sub, tone = 'neutral', icon, onClick, title, featured, wide }) {
   const Tag = onClick ? 'button' : 'div';
+
+  const modifiers = [
+    `kpi-tone-${tone}`,
+    onClick ? 'is-interactive' : '',
+    featured ? 'is-featured' : '',
+    wide ? 'is-wide' : ''
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <Tag
       type={onClick ? 'button' : undefined}
-      className={`kpi-tile kpi-tone-${tone} ${onClick ? 'is-interactive' : ''}`}
+      className={`kpi-tile ${modifiers}`}
       onClick={onClick}
       title={title}
     >

@@ -101,7 +101,10 @@ function HomeView({
               occasionally rather than every time. */}
           {hasAnyData && (
             <KpiRow>
+              {/* The figure the app is opened for, given the block of the
+                  grid that says so. The three beside it qualify it. */}
               <KpiTile
+                featured
                 label="שווי התיק"
                 icon="₪"
                 value={`${formatPriceWithSign(summary.capitalTotalILS)} ₪`}
@@ -125,7 +128,10 @@ function HomeView({
                 value={`${formatPriceWithSign(summary.dailyProfitILS)} ₪`}
                 sub={`${summary.weightedDailyChange.toFixed(2)}% משוקלל`}
               />
+              {/* Fills the rest of the featured tile's second row, so the
+                  block stays rectangular. */}
               <KpiTile
+                wide
                 label="מס צפוי"
                 icon="%"
                 value={`${formatPriceWithSign(summary.totalTaxILS)} ₪`}

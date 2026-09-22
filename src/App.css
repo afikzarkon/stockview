@@ -54,14 +54,21 @@
      blur is what sells it, so the fill stays low-alpha. */
   --sw-glass: rgba(9, 9, 11, 0.72);
   --sw-glass-strong: rgba(0, 0, 0, 0.88);
-  --sw-glass-blur: 16px;
+  --sw-glass-blur: 20px;
+
+  /* What a card lifts to under the cursor. A card is a pane, so it
+     brightens where it is pointed at instead of jumping toward the
+     reader - a translucent surface that moves drags the blurred
+     background across with it, which reads as a glitch rather than as
+     depth. */
+  --sw-surface-hover: rgba(39, 39, 42, 0.68);
 
   /* Hairlines in plain white at low alpha, which is what keeps an edge
      visible over both the black background and the colored glows without
      picking up a hue of its own. */
-  --sw-border: rgba(255, 255, 255, 0.1);
-  --sw-border-strong: rgba(255, 255, 255, 0.16);
-  --sw-border-hover: rgba(255, 255, 255, 0.26);
+  --sw-border: rgba(255, 255, 255, 0.08);
+  --sw-border-strong: rgba(255, 255, 255, 0.14);
+  --sw-border-hover: rgba(255, 255, 255, 0.16);
 
   --sw-text: #f1f5f9;
   --sw-text-secondary: #94a3b8;
@@ -95,10 +102,10 @@
 
   /* Shape - one scale, used everywhere. Softer than before: the corner
      radius is most of what separates a "panel" from a "card". */
-  --sw-radius-sm: 10px;
-  --sw-radius: 14px;
-  --sw-radius-lg: 20px;
-  --sw-radius-xl: 26px;
+  --sw-radius-sm: 12px;
+  --sw-radius: 16px;
+  --sw-radius-lg: 24px;
+  --sw-radius-xl: 28px;
   --sw-radius-pill: 999px;
 
   --sw-transition: 180ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -264,15 +271,14 @@ body {
    so a full-bleed dark page reads as lit rather than flat. Fixed, so they
    don't drift while scrolling, and low-alpha enough that no text ever
    loses contrast over them. */
-/* Over true black the same fields have to be a touch stronger to register
-   at all, and a fourth adds a warm counterpoint low on the page so the
-   mesh does not read as one blue wash. Still far below the alpha at which
-   any text over them loses contrast. */
+/* NEUTRAL, not coloured. Tinted glows made the page read as a branded
+   surface with an opinion of its own, and every card floating on it
+   picked up the hue behind it. Two soft fields of near-black grey give
+   the same sense of a lit room while leaving colour to mean something -
+   a gain, a loss, an action - wherever it does appear. */
 [data-theme='dark'] body {
-  background: radial-gradient(1200px 620px at 12% -14%, rgba(99, 102, 241, 0.2), transparent 62%),
-    radial-gradient(1000px 560px at 100% -4%, rgba(34, 211, 238, 0.13), transparent 58%),
-    radial-gradient(900px 700px at 48% 112%, rgba(16, 185, 129, 0.09), transparent 60%),
-    radial-gradient(760px 520px at 88% 78%, rgba(168, 85, 247, 0.08), transparent 62%), var(--sw-bg);
+  background: radial-gradient(circle at 15% 0%, rgba(39, 39, 42, 0.55), transparent 32%),
+    radial-gradient(circle at 85% 100%, rgba(24, 24, 27, 0.75), transparent 42%), var(--sw-bg);
   background-attachment: fixed;
 }
 
@@ -6949,4 +6955,183 @@ select {
   .summary-value {
     font-size: 0.95rem;
   }
+}
+
+/* =============================================================
+   BENTO CARD BEHAVIOUR
+   =============================================================
+
+   A card responds by brightening, not by moving. These are translucent
+   panes over a blurred backdrop: translating one drags the blur across
+   with it, which reads as a rendering glitch rather than as depth. The
+   border lifting from 8% to 16% white and the fill going one step up the
+   zinc scale is the whole interaction. */
+.analysis-section,
+.portfolio-summary,
+.distribution-card,
+.feature-card,
+.monthly-history-card,
+.summary-section,
+.kpi-tile,
+.table-container,
+.equity-chart-container,
+.pie-chart-container,
+.report-card {
+  transition: background-color var(--sw-transition), border-color var(--sw-transition);
+}
+
+[data-theme='dark'] .distribution-card:hover,
+[data-theme='dark'] .summary-section:hover,
+[data-theme='dark'] .feature-card:hover,
+[data-theme='dark'] .report-card:hover,
+[data-theme='dark'] .monthly-history-card:hover,
+[data-theme='dark'] .kpi-tile:hover {
+  background-color: var(--sw-surface-hover);
+  border-color: var(--sw-border-hover);
+}
+
+/* Replaces the lift on the tiles that were translating. The shadow goes
+   with it: on a black page a drop shadow under a translucent card has
+   nothing to fall on. */
+.distribution-card:hover,
+.kpi-tile.is-interactive:hover,
+.summary-card-link:hover,
+.summary-card-link:focus-visible {
+  transform: none;
+}
+
+[data-theme='dark'] .distribution-card:hover,
+[data-theme='dark'] .kpi-tile.is-interactive:hover {
+  box-shadow: var(--sw-shadow);
+}
+
+/* =============================================================
+   SCROLLBARS
+   =============================================================
+   A 4px translucent thumb on a transparent track: present enough to grab,
+   quiet enough that a horizontally scrolling table does not gain a heavy
+   grey bar along its bottom edge. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: var(--sw-radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+[data-theme='light'] * {
+  scrollbar-color: rgba(15, 23, 42, 0.22) transparent;
+}
+
+[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.22);
+}
+
+/* =============================================================
+   KPI BENTO
+   =============================================================
+
+   Four equal boxes in a row said all four figures matter equally. They do
+   not: one is what the app is opened to see and three qualify it. A
+   four-column grid with the headline taking a 2x2 block states that
+   hierarchy in the layout itself, and gives the figure the room to be set
+   several times larger - which is the single thing that makes a dashboard
+   read as a dashboard rather than as four labelled boxes. */
+.kpi-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(104px, auto);
+  gap: 12px;
+}
+
+.kpi-tile.is-featured {
+  grid-column: span 2;
+  grid-row: span 2;
+  justify-content: center;
+  padding: 22px 24px;
+}
+
+.kpi-tile.is-wide {
+  grid-column: span 2;
+}
+
+.kpi-tile.is-featured .kpi-tile-value {
+  /* tracking-tighter at this size: large numerals set at default tracking
+     read as spaced-out rather than as one figure. */
+  font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+}
+
+.kpi-tile.is-featured .kpi-tile-label {
+  font-size: 0.78rem;
+}
+
+.kpi-tile.is-featured .kpi-tile-sub {
+  font-size: 0.82rem;
+}
+
+/* Below the four-column threshold the block stops being a block: two
+   columns, with the headline across the top. */
+@media (max-width: 900px) {
+  .kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kpi-tile.is-featured {
+    grid-row: span 1;
+  }
+}
+
+@media (max-width: 560px) {
+  .kpi-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .kpi-tile.is-featured,
+  .kpi-tile.is-wide {
+    grid-column: span 1;
+  }
+}
+
+/* =============================================================
+   PRIMARY ACTION - a white pill
+   =============================================================
+
+   An indigo gradient with a coloured glow was the loudest thing on a page
+   whose palette is otherwise near-black and neutral, and it competed with
+   the gain/loss colours for the eye. On a dark surface plain white is
+   already the highest-contrast element available, so it needs no glow to
+   be found - and it leaves colour free to mean something.
+   The accent survives where it belongs: focus rings, the active tab, the
+   line on a chart. */
+[data-theme='dark'] .toolbar-btn-primary {
+  background: #ffffff;
+  color: #09090b;
+  border-radius: var(--sw-radius-pill);
+  box-shadow: none;
+}
+
+[data-theme='dark'] .toolbar-btn-primary:hover:not(:disabled) {
+  background: #e4e4e7;
+  box-shadow: none;
+}
+
+[data-theme='dark'] .toolbar-btn-primary:disabled {
+  background: rgba(255, 255, 255, 0.28);
+  color: rgba(9, 9, 11, 0.6);
 }

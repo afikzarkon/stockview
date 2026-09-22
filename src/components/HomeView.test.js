@@ -266,6 +266,22 @@ test('surfaces the headline figures as KPI tiles above the detailed summary', ()
   expect(getByText('סיכום התיק')).toBeInTheDocument();
 });
 
+// The KPI row is a bento block, not four equal boxes: one figure is what
+// the app is opened to see and three qualify it, and the layout says so.
+// The spans also have to tile exactly - a featured 2x2 beside two 1x1s
+// leaves a hole on the second row unless one tile is wide.
+test('gives the headline figure the featured block, and fills the row beside it', () => {
+  const { container } = render(<HomeView {...makeProps()} />);
+  const featured = container.querySelectorAll('.kpi-tile.is-featured');
+  expect(featured.length).toBe(1);
+  expect(featured[0].textContent).toContain('שווי התיק');
+
+  // 4 columns: featured takes 2x2, so the other three must occupy 2 + 2
+  // single-row cells and one double-wide.
+  expect(container.querySelectorAll('.kpi-tile.is-wide').length).toBe(1);
+  expect(container.querySelectorAll('.kpi-tile').length).toBe(4);
+});
+
 test('an empty portfolio shows no KPI tiles rather than a row of zeroes', () => {
   const { container } = render(
     <HomeView
