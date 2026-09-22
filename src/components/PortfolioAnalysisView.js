@@ -687,7 +687,7 @@ function PortfolioAnalysisView({
               ))}
             </nav>
 
-            <div className="sw-main">
+            <div className="sw-main analysis-grid">
           <div className="analysis-section" ref={(el) => (sectionRefs.current.summary = el)}>
             <h2 className="section-title">תקציר ניתוח</h2>
             <div className="distribution-grid">
@@ -908,7 +908,7 @@ function PortfolioAnalysisView({
                     figures it carried are still on the cards below, where
                     they are labelled as values rather than as a return. */}
                 <div className="equity-chart-container">
-                  <ResponsiveContainer width="100%" height={320}>
+                  <ResponsiveContainer width="100%" height={280}>
                     <ComposedChart
                       data={performanceChartData}
                       margin={{ top: 10, right: 12, left: 4, bottom: 0 }}
@@ -1190,12 +1190,12 @@ function PortfolioAnalysisView({
             </div>
           </div>
 
-          <div className="analysis-section" ref={(el) => (sectionRefs.current.pie = el)}>
+          <div className="analysis-section analysis-section-half" ref={(el) => (sectionRefs.current.pie = el)}>
             <h2 className="section-title">גרף עוגה - פיזור התיק</h2>
             <div className="pie-chart-container">
               <div className="pie-chart-wrapper">
-                <ResponsiveContainer width="60%" height={400}>
-                  <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }} key="pie-chart">
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }} key="pie-chart">
                     <Pie
                       key="pie-data"
                       data={[
@@ -1232,7 +1232,9 @@ function PortfolioAnalysisView({
                       ]}
                       cx="50%"
                       cy="50%"
-                      outerRadius={120}
+                      outerRadius={92}
+                      innerRadius={52}
+                      paddingAngle={1}
                       fill={chart.accent}
                       dataKey="value"
                     >
@@ -1297,6 +1299,69 @@ function PortfolioAnalysisView({
             </div>
           </div>
 
+          <div className="analysis-section analysis-section-half" ref={(el) => (sectionRefs.current.sector = el)}>
+            <h2 className="section-title">פיזור לפי סקטור</h2>
+            {americanStocks.length === 0 && israeliStocks.length === 0 ? (
+              <p className="history-empty-note">אין מניות בתיק כרגע.</p>
+            ) : sectorsLoading && !sectorDistribution.hasData ? (
+              <p className="history-empty-note">טוען נתוני סקטור…</p>
+            ) : !sectorDistribution.hasData ? (
+              <p className="history-empty-note">לא ניתן היה לטעון נתוני סקטור כרגע.</p>
+            ) : (
+              <>
+                <div className="pie-chart-container">
+                  <div className="pie-chart-wrapper">
+                    <ResponsiveContainer width="100%" height={240}>
+                      <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                        <Pie
+                          data={sectorDistribution.sectors.map((s) => ({
+                            name: sectorLabelHe(s.sectorKey),
+                            value: s.value
+                          }))}
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={92}
+                          innerRadius={52}
+                          paddingAngle={1}
+                          dataKey="value"
+                        >
+                          {sectorDistribution.sectors.map((s, i) => (
+                            <Cell key={s.sectorKey} fill={SECTOR_COLORS[i % SECTOR_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => [`${formatPriceWithSign(value)} ₪`, 'שווי']} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="pie-labels-side">
+                      {sectorDistribution.sectors.map((s, i) => (
+                        <div className="pie-label-item" key={s.sectorKey}>
+                          <div
+                            className="label-color"
+                            style={{ backgroundColor: SECTOR_COLORS[i % SECTOR_COLORS.length] }}
+                          ></div>
+                          <div className="label-content">
+                            <div className="label-name">{sectorLabelHe(s.sectorKey)}</div>
+                            <div className="label-value">
+                              {formatPriceWithSign(s.value)} ₪ ({s.symbolCount} מניות)
+                            </div>
+                            <div className="label-percentage">{s.percentage.toFixed(1)}%</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {sectorDistribution.topSectorPercent > 40 && (
+                  <p className="section-subtitle" style={{ marginTop: 10 }}>
+                    שימו לב: {sectorDistribution.topSectorPercent.toFixed(0)}% מהרכיב האמריקאי מרוכז בסקטור אחד (
+                    {sectorLabelHe(sectorDistribution.sectors[0].sectorKey)}) — ריכוזיות מסוג הזה לא נראית בפיזור
+                    "ישראלי מול אמריקאי" הרגיל.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+
           <div className="analysis-section" ref={(el) => (sectionRefs.current.byStock = el)}>
             <h2 className="section-title">פיזור לפי מניות</h2>
             <div className="stocks-table-container">
@@ -1337,7 +1402,7 @@ function PortfolioAnalysisView({
             </div>
           </div>
 
-          <div className="analysis-section" ref={(el) => (sectionRefs.current.byDate = el)}>
+          <div className="analysis-section analysis-section-half" ref={(el) => (sectionRefs.current.byDate = el)}>
             <h2 className="section-title">פיזור לפי תאריכי קנייה והפקדה</h2>
             <p className="section-subtitle">
               כולל גם הפקדות לקופות גמל, לקופות חיסכון ולקרנות כספיות - כל הפקדה משויכת לחודש שבו בוצעה בפועל, לצד
@@ -1396,67 +1461,62 @@ function PortfolioAnalysisView({
             )}
           </div>
 
-          <div className="analysis-section" ref={(el) => (sectionRefs.current.sector = el)}>
-            <h2 className="section-title">פיזור לפי סקטור</h2>
-            {americanStocks.length === 0 && israeliStocks.length === 0 ? (
-              <p className="history-empty-note">אין מניות בתיק כרגע.</p>
-            ) : sectorsLoading && !sectorDistribution.hasData ? (
-              <p className="history-empty-note">טוען נתוני סקטור…</p>
-            ) : !sectorDistribution.hasData ? (
-              <p className="history-empty-note">לא ניתן היה לטעון נתוני סקטור כרגע.</p>
-            ) : (
-              <>
-                <div className="pie-chart-container">
-                  <div className="pie-chart-wrapper">
-                    <ResponsiveContainer width="55%" height={340}>
-                      <PieChart>
-                        <Pie
-                          data={sectorDistribution.sectors.map((s) => ({
-                            name: sectorLabelHe(s.sectorKey),
-                            value: s.value
-                          }))}
-                          cx="50%"
-                          cy="50%"
-                          outerRadius={110}
-                          dataKey="value"
-                        >
-                          {sectorDistribution.sectors.map((s, i) => (
-                            <Cell key={s.sectorKey} fill={SECTOR_COLORS[i % SECTOR_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(value) => [`${formatPriceWithSign(value)} ₪`, 'שווי']} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="pie-labels-side">
-                      {sectorDistribution.sectors.map((s, i) => (
-                        <div className="pie-label-item" key={s.sectorKey}>
-                          <div
-                            className="label-color"
-                            style={{ backgroundColor: SECTOR_COLORS[i % SECTOR_COLORS.length] }}
-                          ></div>
-                          <div className="label-content">
-                            <div className="label-name">{sectorLabelHe(s.sectorKey)}</div>
-                            <div className="label-value">
-                              {formatPriceWithSign(s.value)} ₪ ({s.symbolCount} מניות)
-                            </div>
-                            <div className="label-percentage">{s.percentage.toFixed(1)}%</div>
-                          </div>
-                        </div>
-                      ))}
+          <div className="analysis-section analysis-section-half" ref={(el) => (sectionRefs.current.reports = el)}>
+            <h2 className="section-title">דוחות מפורטים</h2>
+            <div className="reports-grid">
+              <div className="report-card">
+                <h3>המניות הכי רווחיות</h3>
+                <div className="report-list">
+                  {analysis.reports.topPerformers.length === 0 ? (
+                    <div className="report-item">
+                      <span className="report-name">אין כרגע מניות ברווח</span>
                     </div>
-                  </div>
+                  ) : (
+                    analysis.reports.topPerformers.map((stock, index) => (
+                      <div key={index} className="report-item">
+                        <span className="report-name">{stock.displayName || stock.name}</span>
+                        <span className="report-profit profit-positive">
+                          {formatPriceWithSign(stock.profit)} ₪
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
-                {sectorDistribution.topSectorPercent > 40 && (
-                  <p className="section-subtitle" style={{ marginTop: 10 }}>
-                    שימו לב: {sectorDistribution.topSectorPercent.toFixed(0)}% מהרכיב האמריקאי מרוכז בסקטור אחד (
-                    {sectorLabelHe(sectorDistribution.sectors[0].sectorKey)}) — ריכוזיות מסוג הזה לא נראית בפיזור
-                    "ישראלי מול אמריקאי" הרגיל.
-                  </p>
-                )}
-              </>
-            )}
+              </div>
+              <div className="report-card">
+                <h3>המניות הכי מפסידות</h3>
+                <div className="report-list">
+                  {analysis.reports.worstPerformers.length === 0 ? (
+                    <div className="report-item">
+                      <span className="report-name">אין כרגע מניות בהפסד</span>
+                    </div>
+                  ) : (
+                    analysis.reports.worstPerformers.map((stock, index) => (
+                      <div key={index} className="report-item">
+                        <span className="report-name">{stock.displayName || stock.name}</span>
+                        <span className="report-profit profit-negative">
+                          {formatPriceWithSign(stock.profit)} ₪
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div className="report-card">
+                <h3>הפוזיציות הכי גדולות</h3>
+                <div className="report-list">
+                  {analysis.reports.largestPositions.map((stock, index) => (
+                    <div key={index} className="report-item">
+                      <span className="report-name">{stock.displayName || stock.name}</span>
+                      <span className="report-value">
+                        {formatPriceWithSign(stock.value)} ₪
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
-
           <div className="analysis-section" ref={(el) => (sectionRefs.current.dividends = el)}>
             <h2 className="section-title">מעקב דיבידנדים (מניות אמריקאיות)</h2>
             {americanStocks.length === 0 ? (
@@ -1578,62 +1638,6 @@ function PortfolioAnalysisView({
             />
           </div>
 
-          <div className="analysis-section" ref={(el) => (sectionRefs.current.reports = el)}>
-            <h2 className="section-title">דוחות מפורטים</h2>
-            <div className="reports-grid">
-              <div className="report-card">
-                <h3>המניות הכי רווחיות</h3>
-                <div className="report-list">
-                  {analysis.reports.topPerformers.length === 0 ? (
-                    <div className="report-item">
-                      <span className="report-name">אין כרגע מניות ברווח</span>
-                    </div>
-                  ) : (
-                    analysis.reports.topPerformers.map((stock, index) => (
-                      <div key={index} className="report-item">
-                        <span className="report-name">{stock.displayName || stock.name}</span>
-                        <span className="report-profit profit-positive">
-                          {formatPriceWithSign(stock.profit)} ₪
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-              <div className="report-card">
-                <h3>המניות הכי מפסידות</h3>
-                <div className="report-list">
-                  {analysis.reports.worstPerformers.length === 0 ? (
-                    <div className="report-item">
-                      <span className="report-name">אין כרגע מניות בהפסד</span>
-                    </div>
-                  ) : (
-                    analysis.reports.worstPerformers.map((stock, index) => (
-                      <div key={index} className="report-item">
-                        <span className="report-name">{stock.displayName || stock.name}</span>
-                        <span className="report-profit profit-negative">
-                          {formatPriceWithSign(stock.profit)} ₪
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-              <div className="report-card">
-                <h3>הפוזיציות הכי גדולות</h3>
-                <div className="report-list">
-                  {analysis.reports.largestPositions.map((stock, index) => (
-                    <div key={index} className="report-item">
-                      <span className="report-name">{stock.displayName || stock.name}</span>
-                      <span className="report-value">
-                        {formatPriceWithSign(stock.value)} ₪
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
             </div>
           </div>
         </div>

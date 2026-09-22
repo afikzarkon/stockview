@@ -142,25 +142,59 @@ describe('PortfolioAnalysisView', () => {
     expect(screen.queryByText('סה"כ שווי תיק מלא')).toBeNull();
   });
 
-  test('renders the sections grouped: performance, then composition, then US-stocks, then tools and reports', () => {
+  // DOM order is also grid order now, so it is what pairs the half-width
+  // sections into rows: the two distribution charts sit side by side, and
+  // the year breakdown sits beside the report lists. A section moved out
+  // of this order leaves a half-row hole.
+  test('renders the sections in the order that pairs them into dashboard rows', () => {
     const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
     const titles = Array.from(container.querySelectorAll('.section-title')).map((el) => el.textContent);
     expect(titles).toEqual([
       'תקציר ניתוח',
       'ביצועי התיק לאורך זמן',
       'גרף עוגה - פיזור התיק',
+      'פיזור לפי סקטור',
       'פיזור לפי מניות',
       'פיזור לפי תאריכי קנייה והפקדה',
-      'פיזור לפי סקטור',
+      'דוחות מפורטים',
       'מעקב דיבידנדים (מניות אמריקאיות)',
       'המלצות אנליסטים (מניות אמריקאיות)',
-      'איזון מחדש (Rebalancing)',
-      'דוחות מפורטים'
+      'איזון מחדש (Rebalancing)'
     ]);
     // "השוואה מול מדד ייחוס" isn't in the list above since it's gated
     // behind stats.hasHistory (empty snapshots here -> not rendered) -
     // asserted separately below rather than baked into the fixed order,
     // since its presence is data-dependent, not a section-order concern.
+  });
+
+  // The page is a dashboard grid rather than one tall column. The sections
+  // that are narrow by nature take half a row and pair up; the ones that
+  // need the width (the performance chart, the holdings table) do not.
+  describe('dashboard grid', () => {
+    test('lays the sections out in a grid container', () => {
+      const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
+      expect(container.querySelector('.sw-main.analysis-grid')).not.toBeNull();
+    });
+
+    test('gives half a row to exactly the sections that pair up', () => {
+      const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
+      const halves = Array.from(container.querySelectorAll('.analysis-section-half')).map(
+        (el) => el.querySelector('.section-title').textContent
+      );
+      expect(halves).toEqual([
+        'גרף עוגה - פיזור התיק',
+        'פיזור לפי סקטור',
+        'פיזור לפי תאריכי קנייה והפקדה',
+        'דוחות מפורטים'
+      ]);
+    });
+
+    // An odd number of half-width sections would leave a gap at the end of
+    // a row, which is the thing this layout exists to remove.
+    test('pairs them evenly, leaving no half-row hole', () => {
+      const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
+      expect(container.querySelectorAll('.analysis-section-half').length % 2).toBe(0);
+    });
   });
 
   // The page's own title bar comes from PageToolbar now, like every other

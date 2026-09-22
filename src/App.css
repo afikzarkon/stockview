@@ -6263,3 +6263,344 @@ select {
     padding-inline-end: calc(14px + env(safe-area-inset-right));
   }
 }
+
+/* =============================================================
+   ANALYSIS PAGE - dashboard grid
+   =============================================================
+
+   The page was one column: ten sections stacked full-width, each as tall
+   as its content wanted, so a donut chart with six legend rows occupied a
+   whole screen on its own and the page ran to several thousand pixels of
+   mostly empty space. Half of these sections are narrow by nature - a
+   distribution chart, a year list, three short report lists - and were
+   being stretched to fill width they had no content for.
+
+   A twelve-column grid lets the wide things stay wide (the performance
+   chart, the holdings table) while the narrow ones pair up. Twelve rather
+   than two, so a section can later take a third or a quarter without the
+   grid being rebuilt around it.
+
+   Scoped to .analysis-grid rather than applied to .sw-main: the research
+   page uses the same .sw-layout/.sw-main shell and its cards are not laid
+   out this way. */
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
+  align-content: start;
+}
+
+/* Full width unless a section says otherwise, so adding one needs no
+   decision about its span. The row gap is the grid's now, not each
+   section's bottom margin. */
+.analysis-grid > .analysis-section {
+  grid-column: span 12;
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.analysis-grid > .analysis-section-half {
+  grid-column: span 6;
+}
+
+/* Below the two-column threshold every section is full width again -
+   half of a phone screen is not a column, it is a squeeze. */
+@media (max-width: 1100px) {
+  .analysis-grid > .analysis-section-half {
+    grid-column: span 12;
+  }
+}
+
+/* --- Distribution charts in a half-width card ----------------- */
+
+/* The chart used to sit beside its legend (60% / 40%). In half the page
+   that leaves ~240px for six legend rows, so the two stack instead: the
+   donut on top at a fixed height, the legend beneath it as a compact
+   two-up list rather than six full cards. */
+.pie-chart-container {
+  padding: 12px;
+  margin-top: 12px;
+  min-height: 0;
+}
+
+.pie-chart-wrapper {
+  display: block;
+  height: auto;
+}
+
+.pie-labels-side {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* A legend row, not a card: no shadow, no border, no 20px of padding
+   around three lines of text. The swatch and the figures are the content;
+   everything else was frame. */
+.pie-label-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--sw-surface-2);
+  border: none;
+  border-radius: var(--sw-radius-sm);
+  box-shadow: none;
+}
+
+.pie-label-item .label-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+.pie-label-item .label-content {
+  min-width: 0;
+}
+
+.pie-label-item .label-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--sw-text);
+}
+
+/* The shekel amount and the share of the portfolio on one line - they are
+   read together, and stacked they doubled the legend's height. */
+.pie-label-item .label-value,
+.pie-label-item .label-percentage {
+  display: inline;
+  font-size: 0.72rem;
+  color: var(--sw-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pie-label-item .label-percentage::before {
+  content: ' · ';
+}
+
+/* =============================================================
+   DENSITY
+   =============================================================
+
+   The type and spacing were sized for a marketing page: 1.75rem figures
+   in 20px-padded cards, 24px section padding, 20-22px gaps. On a
+   dashboard that is read at a glance rather than scrolled through, it
+   pushed the third metric below the fold on a laptop. Everything below
+   comes down roughly a third; nothing loses its hierarchy, because the
+   steps between the levels shrink together. */
+
+.analysis-section {
+  padding: 16px 18px;
+}
+
+.analysis-section > .section-title {
+  font-size: 1rem;
+  padding-bottom: 9px;
+  margin-bottom: 0;
+}
+
+.analysis-section > .section-subtitle {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.analysis-section > .distribution-grid:first-of-type {
+  margin-top: 12px;
+}
+
+.distribution-grid {
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.distribution-card {
+  padding: 12px 14px;
+}
+
+.distribution-card h3 {
+  font-size: 0.72rem;
+  margin-bottom: 6px;
+}
+
+.distribution-value {
+  font-size: 1.3rem;
+}
+
+.distribution-percentage {
+  font-size: 0.75rem;
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+.kpi-row {
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.kpi-tile {
+  padding: 12px 14px;
+  gap: 5px;
+}
+
+.kpi-tile-label {
+  font-size: 0.72rem;
+}
+
+.kpi-tile-value {
+  font-size: 1.35rem;
+}
+
+.kpi-tile-sub {
+  font-size: 0.74rem;
+}
+
+.summary-section {
+  padding: 14px 16px;
+}
+
+.summary-section-title {
+  font-size: 0.95rem;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  min-height: 2.8em;
+}
+
+.summary-item {
+  min-height: 30px;
+  padding: 4px 0;
+}
+
+.summary-label {
+  font-size: 0.82rem;
+}
+
+.summary-value {
+  font-size: 0.88rem;
+}
+
+.summary-grid-custom,
+.summary-row {
+  gap: 10px;
+}
+
+.portfolio-summary {
+  padding: 16px 18px;
+  margin: 16px 0;
+}
+
+.portfolio-summary-title {
+  font-size: 1.25rem;
+  margin-bottom: 14px;
+}
+
+.equity-chart-container {
+  padding: 12px 6px 6px;
+  margin-top: 12px;
+}
+
+.reports-grid {
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.report-card {
+  padding: 10px 12px;
+}
+
+.sw-layout {
+  gap: 16px;
+}
+
+.sw-main {
+  gap: 14px;
+}
+
+.stocks-section {
+  margin-top: 16px;
+  padding: 16px;
+}
+
+/* A legend row is not a card, so it does not lift on hover - six rows
+   rising under the cursor beside a donut read as six buttons. */
+.pie-label-item:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* In dark mode the shared card treatment gave these the card's own
+   surface, which is the colour of the panel they sit in - the rows
+   disappeared into it. One step up the surface scale separates them. */
+[data-theme='dark'] .pie-label-item {
+  background: var(--sw-surface-2);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* =============================================================
+   RESPONSIVE CODA - must stay last in this file
+   =============================================================
+
+   A media query adds no specificity. The density rules above are plain
+   single-class selectors written after the phone rules further up the
+   file, so on equal specificity the later ones win and the phone values
+   were silently being discarded - including the wrapper flattening that
+   the mobile pass exists for. These re-assert them after the fact.
+
+   Anything added below the density block that a narrow screen overrides
+   belongs here too. */
+
+@media (max-width: 900px) {
+  .portfolio-summary {
+    padding: 14px 12px;
+    margin: 14px 0;
+  }
+
+  .stocks-section {
+    padding: 14px 12px;
+    margin-top: 14px;
+  }
+}
+
+@media (max-width: 768px) {
+  .analysis-section {
+    padding: 14px 12px;
+  }
+
+  .equity-chart-container {
+    padding: 10px 2px 4px;
+  }
+
+  /* The grid's own gap replaces the stacked sections' margins. */
+  .analysis-grid {
+    gap: 10px;
+  }
+}
+
+@media (max-width: 600px) {
+  /* The panel-around-cards flattening from the mobile pass. */
+  .portfolio-summary {
+    padding: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .analysis-section {
+    padding: 12px 10px;
+    border-radius: var(--sw-radius-sm);
+  }
+
+  .summary-section {
+    padding: 12px 10px;
+  }
+
+  .pie-chart-container {
+    padding: 8px 4px;
+  }
+}
