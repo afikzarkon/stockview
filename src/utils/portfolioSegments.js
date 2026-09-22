@@ -49,16 +49,31 @@ export const DEFAULT_SEGMENT = 'all';
 //                  really worth in shekels that day, currency move
 //                  included.
 //
-// Offered only where it means something. An Israeli holding has no
-// exchange rate inside it, so the toggle is hidden rather than shown doing
-// nothing. The combined view always uses historical rates - it is the
-// whole-portfolio view, and its headline should be what the portfolio
-// actually did in the currency its owner spends.
+// Offered wherever there are American holdings for it to act on - the US
+// view and the combined one. An Israeli-only curve has no exchange rate
+// inside it, so there the toggle is hidden rather than shown doing nothing.
+//
+// The combined view is where the question is usually asked ("how much of
+// my year was the dollar?"), and it is answerable there precisely because
+// the Israeli side is unaffected: switching the toggle moves only the
+// American contribution, so the difference between the two curves IS the
+// currency's effect on the whole stock portfolio.
 export const FX_MODES = { PURE_USD: 'usd', HISTORICAL: 'historical' };
 
 export const DEFAULT_FX_MODE = FX_MODES.PURE_USD;
 
-export const segmentSupportsFxToggle = (segment) => segment === 'american';
+export const segmentSupportsFxToggle = (segment) => segment === 'american' || segment === 'all';
+
+// What a segment shows before the user touches the toggle, which is not the
+// same answer for both.
+//
+// The combined view is the whole-portfolio headline, so it opens on what
+// the holdings were really worth in the currency their owner spends -
+// currency move included. The US view opens on the dollar return alone,
+// which is what isolates the stock picking from the exchange rate. Each
+// default is the question its own view is usually opened to answer.
+export const defaultFxModeForSegment = (segment) =>
+  segment === 'all' ? FX_MODES.HISTORICAL : DEFAULT_FX_MODE;
 
 // The mode actually in force, which is not always the one requested: a
 // segment with no American holdings in it has no FX to include or exclude.

@@ -31,7 +31,7 @@ import {
   MARKET_SEGMENTS,
   FX_MODES,
   DEFAULT_SEGMENT,
-  DEFAULT_FX_MODE,
+  defaultFxModeForSegment,
   segmentSupportsFxToggle,
   resolveFxMode,
   selectSegmentHoldings,
@@ -223,10 +223,20 @@ function PortfolioAnalysisView({
   const [marketSegment, setMarketSegment] = useState(DEFAULT_SEGMENT);
 
   // Whether the American side's return should carry the currency move.
-  // Only meaningful for the US view - see resolveFxMode.
-  const [requestedFxMode, setRequestedFxMode] = useState(DEFAULT_FX_MODE);
+  // Meaningful wherever there are US holdings in the selection - the US
+  // view and the combined one (see resolveFxMode).
+  //
+  // Kept PER SEGMENT rather than as one shared setting, because the two
+  // views open on different answers (see defaultFxModeForSegment) and a
+  // single value would have to pick one of them for both. Switching market
+  // and switching back therefore also returns the toggle to where the user
+  // left it, instead of resetting a choice they made deliberately.
+  const [fxModeBySegment, setFxModeBySegment] = useState({});
+  const requestedFxMode = fxModeBySegment[marketSegment] ?? defaultFxModeForSegment(marketSegment);
   const fxMode = resolveFxMode(marketSegment, requestedFxMode);
   const showFxToggle = segmentSupportsFxToggle(marketSegment);
+  const setRequestedFxMode = (mode) =>
+    setFxModeBySegment((prev) => ({ ...prev, [marketSegment]: mode }));
 
   const segmentHoldings = useMemo(
     () => selectSegmentHoldings({ israeliStocks, americanStocks }, marketSegment),
@@ -745,13 +755,20 @@ function PortfolioAnalysisView({
                 </div>
               </div>
 
-              {/* Shown only for the US view. An Israeli holding has no
-                  exchange rate inside it, so the control would be a switch
-                  wired to nothing; the combined view always carries the
-                  currency, being the whole-portfolio picture. */}
+              {/* Shown wherever the selection holds American lots - the US
+                  view and the combined one. Hidden for the Israeli view,
+                  where no holding has an exchange rate inside it and the
+                  control would be a switch wired to nothing.
+                  Toggling it on the combined view is how the currency's
+                  effect on the whole stock portfolio is read: the Israeli
+                  side does not move, so the difference between the two
+                  curves is the dollar. */}
               {showFxToggle && (
                 <div className="segment-group">
-                  <label className="fx-toggle" title="כלול את תנודות שער הדולר בחישוב התשואה">
+                  <label
+                    className="fx-toggle"
+                    title="כלול את תנודות שער הדולר בחישוב התשואה. כיבוי והדלקה מראים כמה מהתשואה נבע מהמטבע ולא מהמניות"
+                  >
                     <input
                       type="checkbox"
                       checked={fxMode === FX_MODES.HISTORICAL}
@@ -759,7 +776,7 @@ function PortfolioAnalysisView({
                         setRequestedFxMode(e.target.checked ? FX_MODES.HISTORICAL : FX_MODES.PURE_USD)
                       }
                     />
-                    <span>השפעת שער חליפין</span>
+                    <span>השפעת שער הדולר</span>
                   </label>
                 </div>
               )}

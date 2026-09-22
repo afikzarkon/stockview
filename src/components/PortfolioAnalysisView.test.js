@@ -299,15 +299,50 @@ describe('PortfolioAnalysisView', () => {
     describe('FX impact toggle', () => {
       const fxToggle = () => document.querySelector('.fx-toggle input');
 
-      test('appears only for the US view', () => {
+      test('appears wherever the selection holds American lots, and not otherwise', () => {
         render(<PortfolioAnalysisView {...makeProps()} />);
-        expect(fxToggle()).toBeNull();
+        // The combined view is the default, and it holds US lots.
+        expect(fxToggle()).not.toBeNull();
 
         fireEvent.click(segmentButton('בורסה ישראלית'));
         expect(fxToggle()).toBeNull();
 
         fireEvent.click(segmentButton('בורסה אמריקאית'));
         expect(fxToggle()).not.toBeNull();
+      });
+
+      // Offering the choice must not change what the whole-portfolio view
+      // shows first: its headline is still what the holdings were really
+      // worth in the currency their owner spends.
+      test('the combined view still opens with the currency included', () => {
+        const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
+        expect(fxToggle().checked).toBe(true);
+        expect(container.querySelector('.segment-summary').textContent).toContain('שער הדולר');
+      });
+
+      test('turning it off on the combined view isolates the stocks from the currency', () => {
+        const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
+        fireEvent.click(fxToggle());
+        expect(fxToggle().checked).toBe(false);
+        expect(container.querySelector('.segment-summary').textContent).toContain('דולרית');
+      });
+
+      // Each view keeps its own setting, so switching market and back does
+      // not discard a choice the user made deliberately.
+      test('remembers the setting per market rather than sharing one across them', () => {
+        render(<PortfolioAnalysisView {...makeProps()} />);
+        fireEvent.click(fxToggle()); // combined view -> off
+        expect(fxToggle().checked).toBe(false);
+
+        fireEvent.click(segmentButton('בורסה אמריקאית'));
+        expect(fxToggle().checked).toBe(false); // the US view's own default
+
+        fireEvent.click(fxToggle()); // US view -> on
+        fireEvent.click(segmentButton('כלל המניות'));
+        expect(fxToggle().checked).toBe(false); // combined view, as left
+
+        fireEvent.click(segmentButton('בורסה אמריקאית'));
+        expect(fxToggle().checked).toBe(true); // US view, as left
       });
 
       test('starts off, so the US view defaults to the pure dollar return', () => {

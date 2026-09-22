@@ -6165,3 +6165,101 @@ select {
     grid-template-columns: 1fr;
   }
 }
+
+/* =============================================================
+   HORIZONTAL OVERFLOW GUARD
+   =============================================================
+
+   The symptom of one element being wider than the screen is not a local
+   one: the document itself becomes scrollable sideways, and a phone
+   browser responds by zooming out to fit, which reads as "the site opened
+   in desktop mode". One stray row can therefore make every page look
+   unresponsive, however correct the layout around it is.
+
+   `clip` rather than `hidden` on purpose. `hidden` makes the element a
+   scroll container, and that silently breaks `position: sticky` in
+   everything inside it - here the page toolbar and every table's header
+   row. `clip` cuts the overflow without creating a scroll container, so
+   the sticky headers keep working. Browsers without `clip` ignore the
+   declaration and are no worse off than before it existed.
+
+   This is a backstop, not the fix: anything genuinely wide (a holdings
+   table) still belongs in its own scrolling container below. */
+.app-shell,
+.app-main,
+.app-main-inner {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+/* =============================================================
+   WIDE TABLES ON A PHONE
+   =============================================================
+
+   .analysis-table is width: 100% with no floor, so on a narrow screen it
+   did not scroll - it compressed. The eight-column holdings breakdown and
+   the thirteen-column audit table were squeezed into ~25px per column,
+   wrapping Hebrew headers one character per line into something unreadable
+   but technically "fitting".
+
+   A floor turns that back into what the scroll container was always for:
+   the columns keep a legible width and the table scrolls inside its own
+   box, without widening the page. */
+@media (max-width: 768px) {
+  .analysis-table {
+    min-width: 620px;
+  }
+
+  .audit-table {
+    min-width: 900px;
+  }
+
+  /* The holdings tables ask for 1200/1500px at full size, which is a lot
+     of sideways travel on a phone. With the smaller mobile type and
+     padding the same columns are legible in less, so the floor comes down
+     with them - less scrolling for the same content. */
+  .stocks-table:not(.american-stocks-table) {
+    min-width: 900px;
+  }
+
+  .american-stocks-table {
+    min-width: 1100px;
+  }
+
+  /* Both scroll containers carry momentum scrolling and stop a sideways
+     swipe at the table's edge from turning into a page-level gesture. */
+  .table-container,
+  .stocks-table-container {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+}
+
+/* =============================================================
+   SAFE AREAS (notched / rounded-corner phones)
+   =============================================================
+
+   viewport-fit=cover in index.html lets the layout reach the physical
+   edges of the display. That is what allows a full-bleed background, and
+   it also means the bottom navigation would otherwise sit underneath the
+   home indicator and the side gutters under a rounded corner. The insets
+   put the content back inside the usable area, and resolve to 0 on every
+   device that has no cutout. */
+@media (max-width: 960px) {
+  .side-nav {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    padding-inline-start: calc(10px + env(safe-area-inset-left));
+    padding-inline-end: calc(10px + env(safe-area-inset-right));
+  }
+
+  /* The shell reserves room for the bar; that reservation has to grow by
+     the same inset or the last row of a table hides behind it again. */
+  .app-shell {
+    padding-bottom: calc(68px + env(safe-area-inset-bottom));
+  }
+
+  .app-main-inner {
+    padding-inline-start: calc(14px + env(safe-area-inset-left));
+    padding-inline-end: calc(14px + env(safe-area-inset-right));
+  }
+}

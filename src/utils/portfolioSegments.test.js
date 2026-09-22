@@ -3,6 +3,7 @@ import {
   FX_MODES,
   DEFAULT_SEGMENT,
   DEFAULT_FX_MODE,
+  defaultFxModeForSegment,
   segmentSupportsFxToggle,
   resolveFxMode,
   selectSegmentHoldings,
@@ -231,18 +232,33 @@ describe('FX mode', () => {
     expect(DEFAULT_FX_MODE).toBe(FX_MODES.PURE_USD);
   });
 
-  // An Israeli holding has no exchange rate inside it, and the combined
-  // view is the whole-portfolio picture, which should carry the currency.
-  test('is offered only for the US view', () => {
+  // Wherever the selection holds American lots there is a currency move to
+  // include or exclude. An Israeli-only curve has none, so the toggle would
+  // be a switch wired to nothing.
+  test('is offered for every view that holds American lots', () => {
     expect(segmentSupportsFxToggle('american')).toBe(true);
+    expect(segmentSupportsFxToggle('all')).toBe(true);
     expect(segmentSupportsFxToggle('israeli')).toBe(false);
-    expect(segmentSupportsFxToggle('all')).toBe(false);
   });
 
   test('a request to exclude FX is ignored where there is no FX to exclude', () => {
     expect(resolveFxMode('american', FX_MODES.PURE_USD)).toBe(FX_MODES.PURE_USD);
+    expect(resolveFxMode('all', FX_MODES.PURE_USD)).toBe(FX_MODES.PURE_USD);
     expect(resolveFxMode('israeli', FX_MODES.PURE_USD)).toBe(FX_MODES.HISTORICAL);
-    expect(resolveFxMode('all', FX_MODES.PURE_USD)).toBe(FX_MODES.HISTORICAL);
+  });
+
+  // Each view opens on the question it is usually opened to ask. Being
+  // able to toggle is not the same as changing what is shown first: the
+  // combined view is the whole-portfolio headline and still opens on what
+  // the holdings were really worth, currency included.
+  test('the combined view opens with the currency included, the US view without it', () => {
+    expect(defaultFxModeForSegment('all')).toBe(FX_MODES.HISTORICAL);
+    expect(defaultFxModeForSegment('american')).toBe(FX_MODES.PURE_USD);
+  });
+
+  test('the combined view describes which basis it is on, now that it has a choice', () => {
+    expect(describeSelection('all', FX_MODES.HISTORICAL)).toContain('כולל השפעת שער החליפין');
+    expect(describeSelection('all', FX_MODES.PURE_USD)).toContain('ללא השפעת שער החליפין');
   });
 });
 
