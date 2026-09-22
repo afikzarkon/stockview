@@ -29,7 +29,6 @@ function HomeView({
   cashFunds,
   bankBalances,
   bankSavingsFunds = [],
-  cpi,
   onNavigate,
   ...toolbarProps
 }) {
@@ -133,23 +132,6 @@ function HomeView({
                 sub="על הרווח הריאלי"
               />
             </KpiRow>
-          )}
-
-          {/* מקור החישוב: המדד שנמשך ומשמש לחישוב מס רווח ההון הריאלי */}
-          {cpi && (cpi.loading || cpi.currentIndex != null || cpi.error) && (
-            <p className="cpi-status-banner">
-              {cpi.loading && 'טוען את מדד המחירים לצרכן...'}
-              {!cpi.loading && cpi.currentIndex != null && (
-                <>
-                  מדד המחירים לצרכן הידוע: <strong>{cpi.currentIndex}</strong> (חודש{' '}
-                  {cpi.currentIndexMonth}) — משמש לחישוב מס רווח הון ריאלי
-                </>
-              )}
-              {!cpi.loading &&
-                cpi.currentIndex == null &&
-                cpi.error &&
-                `לא ניתן היה למשוך את מדד המחירים לצרכן (${cpi.error}) - מוצג מס נומינלי שטוח`}
-            </p>
           )}
 
           {hasAnyData && (

@@ -199,6 +199,37 @@ export const computeBestWorstPeriod = (returns) => {
 // A sub-period is skipped (treated as flat, contributing a factor of 1)
 // when it has no usable base to divide by - a portfolio that was empty at
 // the start of a period has no return for it, only an opening balance.
+// One sub-period's growth factor (1 + r), or null when the step has no
+// measurable return. Shared by the chained total below and by the indexed
+// curve the benchmark is drawn against, so the headline percentage and the
+// line on the chart can never come from two different calculations.
+const subPeriodGrowthFactor = (prev, curr, cashFlows) => {
+  // No opening value: the portfolio started this sub-period empty (or the
+  // point is unusable). Whatever it holds at the end arrived as
+  // contributions, not as growth.
+  if (!(prev.value > 0)) return null;
+
+  const { percent } = calculateModifiedDietzReturn({
+    beginningValue: prev.value,
+    endingValue: curr.value,
+    cashFlows: cashFlowsInPeriod(cashFlows, prev.date, curr.date),
+    periodStart: prev.date,
+    periodEnd: curr.date
+  });
+
+  // Modified Dietz's denominator (beginning value + weighted flows) can
+  // reach zero or go negative if a withdrawal empties the portfolio
+  // mid-period; there is no meaningful return for such a step.
+  if (percent === null || !Number.isFinite(percent)) return null;
+
+  // A factor of 0 or less would mean the portfolio lost its entire value in
+  // one step, which would zero the whole chain irrecoverably. Real
+  // total-loss steps are indistinguishable here from a data gap, so the
+  // step is skipped rather than allowed to swallow the series.
+  const factor = 1 + percent / 100;
+  return factor > 0 ? factor : null;
+};
+
 export const computeTimeWeightedReturnPercent = (series, cashFlows = []) => {
   if (!Array.isArray(series) || series.length < 2) return null;
 
@@ -206,45 +237,39 @@ export const computeTimeWeightedReturnPercent = (series, cashFlows = []) => {
   let measuredAnySubPeriod = false;
 
   for (let i = 1; i < series.length; i++) {
-    const prev = series[i - 1];
-    const curr = series[i];
-    const flows = cashFlowsInPeriod(cashFlows, prev.date, curr.date);
-
-    // No opening value: the portfolio started this sub-period empty (or the
-    // point is unusable). Whatever it holds at the end arrived as
-    // contributions, not as growth.
-    if (!(prev.value > 0)) {
-      // A first funding event still has to be absorbed rather than counted:
-      // skipping keeps the factor at 1 for this step.
-      continue;
-    }
-
-    const { percent } = calculateModifiedDietzReturn({
-      beginningValue: prev.value,
-      endingValue: curr.value,
-      cashFlows: flows,
-      periodStart: prev.date,
-      periodEnd: curr.date
-    });
-
-    // Modified Dietz's denominator (beginning value + weighted flows) can
-    // reach zero or go negative if a withdrawal empties the portfolio
-    // mid-period; there is no meaningful return for such a step.
-    if (percent === null || !Number.isFinite(percent)) continue;
-
-    const subPeriodReturn = percent / 100;
-    // A factor of 0 or less would mean the portfolio lost its entire value
-    // in one step, which would zero the whole chain irrecoverably. Real
-    // total-loss steps are indistinguishable here from a data gap, so the
-    // step is skipped rather than allowed to swallow the series.
-    if (1 + subPeriodReturn <= 0) continue;
-
-    growthFactor *= 1 + subPeriodReturn;
+    const factor = subPeriodGrowthFactor(series[i - 1], series[i], cashFlows);
+    if (factor === null) continue;
+    growthFactor *= factor;
     measuredAnySubPeriod = true;
   }
 
   if (!measuredAnySubPeriod) return null;
   return (growthFactor - 1) * 100;
+};
+
+// The same chained time-weighted growth, kept as a curve instead of
+// collapsed to one percentage: every point carries what ₪100 invested at
+// the first date would be worth by then, with contributions neutralized.
+//
+// This is what a benchmark has to be compared against. A raw value series
+// cannot be: paying ₪50,000 into a portfolio lifts its value line by
+// ₪50,000, and against an index that only ever moves on market returns that
+// deposit reads as spectacular outperformance. Indexing the raw values to
+// 100 does not help - it rescales the deposit, it does not remove it.
+export const buildTwrIndexSeries = (series, cashFlows = []) => {
+  if (!Array.isArray(series) || series.length === 0) return [];
+
+  let growthFactor = 1;
+  return series.map((point, i) => {
+    if (i > 0) {
+      const factor = subPeriodGrowthFactor(series[i - 1], point, cashFlows);
+      // A skipped step carries the previous level forward rather than
+      // breaking the line - the same "contributes a factor of 1" rule the
+      // chained total uses.
+      if (factor !== null) growthFactor *= factor;
+    }
+    return { date: point.date, value: growthFactor * 100 };
+  });
 };
 
 // Total return across the whole series, and the same figure annualized
@@ -300,15 +325,37 @@ export const computeStatsFromSeries = (series, cashFlows = []) => {
   const totalReturnPercent =
     timeWeightedReturnPercent !== null ? timeWeightedReturnPercent : naiveReturnPercent;
 
-  const netCashFlow = (cashFlows || []).reduce((sum, flow) => sum + (flow.amount || 0), 0);
+  const firstDate = points.length ? points[0].date : null;
+  const lastDate = points.length ? points[points.length - 1].date : null;
+
+  // ONLY the flows that fall inside the series' own span.
+  //
+  // The return figures were already range-correct - they are chained from
+  // sub-periods, and a sub-period only ever sees the flows dated inside it -
+  // but this total was summed over every flow the portfolio has ever had.
+  // Narrowing the chart to 2021-2024 therefore still reported deposits made
+  // in 2018 as "money that entered during the period", under a return that
+  // had (correctly) ignored them. The two read as a contradiction, and the
+  // deposit figure was simply wrong for the window on screen.
+  //
+  // A flow dated exactly on the first point counts: that point's value is
+  // the portfolio as constituted that day, opening purchase included, so the
+  // money did enter within the window. Only what predates the window is cut.
+  const flowsInRange = firstDate
+    ? (cashFlows || []).filter((flow) => flow.date >= firstDate && flow.date <= lastDate)
+    : [];
+  const netCashFlow = flowsInRange.reduce((sum, flow) => sum + (flow.amount || 0), 0);
 
   return {
     series: points,
+    // The same curve, restated as cash-flow-neutralized growth from a base
+    // of 100 - what the benchmark comparison is drawn against.
+    twrIndexSeries: buildTwrIndexSeries(points, cashFlows),
     hasHistory: points.length >= 2,
     hasEnoughForRiskStats,
     snapshotsCount: points.length,
-    firstDate: points.length ? points[0].date : null,
-    lastDate: points.length ? points[points.length - 1].date : null,
+    firstDate,
+    lastDate,
     totalReturnPercent,
     // Kept separate and exposed deliberately: the difference between the
     // two is the whole point, and showing the neutralized figure without

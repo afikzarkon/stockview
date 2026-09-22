@@ -704,29 +704,49 @@ h3 {
   margin-top: 20px;
 }
 
+/* Every summary card, wherever it is rendered, keeps the same frame: one
+   padding, one title weight, one row rhythm. The cards sit in pairs of
+   differing length, so the frame is a column that fills its row - a short
+   card ends level with the tall one beside it instead of floating. */
 .summary-section {
   background: rgba(255, 255, 255, 0.8);
   border-radius: 12px;
   padding: 20px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
   border: 1px solid rgba(169, 130, 47, 0.1);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .summary-section-title {
-  font-size: 1.2rem;
+  font-size: 1.05rem;
   font-weight: 600;
+  line-height: 1.35;
   color: var(--sw-text);
-  margin-bottom: 15px;
+  margin: 0 0 14px;
   text-align: center;
   padding-bottom: 10px;
   border-bottom: 2px solid var(--sw-accent);
+  /* Titles run to two lines at some widths ("קופת חיסכון בבנק - השקעה
+     בש''ח"). Reserving both keeps the first data row at the same height in
+     every card of a row, which is where the misalignment started. */
+  min-height: 3.1em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
+/* A two-column grid rather than space-between: the figure column is then
+   the same width down the whole card, so the numbers form a straight edge
+   instead of each row ending wherever its own label happens to stop. */
 .summary-item {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
   align-items: center;
-  padding: 8px 0;
+  min-height: 38px;
+  padding: 7px 0;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
@@ -737,13 +757,21 @@ h3 {
 .summary-label {
   font-weight: 500;
   color: var(--sw-text-secondary);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
+  line-height: 1.35;
 }
 
 .summary-value {
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 0.98rem;
   color: var(--sw-text);
+  /* Fixed-width digits: ₪1,234 and ₪9,999 then occupy the same space, so
+     figures align vertically down the column and between cards. */
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* Flush to the card's outer edge, so the ₪/$ suffixes line up in a column
+     down the card rather than drifting with each figure's digit count. */
+  text-align: end;
 }
 
 .summary-value.profit-positive {
@@ -783,7 +811,11 @@ h3 {
 .summary-card-link {
   flex: 1;
   min-width: 0;
-  display: block;
+  /* Flex, not block: the card inside has to fill the wrapper's height the
+     way a card rendered bare does. As a block it sized to its own content,
+     so a linked card sat short next to the unlinked card beside it and the
+     row's two cards ended at different heights. */
+  display: flex;
   position: relative;
   padding: 0;
   border: none;
@@ -1397,15 +1429,6 @@ h3 {
   font-size: 0.85rem;
   color: var(--sw-text-secondary);
   margin: 4px 0 0;
-}
-
-.cpi-status-banner {
-  font-size: 0.85rem;
-  color: var(--sw-text-secondary);
-  background: var(--sw-surface-2);
-  border-radius: 8px;
-  padding: 8px 14px;
-  margin: 0 0 16px;
 }
 
 .form-group select {
@@ -3231,7 +3254,6 @@ h3 {
 [data-theme='dark'] .date-item,
 [data-theme='dark'] .report-item,
 [data-theme='dark'] .edit-row,
-[data-theme='dark'] .cpi-status-banner,
 [data-theme='dark'] .monthly-history-category-header,
 [data-theme='dark'] .auth-tabs {
   background: var(--sw-surface-2);
@@ -3343,7 +3365,6 @@ h3 {
 [data-theme='dark'] .user-email,
 [data-theme='dark'] .feature-card p,
 [data-theme='dark'] .welcome-subtitle,
-[data-theme='dark'] .cpi-status-banner,
 [data-theme='dark'] .monthly-item-row td,
 [data-theme='dark'] .monthly-cashflow-note,
 [data-theme='dark'] .monthly-history-item-row,
@@ -4327,18 +4348,6 @@ h3 {
 @media (max-width: 800px) {
   .sw-overview-card {
     grid-template-columns: 1fr;
-  }
-
-  .sw-layout {
-    flex-direction: column;
-  }
-
-  .sw-sidebar {
-    position: static;
-    flex-direction: row;
-    flex-wrap: wrap;
-    width: 100%;
-    box-sizing: border-box;
   }
 }
 
@@ -5610,4 +5619,330 @@ select {
   margin: 0;
   cursor: pointer;
   accent-color: var(--sw-accent);
+}
+
+/* =============================================================
+   ANALYSIS PAGE - executive dashboard layout
+   =============================================================
+
+   The page had a card-in-a-card-in-a-card problem: an outer panel with
+   40px of padding held a column of sections that each repeated the same
+   surface, border and shadow, so a chart sat three nested boxes deep and
+   every section competed with its neighbours for attention. The outer
+   panel is now a plain container, the sections carry the elevation, and
+   the type scale does the grouping that the borders were doing badly. */
+
+.analysis-container {
+  background: none;
+  backdrop-filter: none;
+  box-shadow: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  max-width: 100%;
+}
+
+.analysis-section {
+  margin-bottom: 20px;
+  padding: 24px 26px;
+}
+
+.analysis-section:last-child {
+  margin-bottom: 0;
+}
+
+/* Start-aligned rather than centred, with the accent as a rule beneath it
+   instead of a gradient poured through the letters. A centred heading
+   gives no anchor for the eye to return to down a long page, and gradient
+   text at heading weight is the first thing to fail a contrast check. */
+.analysis-section > .section-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-align: start;
+  margin: 0 0 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--sw-border);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: var(--sw-text);
+  position: relative;
+}
+
+.analysis-section > .section-title::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  inset-inline-start: 0;
+  width: 44px;
+  height: 2px;
+  background: var(--sw-accent);
+}
+
+.analysis-section > .section-subtitle {
+  margin: 14px 0 0;
+  font-size: 0.85rem;
+  line-height: 1.65;
+  max-width: 78ch;
+}
+
+.analysis-section > .distribution-grid:first-of-type {
+  margin-top: 18px;
+}
+
+/* --- The performance chart's controls ------------------------ */
+
+/* Market, currency, date range and benchmark are four settings on one
+   chart, so they sit together in one band above it rather than scattered
+   down the section as separate rows. */
+.segment-controls,
+.date-range-controls,
+.chart-overlay-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.date-range-controls {
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.date-range-controls .form-group {
+  margin: 0;
+}
+
+.chart-overlay-controls {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--sw-border);
+}
+
+/* Same control as the FX checkbox, and deliberately so: both are
+   independent on/off modifiers of the chart below them, not choices
+   between alternatives. */
+.overlay-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius-sm);
+  background: var(--sw-surface-2);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--sw-text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.overlay-toggle:hover {
+  border-color: var(--sw-accent);
+}
+
+.overlay-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--sw-accent);
+}
+
+.overlay-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--sw-text-secondary);
+  max-width: 78ch;
+}
+
+.benchmark-toggle-row {
+  margin: 0;
+  flex-wrap: wrap;
+}
+
+/* The chart's own conclusion, stated under it. A result rather than an
+   explanation, so it gets the accent edge that the static prose doesn't. */
+.chart-result-callout {
+  margin: 12px 0 0;
+  padding: 12px 16px;
+  border-inline-start: 3px solid var(--sw-accent);
+  border-radius: var(--sw-radius-sm);
+  background: var(--sw-surface-2);
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: var(--sw-text);
+}
+
+.equity-chart-container {
+  padding: 18px 8px 10px;
+  margin-top: 14px;
+}
+
+/* --- Lazily-loaded pages ------------------------------------- */
+
+/* Holds the frame's height while a page's chunk arrives, so the shell
+   does not collapse and re-expand around it. */
+.page-loading-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 55vh;
+}
+
+/* =============================================================
+   RESPONSIVE - phone and tablet
+   ============================================================= */
+
+/* Tables are the one thing that genuinely cannot reflow: a holdings row is
+   eight columns of figures that mean nothing split across lines. They
+   scroll sideways instead, with momentum scrolling on touch. */
+.stocks-table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+@media (max-width: 1024px) {
+  /* The in-page section nav becomes a horizontal strip above the content:
+     as a sidebar it would take a third of a tablet's width to list links
+     to things already on the page. */
+  .sw-layout {
+    display: block;
+  }
+
+  .sw-sidebar {
+    position: static;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    max-height: none;
+    box-sizing: border-box;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sw-sidebar-item,
+  .sw-sidebar-group-label {
+    white-space: nowrap;
+    flex: 0 0 auto;
+    margin: 0;
+  }
+
+  .pie-chart-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  /* Recharts sizes from its container, so a percentage width inside a
+     now-stacked wrapper has to become the full width or the pie draws into
+     a sliver. */
+  .pie-chart-wrapper .recharts-responsive-container {
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .analysis-section {
+    padding: 18px 16px;
+    margin-bottom: 14px;
+  }
+
+  .analysis-section > .section-title {
+    font-size: 1.05rem;
+  }
+
+  /* One figure per row beats two cramped columns: these are numbers to be
+     read, and at 320px a two-column grid wraps them mid-figure. */
+  .distribution-grid,
+  .reports-grid,
+  .kpi-row {
+    grid-template-columns: 1fr;
+  }
+
+  .equity-chart-container {
+    padding: 12px 2px 6px;
+  }
+
+  /* Every control band stacks, and its controls stretch to the full width
+     so they are comfortably tappable rather than hugging their text. */
+  .segment-controls,
+  .date-range-controls,
+  .chart-overlay-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .segment-buttons,
+  .benchmark-toggle-row {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+
+  .date-range-controls .form-group {
+    width: 100%;
+  }
+
+  .date-range-controls input {
+    width: 100%;
+  }
+
+  /* The 44px minimum touch target, applied where a control is otherwise
+     sized by its label alone. */
+  .segment-button,
+  .benchmark-toggle-button,
+  .toolbar-btn,
+  .monthly-toolbar-btn,
+  .audit-action,
+  .sw-sidebar-item {
+    min-height: 44px;
+  }
+
+  .overlay-toggle,
+  .fx-toggle {
+    min-height: 44px;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .analysis-section {
+    padding: 16px 12px;
+    border-radius: var(--sw-radius-sm);
+  }
+
+  .summary-section {
+    padding: 14px 12px;
+  }
+
+  /* The label/value grid gives up its side-by-side arrangement only here,
+     where a long Hebrew label and a figure genuinely cannot share a line. */
+  .summary-item {
+    grid-template-columns: 1fr;
+    gap: 2px;
+    min-height: 0;
+  }
+
+  .summary-value {
+    text-align: start;
+    font-size: 1.02rem;
+  }
+
+  .summary-section-title {
+    min-height: 0;
+  }
+
+  .distribution-value {
+    font-size: 1.45rem;
+  }
 }

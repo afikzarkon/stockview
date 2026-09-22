@@ -1,5 +1,5 @@
 import './App.css';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { formatPriceWithSign, normalizeIsraeliStocksFromStorage } from './utils/formatters';
 import { calculatePortfolioSummary } from './utils/portfolioSummary';
 import { applyLedgerValueEditPayload } from './utils/portfolioMath';
@@ -23,20 +23,33 @@ import { useRebalanceTargets } from './hooks/useRebalanceTargets';
 import { useTheme } from './hooks/useTheme';
 import { monthKeyFromDate } from './utils/cpiTax';
 import { useRoute } from './hooks/useRoute';
-import StockFormView from './components/StockFormView';
-import PortfolioAnalysisView from './components/PortfolioAnalysisView';
-import MonthlyTrackerView from './components/MonthlyTrackerView';
-import TaxOffsetView from './components/TaxOffsetView';
-import StockResearchView from './components/StockResearchView';
 import HomeView from './components/HomeView';
-import IsraeliStocksPage from './components/pages/IsraeliStocksPage';
-import UsStocksPage from './components/pages/UsStocksPage';
-import ProvidentFundsPage from './components/pages/ProvidentFundsPage';
-import CashAndCheckingPage from './components/pages/CashAndCheckingPage';
-import BankSavingsPage from './components/pages/BankSavingsPage';
 import AuthView from './components/AuthView';
 import AppShell from './components/AppShell';
 import ThemeToggleButton from './components/ThemeToggleButton';
+
+// ONE CHUNK PER PAGE, fetched when that page is first opened.
+//
+// Everything below used to be in the initial bundle, so opening the app at
+// the dashboard downloaded and parsed the analysis page, the research page
+// and the monthly tracker as well - and with them recharts, which is the
+// single largest dependency here and is used by exactly two screens that
+// the landing page is not one of. That is what the app was waiting on
+// before it could paint anything.
+//
+// The dashboard, the auth screen and the shell around them stay eager:
+// they are what a cold visit actually renders, and deferring them would
+// only add a round-trip to the critical path.
+const StockFormView = lazy(() => import('./components/StockFormView'));
+const PortfolioAnalysisView = lazy(() => import('./components/PortfolioAnalysisView'));
+const MonthlyTrackerView = lazy(() => import('./components/MonthlyTrackerView'));
+const TaxOffsetView = lazy(() => import('./components/TaxOffsetView'));
+const StockResearchView = lazy(() => import('./components/StockResearchView'));
+const IsraeliStocksPage = lazy(() => import('./components/pages/IsraeliStocksPage'));
+const UsStocksPage = lazy(() => import('./components/pages/UsStocksPage'));
+const ProvidentFundsPage = lazy(() => import('./components/pages/ProvidentFundsPage'));
+const CashAndCheckingPage = lazy(() => import('./components/pages/CashAndCheckingPage'));
+const BankSavingsPage = lazy(() => import('./components/pages/BankSavingsPage'));
 
 const LEGACY_KEYS = [
   'israeliStocks',
@@ -1160,7 +1173,6 @@ function App() {
             {...holdings}
             {...toolbarProps}
             summary={summary}
-            cpi={cpi}
             onNavigate={navigate}
           />
         );
@@ -1176,7 +1188,17 @@ function App() {
       theme={theme}
       onToggleTheme={toggleTheme}
     >
-      {renderPage()}
+      {/* Only the lazily-loaded pages ever suspend; the dashboard is in the
+          initial bundle and renders straight through this. */}
+      <Suspense
+        fallback={
+          <div className="page-loading-wrap">
+            <p className="auth-loading-text">טוען…</p>
+          </div>
+        }
+      >
+        {renderPage()}
+      </Suspense>
     </AppShell>
   );
 }

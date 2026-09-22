@@ -4,9 +4,8 @@ import {
   Pie,
   Cell,
   ResponsiveContainer,
-  LineChart,
+  ComposedChart,
   Line,
-  AreaChart,
   Area,
   XAxis,
   YAxis,
@@ -79,8 +78,10 @@ const NAV_GROUPS = [
     label: 'ביצועים',
     items: [
       { key: 'summary', label: 'תקציר ניתוח' },
-      { key: 'performance', label: 'ביצועי התיק לאורך זמן' },
-      { key: 'benchmark', label: 'השוואה מול מדד ייחוס' }
+      // The benchmark comparison used to be a section of its own further
+      // down the page. It is now an overlay on the performance chart, so
+      // the two are one destination rather than two.
+      { key: 'performance', label: 'ביצועי התיק לאורך זמן' }
     ]
   },
   {
@@ -269,6 +270,15 @@ function PortfolioAnalysisView({
   );
   const benchmarkOptions = useMemo(() => benchmarksForSegment(marketSegment), [marketSegment]);
 
+  // The benchmark is an overlay on the performance chart rather than a
+  // second chart below it, so the two lines share one canvas, one date
+  // range and one set of market/currency toggles instead of being compared
+  // by scrolling between them.
+  //
+  // Off by default, which also keeps its price history off the critical
+  // path: nothing is fetched for it until someone asks to see it.
+  const [showBenchmark, setShowBenchmark] = useState(false);
+
   // Switching market keeps the chosen index when the new market also offers
   // it (moving between "all" and "American" should not reset an S&P
   // comparison), and falls back to that market's primary anchor when it
@@ -278,6 +288,12 @@ function PortfolioAnalysisView({
   const selectedBenchmarkLabel =
     benchmarkOptions.find((b) => b.key === selectedBenchmarkKey)?.label || '';
   const benchmarkNeedsFx = selectedBenchmarkCurrency === 'USD';
+
+  // Whether the user has narrowed the window away from "everything". The
+  // raw state is what says so: '' means "track inception and today", and
+  // the effective dates below are resolved values that cannot tell the two
+  // apart.
+  const isRangeNarrowed = Boolean(performanceFrom || performanceTo);
 
   const effectivePerformanceFrom = performanceFrom || portfolioInceptionDate;
   // A range whose start is after its end produces nothing to chart, and is
@@ -308,8 +324,9 @@ function PortfolioAnalysisView({
     anchorLedgerAccountsToFirstRecord: true,
     // The rate history is needed for two independent reasons: to restate a
     // dollar-quoted index in shekels, and to find the single rate the
-    // pure-dollar view converts at.
-    needsFxHistory: benchmarkNeedsFx || fxMode === FX_MODES.PURE_USD,
+    // pure-dollar view converts at. The first only applies while the
+    // benchmark overlay is actually on.
+    needsFxHistory: (showBenchmark && benchmarkNeedsFx) || fxMode === FX_MODES.PURE_USD,
     americanExchangeRate: fixedExchangeRate
   });
 
@@ -537,7 +554,10 @@ function PortfolioAnalysisView({
     points: rawBenchmarkPoints,
     loading: benchmarkLoading,
     error: benchmarkError
-  } = useBenchmarkHistory(stats.hasHistory ? selectedBenchmarkKey : null, stats.firstDate);
+  } = useBenchmarkHistory(
+    showBenchmark && stats.hasHistory ? selectedBenchmarkKey : null,
+    stats.firstDate
+  );
 
   // Restated in shekels when the index is quoted in dollars, so the line
   // the portfolio is held against is the return an Israeli investor would
@@ -552,11 +572,53 @@ function PortfolioAnalysisView({
   const benchmarkAwaitingFx =
     benchmarkNeedsFx && rawBenchmarkPoints.length > 0 && benchmarkPoints.length === 0;
 
+  // Held against the CASH-FLOW-NEUTRALIZED curve, not the raw value series.
+  //
+  // This was the bug in the comparison: the portfolio line was its shekel
+  // value indexed to 100, so every deposit stepped it upward. An index only
+  // ever moves on market returns, so paying ₪50,000 into a ₪100,000
+  // portfolio drew a 50% jump and reported it as beating the market by 50
+  // points. stats.twrIndexSeries is the same curve with contributions
+  // removed (Modified Dietz per sub-period, chained) - the figure the
+  // headline return has always used, now also what the chart draws.
   const comparisonSeries = useMemo(
-    () => buildComparisonSeries(stats.series, benchmarkPoints),
-    [stats.series, benchmarkPoints]
+    () => buildComparisonSeries(stats.twrIndexSeries, benchmarkPoints),
+    [stats.twrIndexSeries, benchmarkPoints]
   );
   const comparisonLast = comparisonSeries.length ? comparisonSeries[comparisonSeries.length - 1] : null;
+
+  // One row per date for one chart: the portfolio's shekel value on its own
+  // axis, plus the two indexed lines when the overlay is on. Merged by date
+  // because the comparison starts at the first date the benchmark also
+  // covers, which can be later than the portfolio's own first point.
+  const performanceChartData = useMemo(() => {
+    const indexedByDate = new Map(comparisonSeries.map((point) => [point.date, point]));
+    return stats.series.map((point) => {
+      const indexed = indexedByDate.get(point.date);
+      return {
+        date: point.date,
+        value: point.value,
+        portfolioIndexed: indexed ? indexed.portfolioIndexed : null,
+        benchmarkIndexed: indexed ? indexed.benchmarkIndexed : null
+      };
+    });
+  }, [stats.series, comparisonSeries]);
+
+  // What the overlay is doing right now, as one of a few named states - the
+  // chart needs to say "loading the index" or "no overlap" without a chain
+  // of ternaries inlined in the JSX beside the chart itself.
+  const benchmarkStatus = (() => {
+    if (!showBenchmark) return null;
+    if (benchmarkAwaitingFx) return `טוען את היסטוריית שער הדולר כדי להציג את ${selectedBenchmarkLabel} בשקלים…`;
+    if (benchmarkLoading) return `טוען נתוני ${selectedBenchmarkLabel}…`;
+    if (benchmarkError) return benchmarkError;
+    if (comparisonSeries.length < 2) {
+      return `עדיין אין מספיק חפיפה בין ההיסטוריה של התיק שלכם לנתוני ${selectedBenchmarkLabel} כדי להציג השוואה.`;
+    }
+    return null;
+  })();
+
+  const benchmarkOverlayReady = showBenchmark && !benchmarkStatus && comparisonSeries.length >= 2;
 
   // PURCHASE/DEPOSIT HISTORY - years first, months on demand.
   //
@@ -717,10 +779,10 @@ function PortfolioAnalysisView({
                   : ' כל תאריך מומר לפי שער הדולר שלו באותו יום, כך שהתשואה כוללת גם את תנועת המטבע.')}
             </p>
 
-            <div
-              className="date-range-controls"
-              style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 12 }}
-            >
+            {/* Layout lives in .date-range-controls, not in an inline style:
+                an inline align-items outranks the stylesheet, so the mobile
+                rule that stacks these could never take effect. */}
+            <div className="date-range-controls">
               <div className="form-group">
                 <label htmlFor="performanceFrom">מתאריך</label>
                 <input
@@ -742,7 +804,7 @@ function PortfolioAnalysisView({
                   onChange={(e) => handlePerformanceToChange(e.target.value)}
                 />
               </div>
-              {(performanceFrom || performanceTo) && (
+              {isRangeNarrowed && (
                 <button
                   type="button"
                   className="monthly-toolbar-btn"
@@ -778,9 +840,56 @@ function PortfolioAnalysisView({
               </div>
             ) : (
               <>
+                {/* THE BENCHMARK OVERLAY.
+                    One canvas, two measures: the portfolio's shekel value on
+                    its own axis, and - when asked for - the neutralized
+                    return against the chosen index on a second one, both
+                    based at 100 so the divergence between them is the
+                    relative performance. */}
+                <div className="chart-overlay-controls">
+                  <label className="overlay-toggle">
+                    <input
+                      type="checkbox"
+                      checked={showBenchmark}
+                      onChange={(e) => setShowBenchmark(e.target.checked)}
+                    />
+                    <span>השוואה מול מדד ייחוס</span>
+                  </label>
+
+                  {showBenchmark && (
+                    <>
+                      <div className="benchmark-toggle-row" role="group" aria-label="בחירת מדד ייחוס">
+                        {benchmarkOptions.map((option) => (
+                          <button
+                            key={option.key}
+                            type="button"
+                            className={`benchmark-toggle-button ${
+                              selectedBenchmarkKey === option.key ? 'active' : ''
+                            }`}
+                            aria-pressed={selectedBenchmarkKey === option.key}
+                            onClick={() => setBenchmarkKey(option.key)}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="overlay-hint">
+                        המדדים המוצעים משתנים לפי השוק שנבחר למעלה. מדדים אמריקאיים מוצגים בשקלים, לפי
+                        שער הדולר בכל תאריך - כך שההשוואה מודדת את התשואה שמשקיע ישראלי היה מקבל מהם
+                        בפועל.
+                      </p>
+                    </>
+                  )}
+                </div>
+
+                {benchmarkStatus && <p className="history-empty-note">{benchmarkStatus}</p>}
+
                 <div className="equity-chart-container">
-                  <ResponsiveContainer width="100%" height={280}>
-                    <AreaChart data={stats.series} margin={{ top: 10, right: 24, left: 8, bottom: 0 }}>
+                  <ResponsiveContainer width="100%" height={320}>
+                    <ComposedChart
+                      data={performanceChartData}
+                      margin={{ top: 10, right: 16, left: 8, bottom: 0 }}
+                    >
                       {/* The fill fades to nothing at the baseline, so the
                           area reads as depth under the line rather than as a
                           solid block competing with it. */}
@@ -797,8 +906,10 @@ function PortfolioAnalysisView({
                         tick={{ fontSize: 12, fill: chart.axis }}
                         stroke={chart.grid}
                         tickLine={false}
+                        minTickGap={24}
                       />
                       <YAxis
+                        yAxisId="value"
                         tickFormatter={(v) => `${Math.round(v / 1000)}k`}
                         tick={{ fontSize: 12, fill: chart.axis }}
                         stroke={chart.grid}
@@ -806,27 +917,114 @@ function PortfolioAnalysisView({
                         axisLine={false}
                         width={50}
                       />
+                      {/* The indexed axis only exists while the overlay is
+                          on - an empty second axis would otherwise squeeze
+                          the plot area for no reason. */}
+                      <YAxis
+                        yAxisId="index"
+                        orientation="right"
+                        hide={!benchmarkOverlayReady}
+                        tickFormatter={(v) => v.toFixed(0)}
+                        tick={{ fontSize: 12, fill: chart.axis }}
+                        stroke={chart.grid}
+                        tickLine={false}
+                        axisLine={false}
+                        width={44}
+                      />
                       <Tooltip
                         {...chartTooltip}
                         cursor={{ stroke: chart.accent, strokeWidth: 1, strokeDasharray: '4 4' }}
                         labelFormatter={(d) => formatDate(d)}
-                        formatter={(value) => [`${formatPriceWithSign(value)} ₪`, 'שווי תיק']}
+                        formatter={(value, name) => {
+                          if (name === 'value') return [`${formatPriceWithSign(value)} ₪`, 'שווי תיק'];
+                          const label =
+                            name === 'portfolioIndexed'
+                              ? 'התיק שלי (מנוטרל הפקדות)'
+                              : selectedBenchmarkLabel;
+                          return [Number(value).toFixed(1), label];
+                        }}
                       />
+                      {benchmarkOverlayReady && (
+                        <Legend
+                          formatter={(name) => {
+                            if (name === 'value') return 'שווי תיק (₪)';
+                            return name === 'portfolioIndexed'
+                              ? 'התיק שלי (מנוטרל הפקדות)'
+                              : selectedBenchmarkLabel;
+                          }}
+                        />
+                      )}
                       <Area
+                        yAxisId="value"
                         type="monotone"
                         dataKey="value"
                         stroke={chart.accent}
-                        strokeWidth={2.5}
+                        /* Stepped back while the comparison is on, so the
+                           two indexed lines are what the eye follows. */
+                        strokeWidth={benchmarkOverlayReady ? 1.5 : 2.5}
+                        strokeOpacity={benchmarkOverlayReady ? 0.45 : 1}
                         fill={`url(#${AREA_GRADIENT_ID})`}
+                        fillOpacity={benchmarkOverlayReady ? 0.4 : 1}
                         dot={false}
                         activeDot={{ r: 4, strokeWidth: 2, stroke: chart.tooltipBg }}
                       />
-                    </AreaChart>
+                      {benchmarkOverlayReady && (
+                        <Line
+                          yAxisId="index"
+                          type="monotone"
+                          dataKey="portfolioIndexed"
+                          stroke={chart.accent}
+                          strokeWidth={2.5}
+                          dot={false}
+                          connectNulls
+                        />
+                      )}
+                      {benchmarkOverlayReady && (
+                        <Line
+                          yAxisId="index"
+                          type="monotone"
+                          dataKey="benchmarkIndexed"
+                          stroke={chart.benchmark}
+                          strokeWidth={2.5}
+                          strokeDasharray="5 3"
+                          dot={false}
+                          connectNulls
+                        />
+                      )}
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
+
+                {benchmarkOverlayReady && comparisonLast && (
+                  <p className="chart-result-callout">
+                    מאז {formatDate(comparisonSeries[0].date)}: התיק שלי{' '}
+                    <span
+                      className={
+                        comparisonLast.portfolioIndexed >= 100 ? 'profit-positive' : 'profit-negative'
+                      }
+                    >
+                      {(comparisonLast.portfolioIndexed - 100).toFixed(1)}%
+                    </span>{' '}
+                    לעומת {selectedBenchmarkLabel}{' '}
+                    <span
+                      className={
+                        comparisonLast.benchmarkIndexed >= 100 ? 'profit-positive' : 'profit-negative'
+                      }
+                    >
+                      {(comparisonLast.benchmarkIndexed - 100).toFixed(1)}%
+                    </span>
+                    . שתי השורות מנוטרלות הפקדות ומבוססות ל-100 בתאריך הראשון המשותף, כך שהפער ביניהן הוא
+                    ביצועים ולא כסף שהוכנס.
+                  </p>
+                )}
                 <div className="distribution-grid" style={{ marginTop: 16 }}>
                   <div className="distribution-card">
-                    <h3>תשואה מאז תחילת ההשקעה</h3>
+                    {/* Every figure in this section is scoped to the range
+                        above, so the headline cannot keep saying "since
+                        inception" once that range has been narrowed - it
+                        would name a start date the number is not measured
+                        from. */}
+                    <h3>{isRangeNarrowed ? 'תשואה בתקופה שנבחרה' : 'תשואה מאז תחילת ההשקעה'}</h3>
                     <div
                       className={`distribution-value ${
                         stats.totalReturnPercent >= 0 ? 'profit-positive' : 'profit-negative'
@@ -1011,106 +1209,6 @@ function PortfolioAnalysisView({
               </div>
             </div>
           </div>
-
-          {stats.hasHistory && (
-            <div className="analysis-section" ref={(el) => (sectionRefs.current.benchmark = el)}>
-              <h2 className="section-title">השוואה מול מדד ייחוס</h2>
-              <p className="section-subtitle">
-                המדדים המוצעים משתנים לפי השוק שנבחר למעלה. מדדים אמריקאיים מוצגים בשקלים, לפי שער הדולר בכל
-                תאריך - כך שההשוואה מודדת את התשואה שמשקיע ישראלי היה מקבל מהם בפועל.
-              </p>
-              <div className="benchmark-toggle-row" role="group" aria-label="בחירת מדד ייחוס">
-                {benchmarkOptions.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    className={`benchmark-toggle-button ${selectedBenchmarkKey === option.key ? 'active' : ''}`}
-                    aria-pressed={selectedBenchmarkKey === option.key}
-                    onClick={() => setBenchmarkKey(option.key)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-
-              {benchmarkAwaitingFx ? (
-                <p className="history-empty-note">
-                  טוען את היסטוריית שער הדולר כדי להציג את {selectedBenchmarkLabel} בשקלים…
-                </p>
-              ) : benchmarkLoading ? (
-                <p className="history-empty-note">טוען נתוני {selectedBenchmarkLabel}…</p>
-              ) : benchmarkError ? (
-                <p className="history-empty-note">{benchmarkError}</p>
-              ) : comparisonSeries.length < 2 ? (
-                <p className="history-empty-note">
-                  עדיין אין מספיק חפיפה בין ההיסטוריה של התיק שלכם לנתוני {selectedBenchmarkLabel} כדי להציג השוואה.
-                </p>
-              ) : (
-                <>
-                  <div className="equity-chart-container">
-                    <ResponsiveContainer width="100%" height={280}>
-                      <LineChart data={comparisonSeries} margin={{ top: 10, right: 24, left: 8, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
-                        <XAxis
-                          dataKey="date"
-                          tickFormatter={(d) => formatDate(d)}
-                          tick={{ fontSize: 12, fill: chart.axis }}
-                          stroke={chart.grid}
-                          tickLine={false}
-                        />
-                        <YAxis
-                          tickFormatter={(v) => v.toFixed(0)}
-                          tick={{ fontSize: 12, fill: chart.axis }}
-                          stroke={chart.grid}
-                          tickLine={false}
-                          axisLine={false}
-                          width={45}
-                        />
-                        <Tooltip
-                          {...chartTooltip}
-                          labelFormatter={(d) => formatDate(d)}
-                          formatter={(value, name) => [
-                            `${Number(value).toFixed(1)}`,
-                            name === 'portfolioIndexed' ? 'התיק שלי' : selectedBenchmarkLabel
-                          ]}
-                        />
-                        <Legend
-                          formatter={(name) => (name === 'portfolioIndexed' ? 'התיק שלי' : selectedBenchmarkLabel)}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="portfolioIndexed"
-                          stroke={chart.accent}
-                          strokeWidth={2.5}
-                          dot={false}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="benchmarkIndexed"
-                          stroke={chart.benchmark}
-                          strokeWidth={2.5}
-                          dot={false}
-                          strokeDasharray="5 3"
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                  {comparisonLast && (
-                    <p className="section-subtitle" style={{ marginTop: 10 }}>
-                      מאז {formatDate(comparisonSeries[0].date)}: התיק שלי{' '}
-                      <span className={comparisonLast.portfolioIndexed >= 100 ? 'profit-positive' : 'profit-negative'}>
-                        {(comparisonLast.portfolioIndexed - 100).toFixed(1)}%
-                      </span>{' '}
-                      לעומת {selectedBenchmarkLabel}{' '}
-                      <span className={comparisonLast.benchmarkIndexed >= 100 ? 'profit-positive' : 'profit-negative'}>
-                        {(comparisonLast.benchmarkIndexed - 100).toFixed(1)}%
-                      </span>
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          )}
 
           <div className="analysis-section" ref={(el) => (sectionRefs.current.pie = el)}>
             <h2 className="section-title">גרף עוגה - פיזור התיק</h2>

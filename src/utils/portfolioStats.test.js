@@ -9,6 +9,7 @@ import {
   computeStatsFromSeries,
   computePortfolioStats,
   computeTimeWeightedReturnPercent,
+  buildTwrIndexSeries,
   annualizeReturnPercent,
   TRADING_DAYS_PER_YEAR
 } from './portfolioStats';
@@ -417,6 +418,105 @@ describe('computeStatsFromSeries with cash flows', () => {
     expect(stats.totalReturnPercent).toBeCloseTo(50, 6);
     expect(stats.naiveReturnPercent).toBeCloseTo(50, 6);
     expect(stats.netCashFlow).toBe(0);
+  });
+});
+
+// THE DATE-RANGE BUG. Narrowing the chart to a window used to leave the
+// reported contributions summed over the portfolio's entire history, so a
+// 2022-2024 view claimed deposits made in 2019 had "entered during the
+// period" - under a return figure that had correctly ignored them.
+describe('the reported contributions belong to the selected range only', () => {
+  const series = [
+    { date: '2022-01-01', value: 100000 },
+    { date: '2024-01-01', value: 130000 }
+  ];
+
+  test('a deposit made before the range is not counted as money that entered during it', () => {
+    const stats = computeStatsFromSeries(series, [
+      { date: '2019-06-01', amount: 80000 },
+      { date: '2023-01-01', amount: 20000 }
+    ]);
+    expect(stats.netCashFlow).toBe(20000);
+  });
+
+  test('a deposit made after the range is not counted either', () => {
+    const stats = computeStatsFromSeries(series, [
+      { date: '2023-01-01', amount: 20000 },
+      { date: '2025-03-01', amount: 50000 }
+    ]);
+    expect(stats.netCashFlow).toBe(20000);
+  });
+
+  // The first point values the portfolio as it stood that day, opening
+  // purchase included - so money dated on it did enter within the window.
+  test('a deposit dated on the first point counts, being inside the window', () => {
+    const stats = computeStatsFromSeries(series, [{ date: '2022-01-01', amount: 100000 }]);
+    expect(stats.netCashFlow).toBe(100000);
+  });
+
+  test('widening the range brings the earlier deposit back in', () => {
+    const wide = [{ date: '2019-01-01', value: 10000 }, ...series];
+    const stats = computeStatsFromSeries(wide, [
+      { date: '2019-06-01', amount: 80000 },
+      { date: '2023-01-01', amount: 20000 }
+    ]);
+    expect(stats.netCashFlow).toBe(100000);
+  });
+});
+
+// What the benchmark comparison is drawn from. The raw value series cannot
+// be used: an index only moves on market returns, so a deposit plotted
+// against one reads as outperformance it never earned.
+describe('buildTwrIndexSeries', () => {
+  test('a pure deposit leaves the index flat, though the value rose 50%', () => {
+    const indexed = buildTwrIndexSeries(
+      [
+        { date: '2024-01-01', value: 100000 },
+        { date: '2024-07-01', value: 150000 }
+      ],
+      [{ date: '2024-03-01', amount: 50000 }]
+    );
+    expect(indexed[0].value).toBe(100);
+    expect(indexed[indexed.length - 1].value).toBeCloseTo(100, 4);
+  });
+
+  test('real growth still moves it, with no flows to neutralize', () => {
+    const indexed = buildTwrIndexSeries(
+      [
+        { date: '2024-01-01', value: 100000 },
+        { date: '2024-07-01', value: 120000 }
+      ],
+      []
+    );
+    expect(indexed[indexed.length - 1].value).toBeCloseTo(120, 6);
+  });
+
+  test('its last point agrees with the headline time-weighted return', () => {
+    const series = [
+      { date: '2024-01-01', value: 50000 },
+      { date: '2024-04-01', value: 62000 },
+      { date: '2024-08-01', value: 90000 }
+    ];
+    const flows = [{ date: '2024-05-01', amount: 20000 }];
+    const indexed = buildTwrIndexSeries(series, flows);
+    const twr = computeTimeWeightedReturnPercent(series, flows);
+    expect(indexed[indexed.length - 1].value - 100).toBeCloseTo(twr, 6);
+  });
+
+  test('keeps one point per date, starting at the base', () => {
+    const series = [
+      { date: '2024-01-01', value: 1000 },
+      { date: '2024-02-01', value: 1100 },
+      { date: '2024-03-01', value: 1200 }
+    ];
+    const indexed = buildTwrIndexSeries(series, []);
+    expect(indexed.map((p) => p.date)).toEqual(['2024-01-01', '2024-02-01', '2024-03-01']);
+    expect(indexed[0].value).toBe(100);
+  });
+
+  test('has nothing to index when there is no series', () => {
+    expect(buildTwrIndexSeries([], [])).toEqual([]);
+    expect(buildTwrIndexSeries(null, [])).toEqual([]);
   });
 });
 

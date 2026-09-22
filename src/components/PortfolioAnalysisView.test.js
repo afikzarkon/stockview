@@ -88,9 +88,11 @@ describe('PortfolioAnalysisView', () => {
     const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
     const groupLabels = Array.from(container.querySelectorAll('.sw-sidebar-group-label')).map((el) => el.textContent);
     expect(groupLabels).toEqual(['ביצועים', 'פיזור התיק', 'מניות אמריקאיות', 'כלים ודוחות']);
-    // 11 sections. The monthly tracker and the tax-loss calculator left for
-    // their own pages, and the quarterly earnings board was removed.
-    expect(container.querySelectorAll('.sw-sidebar-item').length).toBe(11);
+    // 10 destinations. The monthly tracker and the tax-loss calculator left
+    // for their own pages, the quarterly earnings board was removed, and the
+    // benchmark comparison is now an overlay on the performance chart rather
+    // than a section to navigate to.
+    expect(container.querySelectorAll('.sw-sidebar-item').length).toBe(10);
     expect(screen.queryByText('ציון בריאות תיק')).toBeNull();
   });
 
@@ -398,8 +400,24 @@ describe('PortfolioAnalysisView', () => {
       return render(<PortfolioAnalysisView {...makeProps(props)} />);
     }
 
+    // The comparison is an overlay on the performance chart rather than a
+    // section of its own, and it starts off - so the index buttons do not
+    // exist until it is switched on.
+    async function enableBenchmark() {
+      const toggle = await screen.findByLabelText('השוואה מול מדד ייחוס');
+      fireEvent.click(toggle);
+      await waitFor(() => expect(benchmarkLabels().length).toBeGreaterThan(0));
+    }
+
+    test('offers no index buttons until the comparison is switched on', async () => {
+      renderWithHistory();
+      expect(await screen.findByLabelText('השוואה מול מדד ייחוס')).not.toBeChecked();
+      expect(benchmarkLabels()).toEqual([]);
+    });
+
     test('an Israeli portfolio is offered TASE indices, not the S&P', async () => {
       renderWithHistory();
+      await enableBenchmark();
       fireEvent.click(segmentButton('בורסה ישראלית'));
       await waitFor(() => expect(benchmarkLabels().length).toBeGreaterThan(0));
       expect(benchmarkLabels()).toEqual(['תל אביב 125', 'תל אביב 35', 'תל אביב 90', 'תל אביב בנקים']);
@@ -407,6 +425,7 @@ describe('PortfolioAnalysisView', () => {
 
     test('a US portfolio is offered US indices', async () => {
       renderWithHistory();
+      await enableBenchmark();
       fireEvent.click(segmentButton('בורסה אמריקאית'));
       await waitFor(() => expect(benchmarkLabels().length).toBeGreaterThan(0));
       expect(benchmarkLabels()).toEqual(['S&P 500', 'NASDAQ Composite', 'NASDAQ 100', 'Russell 2000']);
@@ -414,7 +433,7 @@ describe('PortfolioAnalysisView', () => {
 
     test('a combined portfolio is offered an anchor from each market', async () => {
       renderWithHistory();
-      await waitFor(() => expect(benchmarkLabels().length).toBeGreaterThan(0));
+      await enableBenchmark();
       expect(benchmarkLabels()).toContain('S&P 500');
       expect(benchmarkLabels()).toContain('תל אביב 125');
     });
@@ -423,7 +442,7 @@ describe('PortfolioAnalysisView', () => {
     // up, when the new market offers the same index.
     test('keeps the chosen index across a market change that still offers it', async () => {
       renderWithHistory();
-      await waitFor(() => expect(benchmarkLabels().length).toBeGreaterThan(0));
+      await enableBenchmark();
       fireEvent.click(screen.getByText('S&P 500'));
       fireEvent.click(segmentButton('בורסה אמריקאית'));
       await waitFor(() =>
@@ -433,7 +452,7 @@ describe('PortfolioAnalysisView', () => {
 
     test('falls back to the new market primary index when it does not', async () => {
       renderWithHistory();
-      await waitFor(() => expect(benchmarkLabels().length).toBeGreaterThan(0));
+      await enableBenchmark();
       fireEvent.click(screen.getByText('S&P 500'));
       fireEvent.click(segmentButton('בורסה ישראלית'));
       await waitFor(() =>
@@ -442,15 +461,9 @@ describe('PortfolioAnalysisView', () => {
     });
 
     test('says that US indices are shown in shekels', async () => {
-      const { container } = renderWithHistory();
-      await waitFor(() => expect(benchmarkLabels().length).toBeGreaterThan(0));
-      // The title appears twice - in the in-page sidebar nav and as the
-      // section heading - so the heading is named specifically.
-      const section = screen
-        .getByText('השוואה מול מדד ייחוס', { selector: '.section-title' })
-        .closest('.analysis-section');
-      expect(within(section).getByText(/מוצגים בשקלים/)).toBeInTheDocument();
-      expect(container).toBeTruthy();
+      renderWithHistory();
+      await enableBenchmark();
+      expect(screen.getByText(/מוצגים בשקלים/)).toBeInTheDocument();
     });
   });
 
@@ -670,6 +683,20 @@ describe('PortfolioAnalysisView', () => {
 
       await waitFor(() => expect(global.fetch.mock.calls.length).toBeGreaterThan(callsBefore));
       expect(container.querySelector('#performanceFrom').value).toBe('2024-01-01');
+    });
+
+    // Everything in the section is scoped to the chosen range, so the
+    // headline cannot keep naming a start date it is no longer measured
+    // from.
+    test('the headline stops claiming "since inception" once the range is narrowed', async () => {
+      mockHistoryFetch();
+      const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      await waitFor(() => expect(screen.getByText('תשואה מאז תחילת ההשקעה')).toBeInTheDocument());
+
+      fireEvent.change(container.querySelector('#performanceFrom'), { target: { value: '2024-01-01' } });
+
+      await waitFor(() => expect(screen.getByText('תשואה בתקופה שנבחרה')).toBeInTheDocument());
+      expect(screen.queryByText('תשואה מאז תחילת ההשקעה')).toBeNull();
     });
 
     test('surfaces an error message instead of a fake/blank result when the underlying fetch fails', async () => {
