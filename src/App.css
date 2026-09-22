@@ -776,9 +776,6 @@ h3 {
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
-.summary-item:last-child {
-  border-bottom: none;
-}
 
 .summary-label {
   font-weight: 500;
@@ -6859,11 +6856,30 @@ select {
    the amounts no longer lined up, so they could not be scanned down or
    checked against a total.
 
-   The card keeps its bento frame; it is the contents that are a list. */
+   The card keeps its bento frame; it is the contents that are a list.
+
+   WIDTH IS FILLED WITH ROWS, NOT SPENT STRETCHING THEM. A card that is
+   alone on its row - the capital overview here, and the single card at
+   the top of every asset page - is as wide as the page. With one column
+   of rows, each label/amount pair was stretched across all of it: the
+   label sat near one edge, the figure near the other, and a hand's width
+   of nothing lay between them. Nothing was gained by the width; it was
+   just harder to carry the eye from a label to its own amount.
+
+   So the rows themselves wrap into columns when there is room for
+   another. A narrow card keeps the single column it has now; a full-width
+   one gets two or three columns of the same rows, which is how a
+   statement of accounts uses a wide page. */
 .summary-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  column-gap: 30px;
+  row-gap: 0;
+  align-content: start;
+}
+
+.summary-section-title {
+  grid-column: 1 / -1;
 }
 
 /* Two columns, the second sized to the widest amount in the card - so
@@ -6882,10 +6898,14 @@ select {
   background: none;
 }
 
-/* The final row closes the list; there is nothing under it to divide it
-   from. */
-.summary-item:last-child {
-  border-bottom: none;
+/* Every row is ruled, the last one included. With the rows wrapping into
+   columns, ":last-child" is the last row of the WHOLE card rather than of
+   each column - dropping its rule there would leave one column ending
+   flush and the others ending on a hairline. A closing rule under every
+   column is the only version that holds at any column count, and it is
+   what a ruled statement does anyway. */
+.summary-item {
+  border-bottom: 1px solid var(--sw-border);
 }
 
 /* A whole row lights up under the cursor, which is what lets the eye
