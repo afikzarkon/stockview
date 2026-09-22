@@ -6858,28 +6858,23 @@ select {
 
    The card keeps its bento frame; it is the contents that are a list.
 
-   WIDTH IS FILLED WITH ROWS, NOT SPENT STRETCHING THEM. A card that is
-   alone on its row - the capital overview here, and the single card at
-   the top of every asset page - is as wide as the page. With one column
-   of rows, each label/amount pair was stretched across all of it: the
-   label sat near one edge, the figure near the other, and a hand's width
-   of nothing lay between them. Nothing was gained by the width; it was
-   just harder to carry the eye from a label to its own amount.
+   ONE COLUMN, AND A CARD NARROW ENOUGH TO SUIT IT.
 
-   So the rows themselves wrap into columns when there is room for
-   another. A narrow card keeps the single column it has now; a full-width
-   one gets two or three columns of the same rows, which is how a
-   statement of accounts uses a wide page. */
+   The stretched rows this replaced came from a card being as wide as the
+   page with a single pair of label and amount spread across all of it.
+   Wrapping those rows into several columns was tried and was worse: a
+   grid fills across before it fills down, so the list read left to right
+   in rows of four and the closing total landed in the middle of the
+   block rather than at the end of it. A statement is read down a column.
+
+   The fix is the card, not the list. A summary card takes half the
+   dashboard grid like every other card, which is a width a label and an
+   amount sit comfortably across, and the cap below keeps the pair
+   readable anywhere a card is still wider than that. */
 .summary-section {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
-  column-gap: 30px;
-  row-gap: 0;
-  align-content: start;
-}
-
-.summary-section-title {
-  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 /* Two columns, the second sized to the widest amount in the card - so
@@ -6896,6 +6891,11 @@ select {
   border-radius: var(--sw-radius-sm);
   border-bottom: 1px solid var(--sw-border);
   background: none;
+  /* Past roughly this, the gap between a label and its own amount stops
+     being alignment and starts being a gulf. Only bites where a card is
+     alone and full width - the top of an asset page - since a card in
+     the dashboard grid is narrower than this anyway. */
+  max-width: 620px;
 }
 
 /* Every row is ruled, the last one included. With the rows wrapping into
@@ -7202,8 +7202,12 @@ select {
   min-width: 0;
 }
 
+/* Half the grid, like every other card. Full width made it a band across
+   the page holding one column of short rows, which is what stretched
+   those rows apart in the first place. Being the overview earns it the
+   first position, not a width its contents cannot use. */
 .summary-grid-custom > .summary-row-single > * {
-  grid-column: span 4;
+  grid-column: span 2;
 }
 
 /* The panel around the cards goes. It was a card containing cards - a
