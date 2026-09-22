@@ -762,16 +762,26 @@ describe('PortfolioAnalysisView', () => {
     });
 
     // Requirement: the headline return must exclude money paid in.
-    test('the return since inception is labelled as neutralized, and the raw value change is shown separately', async () => {
+    // Every percentage in this section is cash-flow-neutralized. The raw
+    // "how much bigger is the portfolio now" figure used to sit beside the
+    // real return, which invited the two to be read as alternatives - it is
+    // not a return at all, since a portfolio that grew only because money
+    // was paid into it shows a large positive number for doing nothing.
+    test('the return is labelled as neutralized, and the raw value change is not offered beside it', async () => {
       mockHistoryFetch();
-      render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
 
       await waitFor(() => expect(screen.getByText('תשואה מאז תחילת ההשקעה')).toBeInTheDocument());
       expect(screen.getByText(/מנוטרל הפקדות ורכישות/)).toBeInTheDocument();
-      // The number people see in their account is still shown - just
-      // labelled for what it is, so the smaller return figure doesn't look
-      // like an error.
-      expect(screen.getByText('שינוי בשווי התיק (כולל הפקדות)')).toBeInTheDocument();
+      expect(screen.queryByText('שינוי בשווי התיק (כולל הפקדות)')).toBeNull();
+
+      // Scoped to the headline cards. The audit panel below still carries a
+      // "naive change" column, which is the evidence for the neutralization
+      // rather than a return presented as performance.
+      const metricCards = Array.from(container.querySelectorAll('.distribution-card h3')).map(
+        (el) => el.textContent
+      );
+      expect(metricCards.some((label) => /כולל הפקדות/.test(label))).toBe(false);
     });
 
     test('the removed metrics are gone: no health score, no max drawdown, no Sharpe ratio', async () => {

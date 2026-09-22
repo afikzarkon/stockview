@@ -699,7 +699,7 @@ h3 {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
   gap: 25px;
   margin-top: 20px;
 }
@@ -1133,7 +1133,7 @@ h3 {
 /* Features grid */
 .features-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
   gap: 30px;
   margin-top: 40px;
 }
@@ -2011,7 +2011,7 @@ h3 {
 
 .distribution-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: 12px;
   margin-top: 12px;
 }
@@ -2104,7 +2104,7 @@ h3 {
 
 .rebalance-inputs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
   gap: 12px;
   margin-top: 12px;
 }
@@ -2237,7 +2237,7 @@ h3 {
 
 .monthly-cashflow-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
   gap: 8px;
 }
 
@@ -2527,7 +2527,7 @@ h3 {
 
 .date-distribution-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 12px;
   margin-top: 12px;
 }
@@ -2858,7 +2858,7 @@ h3 {
 
 .reports-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: 12px;
   margin-top: 12px;
 }
@@ -4116,7 +4116,7 @@ h3 {
 
 .sw-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
   gap: 14px;
   margin-bottom: 14px;
 }
@@ -4239,7 +4239,7 @@ h3 {
 
 .sw-fundamentals-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 20px;
 }
 
@@ -4256,7 +4256,7 @@ h3 {
 
 .sw-gauge-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
   gap: 10px;
 }
 
@@ -4299,7 +4299,7 @@ h3 {
 
 .sw-treemap-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -5141,7 +5141,7 @@ select {
 
 .kpi-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 14px;
   margin-bottom: 22px;
 }
@@ -5405,7 +5405,7 @@ select {
   }
 
   .kpi-row {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
     gap: 10px;
   }
 
@@ -5944,5 +5944,224 @@ select {
 
   .distribution-value {
     font-size: 1.45rem;
+  }
+}
+
+/* =============================================================
+   SECONDARY PAGES ON A PHONE
+   =============================================================
+
+   THE ROOT PROBLEM WAS NESTED PAGE CHROME, not any one page.
+
+   Every page renders .app-main-inner > .App > .welcome-container (or
+   .form-container), and each of the three carried its own padding, with
+   the middle two also carrying a margin. On a 360px screen that came to
+   roughly 90px of horizontal chrome - a quarter of the display spent on
+   the gaps between four nested rounded rectangles - before any content was
+   laid out. Grids then had less width than their own minimum track and
+   overflowed, tables scrolled inside a box narrower than a single column,
+   and the pages read as broken.
+
+   .welcome-container and .form-container are page wrappers rather than
+   cards: their border, radius and shadow are decoration around the whole
+   viewport's worth of content. Below the tablet breakpoint they give that
+   up, .app-main-inner keeps the single gutter, and the width goes back to
+   the content. */
+
+@media (max-width: 900px) {
+  /* Scoped to pages inside the shell. The auth screen and the loading
+     states also render a bare .App, but outside .app-main - there is no
+     .app-main-inner around them to supply the gutter, so flattening them
+     would push the sign-in card flush against the screen edge. */
+  .app-main .App {
+    padding: 0;
+    display: block;
+    /* Inside the shell this only forced every page to be a viewport tall,
+       which with the fixed bottom nav guaranteed a scrollbar on pages that
+       fit. The shell owns the page height here. */
+    min-height: 0;
+  }
+
+  .app-main .welcome-container,
+  .app-main .form-container {
+    padding: 0;
+    margin: 0;
+    max-width: 100%;
+    background: none;
+    backdrop-filter: none;
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+  }
+
+  /* The dashboard's wrapper centres its text; the pages inside it are
+     ordinary start-aligned content and only inherited it. */
+  .app-main .welcome-container {
+    text-align: start;
+  }
+
+  /* The remaining real cards keep their own frame - it is the wrappers
+     around them that flatten, not the content. */
+  .portfolio-summary {
+    padding: 16px 14px;
+    margin: 16px 0;
+  }
+
+  .stocks-section {
+    padding: 16px 12px;
+  }
+}
+
+/* .portfolio-summary is itself a panel holding cards rather than a card,
+   so on a phone it is one frame too many: the gutter, its padding and the
+   card's padding stacked to ~40px a side before any figure was drawn. */
+@media (max-width: 600px) {
+  .portfolio-summary {
+    padding: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+  }
+
+  [data-theme='dark'] .portfolio-summary {
+    background: none;
+  }
+
+  .portfolio-summary-title {
+    text-align: start;
+    font-size: 1.25rem;
+  }
+}
+
+/* --- Forms ---------------------------------------------------- */
+
+@media (max-width: 768px) {
+  /* iOS zooms the whole page in when a focused input's text is under 16px,
+     and does not zoom back out on blur - so the user is left scrolling a
+     magnified layout sideways. 16px is the threshold, not a preference. */
+  .form-group input,
+  .form-group select,
+  .form-group textarea,
+  .monthly-select,
+  .monthly-item-label-input,
+  .rebalance-input-item input {
+    font-size: 16px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .form-buttons {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .form-buttons button {
+    width: 100%;
+    min-height: 44px;
+  }
+}
+
+/* --- Monthly tracker ------------------------------------------ */
+
+@media (max-width: 768px) {
+  .monthly-toolbar-buttons {
+    width: 100%;
+  }
+
+  .monthly-toolbar-btn {
+    flex: 1 1 auto;
+  }
+
+  /* A label, an amount and a delete control on one line at 360px leaves
+     each about 90px. They stack instead, which is also what makes the
+     amount field wide enough to read what is typed into it. */
+  .monthly-manual-item-row {
+    flex-wrap: wrap;
+  }
+
+  .monthly-manual-item-row input[type='text'] {
+    flex: 1 1 100%;
+  }
+
+  .monthly-manual-category-header,
+  .monthly-history-category-header,
+  .monthly-history-item-row {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .monthly-history-item-row {
+    padding-inline-start: 12px;
+  }
+
+  .monthly-history-category-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+/* --- Charts --------------------------------------------------- */
+
+/* Recharts measures its container, so a chart in a flex or grid child that
+   has not been told it may shrink reports the width it wants rather than
+   the width available, and draws past the screen edge. */
+.equity-chart-container,
+.pie-chart-container,
+.pie-chart-wrapper,
+.sw-chart-ltr {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 768px) {
+  /* Ticks and legends are the first thing to become unreadable when a
+     chart is a third of its desktop width. */
+  .recharts-cartesian-axis-tick-value,
+  .recharts-legend-item-text {
+    font-size: 11px;
+  }
+
+  /* A pie's side legend sits under it rather than beside it once the
+     wrapper has stacked, so the labels get the full width. */
+  .pie-labels-side {
+    width: 100%;
+  }
+}
+
+/* --- Everything else ------------------------------------------ */
+
+@media (max-width: 768px) {
+  /* Long unbroken strings - a ticker, a fund name, an email - are the
+     other way a page grows wider than the screen. */
+  .summary-label,
+  .report-name,
+  .date-label,
+  .monthly-item-label,
+  .sw-overview-title,
+  .side-nav-user-email {
+    overflow-wrap: anywhere;
+  }
+
+  .year-accordion-header {
+    flex-wrap: wrap;
+    gap: 4px;
+    min-height: 44px;
+  }
+
+  .audit-actions {
+    flex-wrap: wrap;
+  }
+
+  .audit-action {
+    flex: 1 1 auto;
+  }
+
+  .reports-grid,
+  .rebalance-inputs-grid,
+  .monthly-cashflow-grid,
+  .sw-card-grid,
+  .sw-fundamentals-grid,
+  .date-distribution-grid {
+    grid-template-columns: 1fr;
   }
 }

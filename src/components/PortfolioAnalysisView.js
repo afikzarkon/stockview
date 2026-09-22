@@ -587,23 +587,6 @@ function PortfolioAnalysisView({
   );
   const comparisonLast = comparisonSeries.length ? comparisonSeries[comparisonSeries.length - 1] : null;
 
-  // One row per date for one chart: the portfolio's shekel value on its own
-  // axis, plus the two indexed lines when the overlay is on. Merged by date
-  // because the comparison starts at the first date the benchmark also
-  // covers, which can be later than the portfolio's own first point.
-  const performanceChartData = useMemo(() => {
-    const indexedByDate = new Map(comparisonSeries.map((point) => [point.date, point]));
-    return stats.series.map((point) => {
-      const indexed = indexedByDate.get(point.date);
-      return {
-        date: point.date,
-        value: point.value,
-        portfolioIndexed: indexed ? indexed.portfolioIndexed : null,
-        benchmarkIndexed: indexed ? indexed.benchmarkIndexed : null
-      };
-    });
-  }, [stats.series, comparisonSeries]);
-
   // What the overlay is doing right now, as one of a few named states - the
   // chart needs to say "loading the index" or "no overlap" without a chain
   // of ternaries inlined in the JSX beside the chart itself.
@@ -619,6 +602,21 @@ function PortfolioAnalysisView({
   })();
 
   const benchmarkOverlayReady = showBenchmark && !benchmarkStatus && comparisonSeries.length >= 2;
+
+  // The chart's rows, always the neutralized curve. With the overlay on it
+  // comes from the comparison, which re-bases both series to the first date
+  // the benchmark also covers - so the two start together and any gap
+  // between them afterwards is relative performance.
+  const performanceChartData = useMemo(
+    () =>
+      benchmarkOverlayReady
+        ? comparisonSeries
+        : stats.twrIndexSeries.map((point) => ({
+            date: point.date,
+            portfolioIndexed: point.value
+          })),
+    [benchmarkOverlayReady, comparisonSeries, stats.twrIndexSeries]
+  );
 
   // PURCHASE/DEPOSIT HISTORY - years first, months on demand.
   //
@@ -770,7 +768,8 @@ function PortfolioAnalysisView({
             <p className="section-subtitle segment-summary">
               מוצג כעת: <strong>{describeSelection(marketSegment, fxMode)}</strong>. עו"ש, קרנות כספיות, חיסכון
               בבנק וקופות גמל אינם נכללים בגרף הזה - הם אינם נעים עם השוק, ונוכחותם בשני קצות כל תת-תקופה מקררת כל
-              אחוז ואחוז לכיוון האפס. הסכומים מוצגים תמיד בשקלים.
+              אחוז ואחוז לכיוון האפס. הגרף מציג צמיחה מנוטרלת הפקדות באחוזים מהתאריך הראשון, ולא את שווי התיק
+              בשקלים - הפקדה מגדילה שווי בלי שההחזקות הרוויחו דבר.
               {showFxToggle &&
                 (fxMode === FX_MODES.PURE_USD
                   ? ` התשואה המוצגת היא דולרית בלבד: כל התאריכים מומרו לפי שער אחיד${
@@ -884,11 +883,18 @@ function PortfolioAnalysisView({
 
                 {benchmarkStatus && <p className="history-empty-note">{benchmarkStatus}</p>}
 
+                {/* ONE MEASURE ON THIS CHART: growth with contributions
+                    removed. The portfolio's raw shekel value used to be the
+                    curve, and it answers a different question - a deposit
+                    lifts it without the holdings having gained anything, so
+                    read as performance it is simply wrong. The shekel
+                    figures it carried are still on the cards below, where
+                    they are labelled as values rather than as a return. */}
                 <div className="equity-chart-container">
                   <ResponsiveContainer width="100%" height={320}>
                     <ComposedChart
                       data={performanceChartData}
-                      margin={{ top: 10, right: 16, left: 8, bottom: 0 }}
+                      margin={{ top: 10, right: 12, left: 4, bottom: 0 }}
                     >
                       {/* The fill fades to nothing at the baseline, so the
                           area reads as depth under the line rather than as a
@@ -908,80 +914,48 @@ function PortfolioAnalysisView({
                         tickLine={false}
                         minTickGap={24}
                       />
+                      {/* Both series are based at 100, so the axis reads as
+                          the growth since the first date rather than as an
+                          index level nobody has to decode. */}
                       <YAxis
-                        yAxisId="value"
-                        tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                        tickFormatter={(v) => `${v >= 100 ? '+' : ''}${(v - 100).toFixed(0)}%`}
                         tick={{ fontSize: 12, fill: chart.axis }}
                         stroke={chart.grid}
                         tickLine={false}
                         axisLine={false}
-                        width={50}
-                      />
-                      {/* The indexed axis only exists while the overlay is
-                          on - an empty second axis would otherwise squeeze
-                          the plot area for no reason. */}
-                      <YAxis
-                        yAxisId="index"
-                        orientation="right"
-                        hide={!benchmarkOverlayReady}
-                        tickFormatter={(v) => v.toFixed(0)}
-                        tick={{ fontSize: 12, fill: chart.axis }}
-                        stroke={chart.grid}
-                        tickLine={false}
-                        axisLine={false}
-                        width={44}
+                        width={54}
                       />
                       <Tooltip
                         {...chartTooltip}
                         cursor={{ stroke: chart.accent, strokeWidth: 1, strokeDasharray: '4 4' }}
                         labelFormatter={(d) => formatDate(d)}
                         formatter={(value, name) => {
-                          if (name === 'value') return [`${formatPriceWithSign(value)} ₪`, 'שווי תיק'];
-                          const label =
-                            name === 'portfolioIndexed'
-                              ? 'התיק שלי (מנוטרל הפקדות)'
-                              : selectedBenchmarkLabel;
-                          return [Number(value).toFixed(1), label];
+                          const change = Number(value) - 100;
+                          return [
+                            `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`,
+                            name === 'portfolioIndexed' ? 'התיק שלי' : selectedBenchmarkLabel
+                          ];
                         }}
                       />
                       {benchmarkOverlayReady && (
                         <Legend
-                          formatter={(name) => {
-                            if (name === 'value') return 'שווי תיק (₪)';
-                            return name === 'portfolioIndexed'
-                              ? 'התיק שלי (מנוטרל הפקדות)'
-                              : selectedBenchmarkLabel;
-                          }}
+                          formatter={(name) =>
+                            name === 'portfolioIndexed' ? 'התיק שלי' : selectedBenchmarkLabel
+                          }
                         />
                       )}
                       <Area
-                        yAxisId="value"
                         type="monotone"
-                        dataKey="value"
+                        dataKey="portfolioIndexed"
                         stroke={chart.accent}
-                        /* Stepped back while the comparison is on, so the
-                           two indexed lines are what the eye follows. */
-                        strokeWidth={benchmarkOverlayReady ? 1.5 : 2.5}
-                        strokeOpacity={benchmarkOverlayReady ? 0.45 : 1}
+                        strokeWidth={2.5}
                         fill={`url(#${AREA_GRADIENT_ID})`}
-                        fillOpacity={benchmarkOverlayReady ? 0.4 : 1}
                         dot={false}
+                        connectNulls
                         activeDot={{ r: 4, strokeWidth: 2, stroke: chart.tooltipBg }}
                       />
                       {benchmarkOverlayReady && (
                         <Line
-                          yAxisId="index"
-                          type="monotone"
-                          dataKey="portfolioIndexed"
-                          stroke={chart.accent}
-                          strokeWidth={2.5}
-                          dot={false}
-                          connectNulls
-                        />
-                      )}
-                      {benchmarkOverlayReady && (
-                        <Line
-                          yAxisId="index"
                           type="monotone"
                           dataKey="benchmarkIndexed"
                           stroke={chart.benchmark}
@@ -1076,26 +1050,15 @@ function PortfolioAnalysisView({
                     </div>
                     <div className="distribution-percentage">{formatDate(stats.lastDate)}</div>
                   </div>
-                  {/* Shown alongside the neutralized return on purpose: this
-                      is the number people see in their account, and hiding it
-                      would just make the (correctly) smaller return figure
-                      look wrong. Labelled for what it is - a change in value,
-                      not a return. */}
-                  {stats.isCashFlowNeutralized && stats.naiveReturnPercent != null && (
-                    <div className="distribution-card">
-                      <h3>שינוי בשווי התיק (כולל הפקדות)</h3>
-                      <div
-                        className={`distribution-value ${
-                          stats.naiveReturnPercent >= 0 ? 'profit-positive' : 'profit-negative'
-                        }`}
-                      >
-                        {stats.naiveReturnPercent.toFixed(1)}%
-                      </div>
-                      <div className="distribution-percentage">
-                        כמה גדל שווי התיק בפועל - כולל כסף חדש שהוכנס אליו, ולכן אינו מדד לתשואה
-                      </div>
-                    </div>
-                  )}
+                  {/* The raw "how much bigger is the portfolio now" figure
+                      used to sit here. It is not a return - a portfolio that
+                      grew only because money was paid into it shows a large
+                      positive number while the holdings did nothing - and
+                      printing it beside the real return invited the two to
+                      be read as alternatives. Every percentage in this
+                      section is now cash-flow-neutralized. The money that
+                      did come in is still stated, as a contribution, on the
+                      return card above. */}
                   <div className="distribution-card">
                     <h3>תנודתיות שנתית (משוערת)</h3>
                     <div className="distribution-value">
