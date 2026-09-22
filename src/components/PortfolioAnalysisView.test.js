@@ -84,16 +84,30 @@ describe('PortfolioAnalysisView', () => {
     delete global.fetch;
   });
 
-  test('renders without crashing, with the sidebar nav grouped into 4 labeled groups', () => {
+  // Section navigation is a horizontal tab strip now, not a sidebar column:
+  // ten links to things already on the page do not justify a permanent
+  // ~210px of the width.
+  test('renders without crashing, with the section nav as a tab strip', () => {
     const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
-    const groupLabels = Array.from(container.querySelectorAll('.sw-sidebar-group-label')).map((el) => el.textContent);
-    expect(groupLabels).toEqual(['ביצועים', 'פיזור התיק', 'מניות אמריקאיות', 'כלים ודוחות']);
+    expect(container.querySelector('.sw-sidebar')).toBeNull();
+    expect(container.querySelector('.analysis-tabs')).not.toBeNull();
+
     // 10 destinations. The monthly tracker and the tax-loss calculator left
     // for their own pages, the quarterly earnings board was removed, and the
     // benchmark comparison is now an overlay on the performance chart rather
     // than a section to navigate to.
-    expect(container.querySelectorAll('.sw-sidebar-item').length).toBe(10);
+    expect(container.querySelectorAll('.analysis-tab').length).toBe(10);
+    // The four groups survive as separators between runs of tabs.
+    expect(container.querySelectorAll('.analysis-tabs-divider').length).toBe(3);
     expect(screen.queryByText('ציון בריאות תיק')).toBeNull();
+  });
+
+  // Every tab has to land somewhere: a key with no matching section is a
+  // button that silently does nothing.
+  test('every tab points at a section that exists on the page', () => {
+    const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
+    const tabCount = container.querySelectorAll('.analysis-tab').length;
+    expect(container.querySelectorAll('[data-section-key]').length).toBe(tabCount);
   });
 
   // Both are tasks rather than read-outs, and each is now a page of its own
@@ -114,12 +128,12 @@ describe('PortfolioAnalysisView', () => {
     expect(screen.queryByText('לוח רבעונים (מניות אמריקאיות)')).toBeNull();
   });
 
-  test('clicking a sidebar item scrolls the corresponding section into view', () => {
+  test('clicking a tab scrolls the corresponding section into view', () => {
     const scrollIntoViewMock = jest.fn();
     window.HTMLElement.prototype.scrollIntoView = scrollIntoViewMock;
 
-    render(<PortfolioAnalysisView {...makeProps()} />);
-    fireEvent.click(screen.getByText('מעקב דיבידנדים'));
+    const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
+    fireEvent.click(within(container.querySelector('.analysis-tabs')).getByText('דיבידנדים'));
     expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
   });
 
@@ -173,7 +187,7 @@ describe('PortfolioAnalysisView', () => {
   describe('dashboard grid', () => {
     test('lays the sections out in a grid container', () => {
       const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
-      expect(container.querySelector('.sw-main.analysis-grid')).not.toBeNull();
+      expect(container.querySelector('.analysis-grid')).not.toBeNull();
     });
 
     test('gives half a row to exactly the sections that pair up', () => {

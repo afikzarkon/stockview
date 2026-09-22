@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useIsraeliStockSearch } from '../hooks/useIsraeliStockSearch';
+import { useStockSearch } from '../hooks/useStockSearch';
 
 function StockFormView({
   isEditMode,
@@ -27,6 +28,24 @@ function StockFormView({
   const { results: israeliSearchResults, loading: israeliSearchLoading } = useIsraeliStockSearch(
     showIsraeliSearch ? searchText : ''
   );
+
+  // The same affordance for the American side, which had none: the ticker
+  // was a free-text field, so adding a holding meant knowing the exact
+  // symbol beforehand and a typo was only discovered later, when no price
+  // came back for it. Backed by the ticker/company search the research
+  // page already uses.
+  const [usSearchText, setUsSearchText] = useState('');
+  const [showUsSuggestions, setShowUsSuggestions] = useState(false);
+  const showUsSearch = !isEditMode && formData.itemType === 'stock' && formData.exchange === 'american';
+  const { results: usSearchResults, loading: usSearchLoading } = useStockSearch(
+    showUsSearch ? usSearchText : ''
+  );
+
+  const selectUsSymbol = (result) => {
+    handleInputChange({ target: { name: 'stockName', value: result.symbol } });
+    setUsSearchText(`${result.symbol} — ${result.name}`);
+    setShowUsSuggestions(false);
+  };
   return (
     <div className="App">
       <div className="form-container">
@@ -49,6 +68,79 @@ function StockFormView({
                 <option value="bank_savings">קופת חיסכון בבנק</option>
               </select>
             </div>
+
+            {/* The market comes SECOND, before anything about the holding
+                itself. It decides what every field below means - a ticker
+                or a TASE id, which search box appears, whether an exchange
+                rate is needed at all - so asking for it after the ticker
+                had people type a symbol into a field that then changed
+                under them. */}
+            {formData.itemType === 'stock' && (
+              <div className="form-group">
+                <label htmlFor="exchange">בורסה *</label>
+                <select
+                  id="exchange"
+                  name="exchange"
+                  value={formData.exchange}
+                  onChange={handleInputChange}
+                  required
+                >
+                  <option value="israeli">בורסה ישראלית</option>
+                  <option value="american">בורסה אמריקאית</option>
+                </select>
+              </div>
+            )}
+
+            {showUsSearch && (
+              <div className="form-group">
+                <label htmlFor="usStockSearch">חיפוש מנייה אמריקאית (סימול או שם חברה)</label>
+                <div
+                  className="sw-search-box"
+                  onBlur={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget)) setShowUsSuggestions(false);
+                  }}
+                >
+                  <input
+                    type="text"
+                    id="usStockSearch"
+                    name="usStockSearch"
+                    className="sw-search-input"
+                    value={usSearchText}
+                    onChange={(e) => {
+                      setUsSearchText(e.target.value);
+                      setShowUsSuggestions(true);
+                    }}
+                    onFocus={() => setShowUsSuggestions(true)}
+                    placeholder="לדוגמה: AAPL, Microsoft, טסלה"
+                    autoComplete="off"
+                  />
+                  {showUsSuggestions && usSearchText.trim().length >= 2 && (
+                    <div className="sw-search-suggestions">
+                      {usSearchLoading ? (
+                        <div className="sw-search-suggestion-empty">מחפש…</div>
+                      ) : usSearchResults.length === 0 ? (
+                        <div className="sw-search-suggestion-empty">
+                          לא נמצאו תוצאות - אפשר להזין את הסימול ידנית למטה.
+                        </div>
+                      ) : (
+                        usSearchResults.map((r) => (
+                          <button
+                            key={r.symbol}
+                            type="button"
+                            className="sw-search-suggestion"
+                            onClick={() => selectUsSymbol(r)}
+                          >
+                            <strong>{r.symbol}</strong> — {r.name}
+                            {r.exchange && <span className="sw-search-exchange">{r.exchange}</span>}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {formData.itemType === 'stock' && showIsraeliSearch && (
               <div className="form-group">
                 <label htmlFor="israeliStockSearch">חיפוש נייר ערך ישראלי (שם או מספר נייר)</label>
@@ -358,22 +450,6 @@ function StockFormView({
                   min="1"
                   placeholder="1"
                 />
-              </div>
-            )}
-
-            {formData.itemType === 'stock' && (
-              <div className="form-group">
-                <label htmlFor="exchange">בורסה *</label>
-                <select
-                  id="exchange"
-                  name="exchange"
-                  value={formData.exchange}
-                  onChange={handleInputChange}
-                  required
-                >
-                  <option value="israeli">בורסה ישראלית</option>
-                  <option value="american">בורסה אמריקאית</option>
-                </select>
               </div>
             )}
 

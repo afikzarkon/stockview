@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   PieChart,
   Pie,
@@ -73,41 +73,53 @@ import RebalancingSection from './RebalancingSection';
 // of it. The monthly tracker and the tax-loss calculator used to sit in
 // this list; both are tasks rather than read-outs and now have their own
 // pages in the main sidebar.
+// The tab strip's contents. Still grouped, because the order carries an
+// argument - how did it do, what is it made of, what do the American
+// holdings pay, what should be done about it - but the group names are now
+// separators in the strip rather than headings above a column.
+//
+// Labels are shorter than the section headings they lead to: a tab is a
+// signpost read at a glance, and the heading it lands on says the full
+// thing. The icons carry the grouping visually once the labels shorten.
 const NAV_GROUPS = [
   {
     label: 'ביצועים',
     items: [
-      { key: 'summary', label: 'תקציר ניתוח' },
+      { key: 'summary', label: 'תקציר', icon: '◈' },
       // The benchmark comparison used to be a section of its own further
       // down the page. It is now an overlay on the performance chart, so
       // the two are one destination rather than two.
-      { key: 'performance', label: 'ביצועי התיק לאורך זמן' }
+      { key: 'performance', label: 'ביצועים לאורך זמן', icon: '◷' }
     ]
   },
   {
     label: 'פיזור התיק',
     items: [
-      { key: 'pie', label: 'גרף עוגה - פיזור התיק' },
-      { key: 'byStock', label: 'פיזור לפי מניות' },
-      { key: 'sector', label: 'פיזור לפי סקטור' },
-      { key: 'byDate', label: 'פיזור לפי תאריכי קנייה' }
+      { key: 'pie', label: 'פיזור התיק', icon: '◑' },
+      { key: 'sector', label: 'סקטורים', icon: '◐' },
+      { key: 'byStock', label: 'לפי מניות', icon: '▤' },
+      { key: 'byDate', label: 'לפי תאריכים', icon: '▦' }
     ]
   },
   {
     label: 'מניות אמריקאיות',
     items: [
-      { key: 'dividends', label: 'מעקב דיבידנדים' },
-      { key: 'analysts', label: 'המלצות אנליסטים' }
+      { key: 'dividends', label: 'דיבידנדים', icon: '$' },
+      { key: 'analysts', label: 'אנליסטים', icon: '★' }
     ]
   },
   {
     label: 'כלים ודוחות',
     items: [
-      { key: 'rebalancing', label: 'איזון מחדש' },
-      { key: 'reports', label: 'דוחות מפורטים' }
+      { key: 'reports', label: 'דוחות', icon: '▣' },
+      { key: 'rebalancing', label: 'איזון מחדש', icon: '⇄' }
     ]
   }
 ];
+
+// Every section key the strip can point at, in the order they appear on
+// the page - used to resolve which tab is current.
+const NAV_KEYS = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.key));
 
 function PortfolioAnalysisView({
   analysis,
@@ -654,10 +666,75 @@ function PortfolioAnalysisView({
   const toggleDistributionYear = (year) =>
     setExpandedYears((prev) => ({ ...prev, [year]: !prev[year] }));
 
+  // EXTERNAL CALLOUT LABELS for the two distribution charts.
+  //
+  // A donut whose slices are only identified in a legend beside it makes
+  // the reader match six colours to six rows before they can read
+  // anything. The name and the share go on the slice's own leader line
+  // instead, so the chart answers "what is the big one?" on its own.
+  //
+  // Slices under 4% are left unlabelled: below that the callouts collide
+  // with each other and the chart becomes less readable, not more. Those
+  // remain identifiable in the legend underneath, which is why it stays.
+  const renderSliceCallout = useCallback(
+    ({ cx, cy, midAngle, outerRadius, percent, name }) => {
+      if (!percent || percent < 0.04) return null;
+      const radian = Math.PI / 180;
+      const angle = -midAngle * radian;
+      const x = cx + (outerRadius + 14) * Math.cos(angle);
+      const y = cy + (outerRadius + 14) * Math.sin(angle);
+      return (
+        <text
+          x={x}
+          y={y}
+          fill={chart.axis}
+          fontSize={11}
+          fontWeight={600}
+          textAnchor={x > cx ? 'start' : 'end'}
+          dominantBaseline="central"
+        >
+          {`${name} ${(percent * 100).toFixed(0)}%`}
+        </text>
+      );
+    },
+    [chart.axis]
+  );
+
   const sectionRefs = useRef({});
   const scrollToSection = (key) => {
     sectionRefs.current[key]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
+
+  // Which tab is current, from which section is actually on screen. A tab
+  // strip that never marks one is just a row of buttons - the highlight is
+  // what makes it a position indicator as well as a shortcut.
+  //
+  // Guarded on IntersectionObserver rather than assumed: it does not exist
+  // in jsdom, and the strip has to keep working as plain navigation
+  // wherever it is missing.
+  const [activeSection, setActiveSection] = useState(NAV_KEYS[0]);
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        if (visible?.target?.dataset?.sectionKey) {
+          setActiveSection(visible.target.dataset.sectionKey);
+        }
+      },
+      // Biased to the upper part of the viewport: the section a reader is
+      // looking at is the one at the top of the screen, not whichever
+      // happens to cover the most pixels.
+      { rootMargin: '-80px 0px -60% 0px', threshold: 0 }
+    );
+    NAV_KEYS.forEach((key) => {
+      const element = sectionRefs.current[key];
+      if (element) observer.observe(element);
+    });
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div className="App">
@@ -668,27 +745,38 @@ function PortfolioAnalysisView({
             subtitle="ביצועים, פיזור והמלצות - תמונה מעמיקה של התיק"
           />
 
-          <div className="sw-layout">
-            <nav className="sw-sidebar">
-              {NAV_GROUPS.map((group) => (
-                <React.Fragment key={group.label}>
-                  <div className="sw-sidebar-group-label">{group.label}</div>
-                  {group.items.map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      className="sw-sidebar-item"
-                      onClick={() => scrollToSection(item.key)}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </React.Fragment>
-              ))}
-            </nav>
+          {/* Section navigation as a horizontal tab strip rather than a
+              column beside the content. As a sidebar it took ~210px of the
+              page permanently to list ten links to things already on it,
+              and it duplicated the group headings that the sections carry
+              themselves. Along the top it costs one row, scrolls sideways
+              when it has to, and leaves the grid its full width.
+              The groups survive as separators inside the strip, so the
+              order still reads performance / composition / US / tools. */}
+          <nav className="analysis-tabs" aria-label="מעבר לסעיף">
+            {NAV_GROUPS.map((group, groupIndex) => (
+              <React.Fragment key={group.label}>
+                {groupIndex > 0 && <span className="analysis-tabs-divider" aria-hidden="true" />}
+                {group.items.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={`analysis-tab ${activeSection === item.key ? 'active' : ''}`}
+                    aria-current={activeSection === item.key ? 'true' : undefined}
+                    onClick={() => scrollToSection(item.key)}
+                  >
+                    <span className="analysis-tab-icon" aria-hidden="true">
+                      {item.icon}
+                    </span>
+                    {item.label}
+                  </button>
+                ))}
+              </React.Fragment>
+            ))}
+          </nav>
 
-            <div className="sw-main analysis-grid">
-          <div className="analysis-section" ref={(el) => (sectionRefs.current.summary = el)}>
+          <div className="analysis-grid">
+          <div className="analysis-section" data-section-key="summary" ref={(el) => (sectionRefs.current.summary = el)}>
             <h2 className="section-title">תקציר ניתוח</h2>
             <div className="distribution-grid">
               <div className="distribution-card">
@@ -722,7 +810,7 @@ function PortfolioAnalysisView({
             </div>
           </div>
 
-          <div className="analysis-section" ref={(el) => (sectionRefs.current.performance = el)}>
+          <div className="analysis-section" data-section-key="performance" ref={(el) => (sectionRefs.current.performance = el)}>
             <h2 className="section-title">ביצועי התיק לאורך זמן</h2>
             <p className="section-subtitle">
               מחושב בזמן אמת משערי הסגירה ההיסטוריים בפועל (בורסת תל אביב, וול סטריט ושער הדולר), לפי ההחזקות שהיו בתיק
@@ -1190,12 +1278,14 @@ function PortfolioAnalysisView({
             </div>
           </div>
 
-          <div className="analysis-section analysis-section-half" ref={(el) => (sectionRefs.current.pie = el)}>
+          <div className="analysis-section analysis-section-half" data-section-key="pie" ref={(el) => (sectionRefs.current.pie = el)}>
             <h2 className="section-title">גרף עוגה - פיזור התיק</h2>
             <div className="pie-chart-container">
               <div className="pie-chart-wrapper">
-                <ResponsiveContainer width="100%" height={240}>
-                  <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }} key="pie-chart">
+                <ResponsiveContainer width="100%" height={320}>
+                  {/* The margin is what the callout labels live in - without
+                      it they are drawn outside the SVG and simply clipped. */}
+                  <PieChart margin={{ top: 12, right: 78, bottom: 12, left: 78 }} key="pie-chart">
                     <Pie
                       key="pie-data"
                       data={[
@@ -1232,11 +1322,14 @@ function PortfolioAnalysisView({
                       ]}
                       cx="50%"
                       cy="50%"
-                      outerRadius={92}
-                      innerRadius={52}
+                      outerRadius={96}
+                      innerRadius={54}
                       paddingAngle={1}
                       fill={chart.accent}
                       dataKey="value"
+                      label={renderSliceCallout}
+                      labelLine={{ stroke: chart.grid, strokeWidth: 1 }}
+                      isAnimationActive={false}
                     >
                       {chart.categorical.slice(0, 6).map((color) => (
                         <Cell key={color} fill={color} stroke={chart.tooltipBg} strokeWidth={2} />
@@ -1299,7 +1392,7 @@ function PortfolioAnalysisView({
             </div>
           </div>
 
-          <div className="analysis-section analysis-section-half" ref={(el) => (sectionRefs.current.sector = el)}>
+          <div className="analysis-section analysis-section-half" data-section-key="sector" ref={(el) => (sectionRefs.current.sector = el)}>
             <h2 className="section-title">פיזור לפי סקטור</h2>
             {americanStocks.length === 0 && israeliStocks.length === 0 ? (
               <p className="history-empty-note">אין מניות בתיק כרגע.</p>
@@ -1311,8 +1404,8 @@ function PortfolioAnalysisView({
               <>
                 <div className="pie-chart-container">
                   <div className="pie-chart-wrapper">
-                    <ResponsiveContainer width="100%" height={240}>
-                      <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <PieChart margin={{ top: 12, right: 78, bottom: 12, left: 78 }}>
                         <Pie
                           data={sectorDistribution.sectors.map((s) => ({
                             name: sectorLabelHe(s.sectorKey),
@@ -1320,10 +1413,13 @@ function PortfolioAnalysisView({
                           }))}
                           cx="50%"
                           cy="50%"
-                          outerRadius={92}
-                          innerRadius={52}
+                          outerRadius={96}
+                          innerRadius={54}
                           paddingAngle={1}
                           dataKey="value"
+                          label={renderSliceCallout}
+                          labelLine={{ stroke: chart.grid, strokeWidth: 1 }}
+                          isAnimationActive={false}
                         >
                           {sectorDistribution.sectors.map((s, i) => (
                             <Cell key={s.sectorKey} fill={SECTOR_COLORS[i % SECTOR_COLORS.length]} />
@@ -1362,7 +1458,7 @@ function PortfolioAnalysisView({
             )}
           </div>
 
-          <div className="analysis-section" ref={(el) => (sectionRefs.current.byStock = el)}>
+          <div className="analysis-section" data-section-key="byStock" ref={(el) => (sectionRefs.current.byStock = el)}>
             <h2 className="section-title">פיזור לפי מניות</h2>
             <div className="stocks-table-container">
               <table className="analysis-table">
@@ -1402,7 +1498,7 @@ function PortfolioAnalysisView({
             </div>
           </div>
 
-          <div className="analysis-section analysis-section-half" ref={(el) => (sectionRefs.current.byDate = el)}>
+          <div className="analysis-section analysis-section-half" data-section-key="byDate" ref={(el) => (sectionRefs.current.byDate = el)}>
             <h2 className="section-title">פיזור לפי תאריכי קנייה והפקדה</h2>
             <p className="section-subtitle">
               כולל גם הפקדות לקופות גמל, לקופות חיסכון ולקרנות כספיות - כל הפקדה משויכת לחודש שבו בוצעה בפועל, לצד
@@ -1461,7 +1557,7 @@ function PortfolioAnalysisView({
             )}
           </div>
 
-          <div className="analysis-section analysis-section-half" ref={(el) => (sectionRefs.current.reports = el)}>
+          <div className="analysis-section analysis-section-half" data-section-key="reports" ref={(el) => (sectionRefs.current.reports = el)}>
             <h2 className="section-title">דוחות מפורטים</h2>
             <div className="reports-grid">
               <div className="report-card">
@@ -1517,7 +1613,7 @@ function PortfolioAnalysisView({
               </div>
             </div>
           </div>
-          <div className="analysis-section" ref={(el) => (sectionRefs.current.dividends = el)}>
+          <div className="analysis-section" data-section-key="dividends" ref={(el) => (sectionRefs.current.dividends = el)}>
             <h2 className="section-title">מעקב דיבידנדים (מניות אמריקאיות)</h2>
             {americanStocks.length === 0 ? (
               <p className="history-empty-note">אין מניות אמריקאיות בתיק כרגע.</p>
@@ -1572,7 +1668,7 @@ function PortfolioAnalysisView({
             )}
           </div>
 
-          <div className="analysis-section" ref={(el) => (sectionRefs.current.analysts = el)}>
+          <div className="analysis-section" data-section-key="analysts" ref={(el) => (sectionRefs.current.analysts = el)}>
             <h2 className="section-title">המלצות אנליסטים (מניות אמריקאיות)</h2>
             {americanStocks.length === 0 ? (
               <p className="history-empty-note">אין מניות אמריקאיות בתיק כרגע.</p>
@@ -1625,7 +1721,7 @@ function PortfolioAnalysisView({
             )}
           </div>
 
-          <div className="analysis-section" ref={(el) => (sectionRefs.current.rebalancing = el)}>
+          <div className="analysis-section" data-section-key="rebalancing" ref={(el) => (sectionRefs.current.rebalancing = el)}>
             <h2 className="section-title">איזון מחדש (Rebalancing)</h2>
             <RebalancingSection
               exchangeDistribution={analysis.exchangeDistribution}
@@ -1637,8 +1733,6 @@ function PortfolioAnalysisView({
               onSaveTargets={onSaveRebalanceTargets}
             />
           </div>
-
-            </div>
           </div>
         </div>
       </div>

@@ -48,6 +48,54 @@ describe('selectSegmentHoldings', () => {
     expect(selectSegmentHoldings(holdings, 'american').americanStocks).toHaveLength(1);
   });
 
+  // WHERE IT TRADES vs WHAT MOVES IT. A TASE-listed tracker of a foreign
+  // index is an Israeli security by listing and an American holding by
+  // everything that drives its price. Counted as Israeli it put Wall
+  // Street's returns inside the Tel Aviv curve.
+  describe('a TASE-listed foreign tracker counts as foreign exposure', () => {
+    const domestic = { stockName: '629014', officialName: 'טבע', quantity: 1, purchasePrice: 10 };
+    const foreignTracker = {
+      stockName: '1159250',
+      officialName: 'קסם S&P 500',
+      quantity: 1,
+      purchasePrice: 10
+    };
+    const mixed = { israeliStocks: [domestic, foreignTracker], americanStocks: [] };
+
+    test('it is left out of the Israeli segment', () => {
+      const selected = selectSegmentHoldings(mixed, 'israeli');
+      expect(selected.israeliStocks.map((s) => s.officialName)).toEqual(['טבע']);
+    });
+
+    test('it is counted in the American segment instead', () => {
+      const selected = selectSegmentHoldings(mixed, 'american');
+      expect(selected.israeliStocks.map((s) => s.officialName)).toEqual(['קסם S&P 500']);
+    });
+
+    // It stays in the israeliStocks key wherever it lands: that key is what
+    // decides the price source, and it is quoted in agorot on TASE with no
+    // Yahoo ticker behind it.
+    test('it keeps its TASE price source rather than moving to the US one', () => {
+      const selected = selectSegmentHoldings(mixed, 'american');
+      expect(selected.americanStocks).toEqual([]);
+      expect(selected.israeliStocks).toHaveLength(1);
+    });
+
+    test('the combined view still holds every lot exactly once', () => {
+      const selected = selectSegmentHoldings(mixed, 'all');
+      expect(selected.israeliStocks).toHaveLength(2);
+    });
+
+    // The legacy manual override still decides when it is present, so a
+    // portfolio set up by hand before this was automatic keeps behaving
+    // the way its owner arranged it.
+    test('an explicit isForeignAsset=false keeps a foreign-sounding name domestic', () => {
+      const pinned = { ...foreignTracker, isForeignAsset: false };
+      const selected = selectSegmentHoldings({ israeliStocks: [pinned], americanStocks: [] }, 'israeli');
+      expect(selected.israeliStocks).toHaveLength(1);
+    });
+  });
+
   // There is no longer a mode that puts them back: a net-worth return is a
   // different question from an investment return, and the chart answers
   // only the second.

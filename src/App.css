@@ -6604,3 +6604,180 @@ select {
     padding: 8px 4px;
   }
 }
+
+/* =============================================================
+   SECTION TABS - the analysis page's own navigation
+   =============================================================
+
+   Replaces the sidebar column. Ten links to sections already on the page
+   were taking ~210px of width permanently, and repeating group headings
+   the sections carry themselves. Along the top it is one row, it scrolls
+   sideways when it must, and the grid below gets the full width.
+
+   Sticky under the page toolbar, so the strip stays reachable while
+   reading - which is what makes the current-tab highlight worth having. */
+.analysis-tabs {
+  position: sticky;
+  /* Clears .page-toolbar, which is itself sticky at the top. */
+  top: 58px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 14px;
+  padding: 5px;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  background: var(--sw-surface);
+  box-shadow: var(--sw-shadow);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.analysis-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border: none;
+  border-radius: var(--sw-radius-sm);
+  background: none;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--sw-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--sw-transition), color var(--sw-transition);
+}
+
+.analysis-tab:hover {
+  background: var(--sw-surface-2);
+  color: var(--sw-text);
+}
+
+/* The current section, from what is actually on screen rather than from
+   what was last clicked - so scrolling moves the highlight too. */
+.analysis-tab.active {
+  background: var(--sw-accent-soft);
+  color: var(--sw-accent-strong);
+}
+
+.analysis-tab-icon {
+  font-size: 0.9em;
+  opacity: 0.85;
+}
+
+/* A hairline between groups: the order still reads performance /
+   composition / US holdings / tools, without four headings to say so. */
+.analysis-tabs-divider {
+  flex: 0 0 auto;
+  width: 1px;
+  align-self: stretch;
+  margin: 3px 5px;
+  background: var(--sw-border);
+}
+
+/* =============================================================
+   TABLE DENSITY
+   =============================================================
+
+   Cells were padded for a roomy marketing table - 14px/16px on every
+   holdings cell, 15px on analysis headers - so a portfolio of twenty
+   positions ran well past a screen and reading it was mostly scrolling.
+   Rows come down to roughly two-thirds the height. The horizontal padding
+   drops with them, which also narrows the wide tables and shortens the
+   sideways scroll on a phone.
+
+   Type shrinks one step rather than two: these are figures that get read
+   precisely, and a row that fits but cannot be read is not denser, it is
+   just smaller. */
+.stocks-table {
+  font-size: 0.82rem;
+}
+
+.stocks-table thead th {
+  padding: 8px 10px;
+  font-size: 0.7rem;
+}
+
+.stocks-table td {
+  padding: 7px 10px;
+}
+
+.analysis-table {
+  font-size: 0.82rem;
+}
+
+.analysis-table th {
+  padding: 8px 8px;
+  font-size: 0.75rem;
+}
+
+.analysis-table td {
+  padding: 6px 8px;
+}
+
+.audit-table {
+  font-size: 0.76rem;
+}
+
+.audit-table th,
+.audit-table td {
+  padding: 5px 8px;
+}
+
+/* The ledger tables inside a holdings row (a fund's deposit list) sit one
+   level deeper and were already tighter; they come down in proportion so
+   the nesting stays legible as nesting. */
+.detail-row td,
+.summary-row-expanded td {
+  padding: 5px 8px;
+}
+
+/* --- Responsive coda, continued (see the note above) ---------- */
+
+@media (max-width: 960px) {
+  /* The page toolbar is shorter here, so the strip sits higher. */
+  .analysis-tabs {
+    top: 46px;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Not sticky on a phone: a permanently parked row costs about a tenth of
+     the screen height, which is the scarce dimension there. It scrolls
+     away with the content and is reached by scrolling back. */
+  .analysis-tabs {
+    position: static;
+    margin-bottom: 10px;
+    padding: 4px;
+  }
+
+  .analysis-tab {
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    /* Still a comfortable touch target despite the tighter padding. */
+    min-height: 40px;
+  }
+
+  /* Narrower gutters again, now that the table floors came down too -
+     horizontal padding is the cheapest width to give back on a phone. */
+  .stocks-table thead th,
+  .stocks-table td {
+    padding: 7px 6px;
+  }
+
+  .analysis-table th,
+  .analysis-table td {
+    padding: 6px 5px;
+  }
+
+  .audit-table th,
+  .audit-table td {
+    padding: 5px 6px;
+  }
+}

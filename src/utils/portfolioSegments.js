@@ -23,11 +23,25 @@
 // American lots produces no American purchase flows, and a US purchase can
 // never perturb a sub-period of the Israeli curve.
 
+import { effectiveExchangeForIsraeliStock } from './israeliEtfClassifier';
+
 // Equity segments. `all` is both markets together.
+//
+// The two market segments are about EXPOSURE, not about where a security
+// happens to be listed - see selectSegmentHoldings. A TASE-listed tracker
+// of a foreign index counts under the foreign one.
 export const MARKET_SEGMENTS = [
   { key: 'all', label: 'כלל המניות', hint: 'מניות ישראליות ואמריקאיות יחד' },
-  { key: 'israeli', label: 'בורסה ישראלית', hint: 'מניות וקרנות סל בתל אביב' },
-  { key: 'american', label: 'בורסה אמריקאית', hint: 'מניות בוול סטריט, מומרות לשקלים' }
+  {
+    key: 'israeli',
+    label: 'בורסה ישראלית',
+    hint: 'חשיפה לשוק הישראלי בלבד - קרנות סל העוקבות אחרי מדדי חו"ל אינן נכללות'
+  },
+  {
+    key: 'american',
+    label: 'בורסה אמריקאית',
+    hint: 'חשיפה לשוק האמריקאי - כולל קרנות סל הנסחרות בתל אביב שעוקבות אחרי מדדי חו"ל'
+  }
 ];
 
 export const DEFAULT_SEGMENT = 'all';
@@ -99,12 +113,41 @@ const EMPTY = Object.freeze([]);
 // complete, well-formed holdings object and no caller has to remember
 // which keys might be absent.
 export const selectSegmentHoldings = (holdings = {}, segment = DEFAULT_SEGMENT) => {
-  const includeIsraeli = segment === 'all' || segment === 'israeli';
-  const includeAmerican = segment === 'all' || segment === 'american';
+  const israeliListed = holdings.israeliStocks || EMPTY;
+  const americanListed = holdings.americanStocks || EMPTY;
+
+  // WHERE IT TRADES IS NOT WHICH MARKET IT IS EXPOSED TO.
+  //
+  // A TASE-listed S&P 500 tracker is an Israeli security by listing and an
+  // American holding by everything that moves it. Counted as Israeli, it
+  // put Wall Street's returns inside the Tel Aviv curve - so "how did my
+  // Israeli equities do" was answered partly by the S&P, and the two
+  // markets could not be told apart at all. effectiveExchangeForIsraeliStock
+  // is the same classification the dashboard's pie and the sector
+  // breakdown already use; this brings the performance segments in line
+  // with it.
+  //
+  // The split is by SEGMENT MEMBERSHIP only. A reclassified holding stays
+  // in the israeliStocks key, because that is what decides how it is
+  // priced - it is quoted in agorot on TASE and has no Yahoo ticker or
+  // exchange rate, and moving it to americanStocks would send it to the
+  // wrong price source entirely.
+  //
+  // One honest limitation: under the pure-dollar FX mode the American side
+  // is converted at a single fixed rate to cancel the currency out. That
+  // cannot be done for these - their shekel price already contains the
+  // currency move, and the underlying dollar NAV is not something the app
+  // holds. So a US-segment curve including them still carries some FX in
+  // that mode.
+  const exposureOf = (stock) => effectiveExchangeForIsraeliStock(stock);
+  const israeliStocksForSegment =
+    segment === 'all'
+      ? israeliListed
+      : israeliListed.filter((stock) => exposureOf(stock) === segment);
 
   const selected = {
-    israeliStocks: includeIsraeli ? holdings.israeliStocks || EMPTY : EMPTY,
-    americanStocks: includeAmerican ? holdings.americanStocks || EMPTY : EMPTY
+    israeliStocks: israeliStocksForSegment,
+    americanStocks: segment === 'all' || segment === 'american' ? americanListed : EMPTY
   };
   NON_EQUITY_KEYS.forEach((key) => {
     selected[key] = EMPTY;
