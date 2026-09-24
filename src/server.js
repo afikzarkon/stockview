@@ -24,6 +24,7 @@ const { mountAlertRoutes } = require('./server/alertRoutes');
 const { createJobRunner } = require('./server/jobRunner');
 const { createJobHandlers } = require('./server/jobs');
 const { mountInternalJobRoutes } = require('./server/internalJobRoutes');
+const { mountPreferenceRoutes } = require('./server/preferenceRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -58,6 +59,7 @@ initDataStore()
     mountTransactionRoutes(app, store);
     mountAlertRoutes(app, { store, features, marketData });
     mountInternalJobRoutes(app, { features, runner });
+    mountPreferenceRoutes(app, { features });
     // Drains due jobs while the process is up; the external scheduler covers
     // the time the host is asleep. JOBS_POLL=0 turns the poller off.
     if (process.env.JOBS_POLL !== '0') runner.start();

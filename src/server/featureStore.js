@@ -44,6 +44,13 @@ const SCHEMA = [
     settings TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    namespace TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, namespace)
+  )`,
   `CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -248,6 +255,19 @@ async function initFeatureStore(store) {
         `INSERT INTO alert_settings (user_id, settings, updated_at) VALUES (?, ?, ?)
          ON CONFLICT (user_id) DO UPDATE SET settings = excluded.settings, updated_at = excluded.updated_at`,
         [userId, JSON.stringify(settings), nowIso()]
+      );
+    },
+
+    // ----- per-user preferences (one JSON document per namespace) -----
+    async getPreferences(userId, namespace) {
+      const row = await sql.get('SELECT value FROM user_preferences WHERE user_id = ? AND namespace = ?', [userId, namespace]);
+      return row ? parseJson(row.value, null) : null;
+    },
+    async setPreferences(userId, namespace, value) {
+      await sql.run(
+        `INSERT INTO user_preferences (user_id, namespace, value, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (user_id, namespace) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        [userId, namespace, JSON.stringify(value), nowIso()]
       );
     },
 

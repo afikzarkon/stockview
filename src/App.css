@@ -7809,3 +7809,22 @@ select {
   background: var(--sw-accent-soft);
   color: var(--sw-accent);
 }
+
+/* Recommendations (RecommendationsView.js) - the "why?" panel */
+.recommendation-why {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--sw-text-secondary);
+}
+
+.recommendation-why dt {
+  font-weight: 600;
+  color: var(--sw-text);
+}
+
+.recommendation-why dd {
+  margin: 0;
+}

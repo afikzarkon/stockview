@@ -21,6 +21,7 @@ import {
 } from '../utils/portfolioStats';
 import { buildPortfolioCashFlows } from '../utils/portfolioCashFlows';
 import { expandHoldingsWithClosedLots } from '../shared/transactionLedger';
+import { computeExactTwr, computeMoneyWeightedReturn } from '../utils/performanceReturns';
 import { buildComparisonSeries, benchmarkPointsInILS } from '../utils/benchmarkComparison';
 import {
   MARKET_SEGMENTS,
@@ -467,6 +468,33 @@ function PortfolioAnalysisView({
     () => computeStatsFromSeries(buildSeriesFromHistoricalValues(performanceSeries), portfolioCashFlows),
     [performanceSeries, portfolioCashFlows]
   );
+  // The two figures that sit beside the headline TWR (see
+  // utils/performanceReturns.js): the EXACT time-weighted return, which
+  // breaks the chain at every flow date instead of approximating flows
+  // inside weekly samples, and the money-weighted return (XIRR), which
+  // keeps the timing of the money in. Measured over the same span the
+  // chart shows.
+  const exactReturns = useMemo(() => {
+    if (!stats.hasHistory) return null;
+    const options = { americanExchangeRate: fixedExchangeRate };
+    const exactTwr = computeExactTwr({
+      fromDate: stats.firstDate,
+      toDate: stats.lastDate,
+      holdings: segmentHoldings,
+      priceData,
+      cashFlows: portfolioCashFlows,
+      options
+    });
+    const mwr = computeMoneyWeightedReturn({
+      fromDate: stats.firstDate,
+      toDate: stats.lastDate,
+      startValue: stats.series[0].value,
+      endValue: stats.series[stats.series.length - 1].value,
+      cashFlows: portfolioCashFlows
+    });
+    return { exactTwr, mwr };
+  }, [stats, segmentHoldings, priceData, portfolioCashFlows, fixedExchangeRate]);
+
   // Dates that could not be valued in full are left out of the curve
   // rather than drawn as a partial sum (see buildSeriesFromHistoricalValues);
   // this is what lets the page say so, and name the holdings responsible.
@@ -1366,6 +1394,49 @@ function PortfolioAnalysisView({
                       תשואה שנתית מתואמת (CAGR) לאורך התקופה שנבחרה, מאותה תשואה מנוטרלת-הפקדות
                     </div>
                   </div>
+                  {exactReturns && (
+                    <>
+                      <div className="distribution-card">
+                        <h3>תשואה משוקללת-זמן מדויקת (TWR)</h3>
+                        <div
+                          className={`distribution-value ${
+                            (exactReturns.exactTwr.percent || 0) >= 0 ? 'profit-positive' : 'profit-negative'
+                          }`}
+                        >
+                          {exactReturns.exactTwr.percent != null && !exactReturns.exactTwr.isPartial
+                            ? `${exactReturns.exactTwr.percent.toFixed(1)}%`
+                            : '—'}
+                        </div>
+                        <div className="distribution-percentage">
+                          שרשור בכל תאריך של הפקדה/רכישה/מכירה ({exactReturns.exactTwr.subPeriods} תת-תקופות), בלי קירוב
+                          {exactReturns.exactTwr.isPartial ? ' - חסרים מחירים לחלק מהתאריכים' : ''}
+                        </div>
+                      </div>
+                      <div className="distribution-card">
+                        <h3>תשואה משוקללת-כסף (MWR / IRR)</h3>
+                        <div
+                          className={`distribution-value ${
+                            (exactReturns.mwr.periodPercent || 0) >= 0 ? 'profit-positive' : 'profit-negative'
+                          }`}
+                        >
+                          {exactReturns.mwr.periodPercent != null
+                            ? `${(exactReturns.mwr.days >= 365 ? exactReturns.mwr.annualPercent : exactReturns.mwr.periodPercent).toFixed(1)}%`
+                            : '—'}
+                        </div>
+                        <div className="distribution-percentage">
+                          {exactReturns.mwr.days >= 365 ? 'בשנה, ' : 'לתקופה, '}
+                          כולל העיתוי של כל שקל שנכנס או יצא.{' '}
+                          {exactReturns.mwr.periodPercent != null &&
+                            exactReturns.exactTwr.percent != null &&
+                            (exactReturns.mwr.periodPercent < exactReturns.exactTwr.percent - 0.5
+                              ? 'נמוכה מה-TWR: הכסף נכנס בעיתוי פחות טוב.'
+                              : exactReturns.mwr.periodPercent > exactReturns.exactTwr.percent + 0.5
+                              ? 'גבוהה מה-TWR: הכסף נכנס בעיתוי טוב.'
+                              : '')}
+                        </div>
+                      </div>
+                    </>
+                  )}
                   <div className="distribution-card">
                     <h3>שווי בתחילת התקופה</h3>
                     <div className="distribution-value">

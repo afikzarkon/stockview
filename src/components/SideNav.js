@@ -55,6 +55,12 @@ const ICONS = {
       <circle cx="16" cy="16" r="2" />
     </>
   ),
+  compass: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m15.5 8.5-2 5-5 2 2-5 5-2Z" />
+    </>
+  ),
   bell: (
     <>
       <path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16Z" />

@@ -22,6 +22,7 @@ import { buildItemizedMonthlyBreakdown } from './utils/monthlySnapshotBreakdown'
 import { useRebalanceTargets } from './hooks/useRebalanceTargets';
 import { useTransactions } from './hooks/useTransactions';
 import { useAlerts } from './hooks/useAlerts';
+import { usePreferences } from './hooks/usePreferences';
 import { useTheme } from './hooks/useTheme';
 import { monthKeyFromDate } from './utils/cpiTax';
 import { useRoute } from './hooks/useRoute';
@@ -55,6 +56,7 @@ const CashAndCheckingPage = lazy(() => import('./components/pages/CashAndCheckin
 const BankSavingsPage = lazy(() => import('./components/pages/BankSavingsPage'));
 const TransactionsView = lazy(() => import('./components/TransactionsView'));
 const AlertsView = lazy(() => import('./components/AlertsView'));
+const RecommendationsView = lazy(() => import('./components/RecommendationsView'));
 
 const LEGACY_KEYS = [
   'israeliStocks',
@@ -386,6 +388,8 @@ function App() {
     saveSettings: saveAlertSettings,
     refreshNow: refreshAlertsNow
   } = useAlerts(user, authHeader);
+
+  const { value: recommendationPrefs, save: saveRecommendationPrefs } = usePreferences(user, authHeader, 'recommendations');
 
   const adoptServerPortfolio = (portfolio) => {
     if (!portfolio) return;
@@ -1250,6 +1254,20 @@ function App() {
             pensionFunds={pensionFunds}
             bankSavingsFunds={bankSavingsFunds}
             cpi={cpi}
+            formatPriceWithSign={formatPriceWithSign}
+          />
+        );
+
+      case 'recommendations':
+        return (
+          <RecommendationsView
+            {...holdings}
+            analysis={analysis}
+            rebalanceTargets={rebalanceTargets}
+            cpi={cpi}
+            transactions={transactions}
+            savedPrefs={recommendationPrefs}
+            onSavePrefs={saveRecommendationPrefs}
             formatPriceWithSign={formatPriceWithSign}
           />
         );
