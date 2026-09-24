@@ -49,7 +49,15 @@ function sendLedgerError(res, err) {
   return res.status(500).json({ error: 'שגיאת שרת' });
 }
 
-function mountTransactionRoutes(app, store, { now = todayString } = {}) {
+function mountTransactionRoutes(app, store, { now = todayString, onChanged = null } = {}) {
+  // Deposits/withdrawals change the accounts the monthly sync watches.
+  const notify = (userId) => {
+    if (!onChanged) return;
+    Promise.resolve()
+      .then(() => onChanged(userId))
+      .catch((err) => console.error('[transactions] onChanged hook failed', err && err.message));
+  };
+
   app.get('/api/transactions', requireAuth, async (req, res) => {
     try {
       const transactions = await store.listTransactions(req.user.id);
@@ -77,6 +85,7 @@ function mountTransactionRoutes(app, store, { now = todayString } = {}) {
         const applied = applyTransaction(portfolio, tx, { newLotId: nextLotId(portfolio) });
         return { portfolio: applied.portfolio, insert: applied.transaction };
       });
+      notify(req.user.id);
       return res.status(201).json({ transaction: result.insert, portfolio: result.portfolio });
     } catch (err) {
       return sendLedgerError(res, err);
@@ -91,6 +100,7 @@ function mountTransactionRoutes(app, store, { now = todayString } = {}) {
         if (!tx) throw new LedgerError('NOT_FOUND', 'transaction not found');
         return { portfolio: revertTransaction(portfolio, tx), removeId: id };
       });
+      notify(req.user.id);
       return res.json({ ok: true, portfolio: result.portfolio });
     } catch (err) {
       if (err instanceof LedgerError && err.code === 'NOT_FOUND') {

@@ -2,7 +2,7 @@
 // (Step 3) register theirs here too.
 const { runAnomalyScan, runCalendarRefresh } = require('./alertEngine');
 
-function createJobHandlers({ store, features, marketData, extra = {} }) {
+function createJobHandlers({ store, features, marketData, reports = null, extra = {} }) {
   return Object.assign(
     {
       'anomaly.scan': (payload) =>
@@ -10,6 +10,7 @@ function createJobHandlers({ store, features, marketData, extra = {} }) {
       'calendar.refresh': (payload) =>
         runCalendarRefresh({ store, features, marketData, userIds: Array.isArray(payload.userIds) ? payload.userIds : null })
     },
+    reports ? { 'report.render': (payload) => reports.renderReport(payload) } : {},
     extra
   );
 }

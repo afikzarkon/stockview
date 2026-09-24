@@ -15,7 +15,7 @@ function createJobRunner({ features, handlers, logger = console, pollMs = 30000 
   let timer = null;
   let draining = false;
 
-  async function runJob(job) {
+  async function runJob(job, now = () => new Date().toISOString()) {
     const handler = handlers[job.name];
     if (!handler) {
       await features.failJob(Object.assign({}, job, { attempts: job.maxAttempts }), new Error(`no handler for job ${job.name}`));
@@ -26,7 +26,8 @@ function createJobRunner({ features, handlers, logger = console, pollMs = 30000 
       await features.completeJob(job.id, result === undefined ? null : result);
       return { id: job.id, name: job.name, status: 'done', result };
     } catch (err) {
-      const outcome = await features.failJob(job, err);
+      // Backoff is measured from the runner's clock, not the wall clock.
+      const outcome = await features.failJob(job, err, new Date(now()));
       logger.error(`[jobs] ${job.name} ${job.id} failed (${outcome})`, err && err.message);
       return { id: job.id, name: job.name, status: outcome, error: String(err && err.message) };
     }
@@ -38,7 +39,7 @@ function createJobRunner({ features, handlers, logger = console, pollMs = 30000 
     while (results.length < max) {
       const job = await features.claimNextJob(names, now());
       if (!job) break;
-      results.push(await runJob(job));
+      results.push(await runJob(job, now));
     }
     return results;
   }

@@ -3,7 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const { initDataStore } = require('./server/dataStore');
+const { bootstrapServices } = require('./server/bootstrap');
 const { mountAuthRoutes } = require('./server/authRoutes');
 const { mountPortfolioRoutes } = require('./server/portfolioRoutes');
 const { mountQuotesRoutes } = require('./server/quotesRoutes');
@@ -18,13 +18,10 @@ const { mountDividendRoutes } = require('./server/dividendRoutes');
 const { mountStockSearchRoutes } = require('./server/stockSearchRoutes');
 const { mountHistoricalPricesRoutes } = require('./server/historicalPricesRoutes');
 const { mountTransactionRoutes } = require('./server/transactionRoutes');
-const { initFeatureStore } = require('./server/featureStore');
-const { createMarketData } = require('./server/alertEngine');
 const { mountAlertRoutes } = require('./server/alertRoutes');
-const { createJobRunner } = require('./server/jobRunner');
-const { createJobHandlers } = require('./server/jobs');
 const { mountInternalJobRoutes } = require('./server/internalJobRoutes');
 const { mountPreferenceRoutes } = require('./server/preferenceRoutes');
+const { mountMonthlySyncRoutes } = require('./server/monthlySyncRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -43,25 +40,21 @@ mountHistoricalPricesRoutes(app);
 
 const PORT = Number(process.env.PORT) || 5000;
 
-initDataStore()
-  .then(async (store) => {
-    const features = await initFeatureStore(store);
-    const marketData = createMarketData();
-    const runner = createJobRunner({
-      features,
-      handlers: createJobHandlers({ store, features, marketData })
-    });
+bootstrapServices()
+  .then(({ store, features, marketData, reports, runner }) => {
     mountAuthRoutes(app, store);
-    mountPortfolioRoutes(app, store);
+    mountPortfolioRoutes(app, store, { onSaved: (userId) => reports.onPortfolioSaved(userId) });
     mountSnapshotRoutes(app, store);
     mountMonthlySnapshotRoutes(app, store);
     mountRebalanceRoutes(app, store);
-    mountTransactionRoutes(app, store);
+    mountTransactionRoutes(app, store, { onChanged: (userId) => reports.onPortfolioSaved(userId) });
     mountAlertRoutes(app, { store, features, marketData });
     mountInternalJobRoutes(app, { features, runner });
     mountPreferenceRoutes(app, { features });
+    mountMonthlySyncRoutes(app, { reports, features });
     // Drains due jobs while the process is up; the external scheduler covers
-    // the time the host is asleep. JOBS_POLL=0 turns the poller off.
+    // the time the host is asleep. JOBS_POLL=0 turns the poller off - e.g.
+    // when a separate worker (src/worker.js) runs the jobs instead.
     if (process.env.JOBS_POLL !== '0') runner.start();
     console.log(`DB: ${store.kind === 'postgres' ? 'PostgreSQL (DATABASE_URL)' : 'SQLite local file'}`);
     app.listen(PORT, () => {
