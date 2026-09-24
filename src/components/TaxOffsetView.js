@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import PageToolbar from './PageToolbar';
+import BetaBanner from './BetaBanner';
 import { computeTaxLossHarvestingOpportunities } from '../utils/taxLossHarvesting';
 
 // /tax-offset - הזדמנות לקיזוז מס.
@@ -40,6 +41,8 @@ function TaxOffsetView({
             title="הזדמנות לקיזוז מס"
             subtitle="פוזיציות בהפסד ריאלי שניתן לממש כדי לקזז מס על רווחים"
           />
+
+        <BetaBanner tone="tax" />
 
         <div className="analysis-section">
           <h2 className="section-title">הזדמנויות לקיזוז מס (Tax-Loss Harvesting)</h2>

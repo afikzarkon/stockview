@@ -11,6 +11,7 @@ import {
 } from './PortfolioSummary';
 import PortfolioActionsToolbar from './PortfolioActionsToolbar';
 import KpiTile, { KpiRow } from './KpiTile';
+import BetaBanner from './BetaBanner';
 
 // The home dashboard: the portfolio's top-level valuation, and one summary
 // card per part of it.
@@ -94,7 +95,13 @@ function HomeView({
             // The overview has no table to edit or to widen with extra
             // columns; those toggles belong on the asset pages.
             showTableControls={false}
+            // The dashboard is read top to bottom and has no long table
+            // below it, so a pinned header would only reserve a strip
+            // over the figures the page is opened for.
+            sticky={false}
           />
+
+          <BetaBanner />
 
           {/* The figures the app is opened to see, lifted out of the cards
               below so they aren't buried among detail that is read

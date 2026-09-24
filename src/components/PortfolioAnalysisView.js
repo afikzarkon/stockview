@@ -19,12 +19,6 @@ import {
   computeStatsFromSeries,
   summarizePartialPoints
 } from '../utils/portfolioStats';
-import {
-  AUDIT_COLUMNS,
-  buildAuditCsv,
-  buildAuditJson,
-  buildPerformanceAuditRows
-} from '../utils/performanceAudit';
 import { buildPortfolioCashFlows } from '../utils/portfolioCashFlows';
 import { buildComparisonSeries, benchmarkPointsInILS } from '../utils/benchmarkComparison';
 import {
@@ -57,9 +51,18 @@ import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
 import { useDividendData } from '../hooks/useDividendData';
 import { useHistoricalPortfolioValue } from '../hooks/useHistoricalPortfolioValue';
 import { formatDate } from '../utils/formatters';
-import { computePortfolioInceptionDate, formatMonthLabel, todayISO } from '../utils/portfolioDates';
+import {
+  computeFirstStockPurchaseDate,
+  formatMonthLabel,
+  todayISO,
+  startDateForPeriod,
+  periodKeyForRange,
+  RETURN_PERIODS,
+  DEFAULT_RETURN_PERIOD
+} from '../utils/portfolioDates';
 import PageToolbar from './PageToolbar';
 import RebalancingSection from './RebalancingSection';
+import BetaBanner from './BetaBanner';
 
 
 // In-page sidebar nav (same sectionRefs/scrollToSection mechanics as
@@ -155,29 +158,29 @@ function PortfolioAnalysisView({
   // PERFORMANCE OVER TIME - computed on the fly, not read back from saved
   // snapshots.
   //
-  // The whole section is driven by one date range, defaulting to the
-  // portfolio's own inception (the earliest purchase/deposit date anywhere
-  // in it) through today. For every sampled date in that range the
-  // portfolio is valued from real historical closing prices for exactly
-  // the holdings it contained on that date, plus the ledger-reconstructed
-  // value of the non-traded accounts (see
+  // The whole section is driven by one date range. For every sampled date
+  // in it the portfolio is valued from real historical closing prices for
+  // exactly the holdings it contained on that date (see
   // utils/historicalPortfolioValue.js). Narrowing the range re-computes
   // it; nothing is stored, so there is no saved figure that can go stale
   // or disagree with the holdings.
   //
-  // "תשואה מאז תחילת ההשקעה" and the annualized-volatility estimate below
-  // are both read off this same series, which is what makes them
-  // consistent with each other and with the chart.
-  const portfolioInceptionDate = useMemo(
-    () => computePortfolioInceptionDate({ israeliStocks, americanStocks, pensionFunds, bankSavingsFunds }),
-    [israeliStocks, americanStocks, pensionFunds, bankSavingsFunds]
-  );
-
+  // The range opens on year-to-date rather than on the whole history: the
+  // question a portfolio is opened with is nearly always "how is it doing
+  // this year", and starting on everything meant a first paint that
+  // fetched every year back to the first purchase to answer a question
+  // nobody asked.
+  //
+  // The return figures and the annualized-volatility estimate below are
+  // all read off this same series, which is what makes them consistent
+  // with each other and with the chart.
   const todayDate = useMemo(() => todayISO(), []);
 
-  // '' means "use the default" - so the range keeps tracking inception and
-  // today as holdings are added, until the user explicitly narrows it.
-  const [performanceFrom, setPerformanceFrom] = useState('');
+  // '' means "back to the first purchase" - so that range keeps tracking
+  // inception as holdings are added, rather than pinning a date.
+  const [performanceFrom, setPerformanceFrom] = useState(() =>
+    startDateForPeriod(DEFAULT_RETURN_PERIOD)
+  );
   const [performanceTo, setPerformanceTo] = useState('');
 
   // A date input is NOT a single-value control: it fires onChange on every
@@ -225,6 +228,23 @@ function PortfolioAnalysisView({
     [isCommittableDate]
   );
 
+  // The quick period toggles (see RETURN_PERIODS). Each one sets the same
+  // two dates the inputs set, rather than being a third source of truth
+  // beside them - so a toggle and a typed range cannot disagree, and the
+  // highlighted button is derived from the dates rather than remembered.
+  const selectReturnPeriod = useCallback(
+    (periodKey) => {
+      setPerformanceFrom(startDateForPeriod(periodKey, todayDate));
+      // Every one of these periods ends today; leaving the end open is
+      // what keeps it following the clock rather than freezing on the day
+      // the button was pressed.
+      setPerformanceTo('');
+    },
+    [todayDate]
+  );
+
+  const activeReturnPeriod = periodKeyForRange(performanceFrom, performanceTo || todayDate, todayDate);
+
   // WHAT THE CURVE IS ABOUT - see utils/portfolioSegments.js.
   //
   // Equities across both markets by default. Including the non-equity
@@ -253,6 +273,24 @@ function PortfolioAnalysisView({
   const segmentHoldings = useMemo(
     () => selectSegmentHoldings({ israeliStocks, americanStocks }, marketSegment),
     [israeliStocks, americanStocks, marketSegment]
+  );
+
+  // WHERE "הכל" STARTS.
+  //
+  // Derived from the SELECTED SEGMENT'S OWN HOLDINGS, which are shares and
+  // nothing else. The whole-portfolio inception was what this used to read,
+  // and that includes deposits into provident funds, bank savings and cash
+  // accounts - none of which this chart values. A provident-fund deposit
+  // years before the first share was bought therefore opened the stock
+  // curve on a date with no stocks in it, and every figure below claimed to
+  // be measured from there.
+  //
+  // Per-segment rather than "first stock anywhere" for the same reason:
+  // switching to the Israeli market should start at the first Israeli
+  // purchase, not at an American one that the curve does not contain.
+  const segmentInceptionDate = useMemo(
+    () => computeFirstStockPurchaseDate(segmentHoldings),
+    [segmentHoldings]
   );
 
   // THE SINGLE RATE used when the currency move is being excluded.
@@ -311,13 +349,13 @@ function PortfolioAnalysisView({
     benchmarkOptions.find((b) => b.key === selectedBenchmarkKey)?.label || '';
   const benchmarkNeedsFx = selectedBenchmarkCurrency === 'USD';
 
-  // Whether the user has narrowed the window away from "everything". The
-  // raw state is what says so: '' means "track inception and today", and
-  // the effective dates below are resolved values that cannot tell the two
-  // apart.
+  // Whether the window is narrower than the segment's whole history. The
+  // raw state is what says so: '' means "track the first purchase and
+  // today", and the effective dates below are resolved values that cannot
+  // tell the two apart.
   const isRangeNarrowed = Boolean(performanceFrom || performanceTo);
 
-  const effectivePerformanceFrom = performanceFrom || portfolioInceptionDate;
+  const effectivePerformanceFrom = performanceFrom || segmentInceptionDate;
   // A range whose start is after its end produces nothing to chart, and is
   // easy to reach mid-edit (narrowing "from" before widening "to"). The
   // two are swapped rather than blanking the section out.
@@ -385,91 +423,6 @@ function PortfolioAnalysisView({
   // rather than drawn as a partial sum (see buildSeriesFromHistoricalValues);
   // this is what lets the page say so, and name the holdings responsible.
   const skippedPartial = useMemo(() => summarizePartialPoints(performanceSeries), [performanceSeries]);
-
-  // THE WORKING BEHIND THE CURVE - see utils/performanceAudit.js. Built
-  // only while the panel is open: it is a per-point table nothing needs
-  // until someone asks to check the figures.
-  const [showAudit, setShowAudit] = useState(false);
-  const auditRows = useMemo(
-    () =>
-      showAudit
-        ? buildPerformanceAuditRows({
-            series: stats.series,
-            historicalSeries: performanceSeries,
-            cashFlows: portfolioCashFlows
-          })
-        : [],
-    [showAudit, stats.series, performanceSeries, portfolioCashFlows]
-  );
-
-  const auditRange = {
-    fromDate: effectivePerformanceFrom,
-    toDate: effectivePerformanceTo,
-    segment: marketSegment,
-    fxMode,
-    description: describeSelection(marketSegment, fxMode)
-  };
-
-  // A downloaded file outlives the screen it came from, so the filename
-  // says which selection produced it - two exports taken minutes apart
-  // under different toggles are otherwise indistinguishable.
-  const auditFilename = (extension) =>
-    `stockview-performance-${marketSegment}-${fxMode}-${auditRange.fromDate}_${auditRange.toDate}.${extension}`;
-
-  // A Blob + object URL rather than a data: URI - a multi-year audit runs
-  // to hundreds of rows, past the length some browsers accept in a URL.
-  const downloadAudit = (contents, filename, mimeType) => {
-    const url = URL.createObjectURL(new Blob([contents], { type: mimeType }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDownloadAuditCsv = () =>
-    downloadAudit(
-      buildAuditCsv(auditRows),
-      auditFilename('csv'),
-      'text/csv;charset=utf-8'
-    );
-
-  const handleDownloadAuditJson = () =>
-    downloadAudit(
-      buildAuditJson({
-        rows: auditRows,
-        stats,
-        cashFlows: portfolioCashFlows,
-        range: auditRange,
-        partial: skippedPartial
-      }),
-      auditFilename('json'),
-      'application/json'
-    );
-
-  // Also to the console, as a real console.table - the quickest way to
-  // scan a few hundred rows without leaving the page or opening a file.
-  const handleLogAudit = () => {
-    /* eslint-disable no-console */
-    console.groupCollapsed(
-      `StockView - ${auditRange.description} | ${auditRange.fromDate} → ${auditRange.toDate} (${auditRows.length} נקודות)`
-    );
-    console.table(auditRows);
-    console.log('תזרימים (cash flows):');
-    console.table(portfolioCashFlows);
-    console.log('סיכום:', {
-      timeWeightedReturnPercent: stats.timeWeightedReturnPercent,
-      naiveReturnPercent: stats.naiveReturnPercent,
-      annualizedReturnPercent: stats.annualizedReturnPercent,
-      volatilityPercent: stats.volatilityPercent,
-      netCashFlowILS: stats.netCashFlow,
-      skippedPartialDates: skippedPartial
-    });
-    console.groupEnd();
-    /* eslint-enable no-console */
-  };
 
   const americanSymbols = useMemo(() => americanStocks.map((s) => s.stockName), [americanStocks]);
   const { sectorBySymbol, loading: sectorsLoading } = useStockSectors(americanSymbols);
@@ -670,34 +623,79 @@ function PortfolioAnalysisView({
   //
   // A donut whose slices are only identified in a legend beside it makes
   // the reader match six colours to six rows before they can read
-  // anything. The name and the share go on the slice's own leader line
-  // instead, so the chart answers "what is the big one?" on its own.
+  // anything. The callout puts all three facts on the slice's own leader
+  // line instead - what it is, what it is worth, and what share of the
+  // total that is - so the chart answers "what is the big one, and how
+  // much is in it?" without a lookup.
   //
-  // Slices under 4% are left unlabelled: below that the callouts collide
+  // Two lines rather than one run-on string: the name is what identifies
+  // the slice and the amount is what quantifies it, and at this size a
+  // single line of all three runs past the margin the callouts live in.
+  //
+  // The leader is drawn here rather than left to recharts' own labelLine,
+  // because that line stops at the slice's edge and the text sits further
+  // out - leaving a gap the reader has to bridge on charts with several
+  // small slices. This one runs from the slice to an elbow and then
+  // horizontally into the text it belongs to, so which label belongs to
+  // which slice is never in question.
+  //
+  // Slices under 3% are left unlabelled: below that the callouts collide
   // with each other and the chart becomes less readable, not more. Those
   // remain identifiable in the legend underneath, which is why it stays.
   const renderSliceCallout = useCallback(
-    ({ cx, cy, midAngle, outerRadius, percent, name }) => {
-      if (!percent || percent < 0.04) return null;
+    ({ cx, cy, midAngle, outerRadius, percent, name, value }) => {
+      if (!percent || percent < 0.03) return null;
       const radian = Math.PI / 180;
       const angle = -midAngle * radian;
-      const x = cx + (outerRadius + 14) * Math.cos(angle);
-      const y = cy + (outerRadius + 14) * Math.sin(angle);
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+
+      // Slice edge -> elbow -> a short horizontal run into the text.
+      const startX = cx + outerRadius * cos;
+      const startY = cy + outerRadius * sin;
+      const elbowX = cx + (outerRadius + 14) * cos;
+      const elbowY = cy + (outerRadius + 14) * sin;
+      const isRight = cos >= 0;
+      const endX = elbowX + (isRight ? 12 : -12);
+      const textX = endX + (isRight ? 5 : -5);
+
       return (
-        <text
-          x={x}
-          y={y}
-          fill={chart.axis}
-          fontSize={11}
-          fontWeight={600}
-          textAnchor={x > cx ? 'start' : 'end'}
-          dominantBaseline="central"
-        >
-          {`${name} ${(percent * 100).toFixed(0)}%`}
-        </text>
+        <g>
+          <polyline
+            points={`${startX},${startY} ${elbowX},${elbowY} ${endX},${elbowY}`}
+            stroke={chart.grid}
+            strokeWidth={1.2}
+            fill="none"
+          />
+          {/* The arrowhead points back at the slice the label describes -
+              the direction the reader's eye has to travel to check it. */}
+          <circle cx={startX} cy={startY} r={2.2} fill={chart.grid} />
+          <text
+            x={textX}
+            y={elbowY - 6}
+            fill={chart.axis}
+            fontSize={13}
+            fontWeight={700}
+            textAnchor={isRight ? 'start' : 'end'}
+            dominantBaseline="central"
+          >
+            {name}
+          </text>
+          <text
+            x={textX}
+            y={elbowY + 7}
+            fill={chart.axis}
+            fontSize={12}
+            fontWeight={500}
+            textAnchor={isRight ? 'start' : 'end'}
+            dominantBaseline="central"
+          >
+            {`${formatPriceWithSign(value)} ₪ · ${(percent * 100).toFixed(1)}%`}
+          </text>
+        </g>
       );
     },
-    [chart.axis]
+    [chart.axis, chart.grid, formatPriceWithSign]
   );
 
   const sectionRefs = useRef({});
@@ -744,6 +742,8 @@ function PortfolioAnalysisView({
             title="ניתוח תיק"
             subtitle="ביצועים, פיזור והמלצות - תמונה מעמיקה של התיק"
           />
+
+          <BetaBanner tone="tax" />
 
           {/* Section navigation as a horizontal tab strip rather than a
               column beside the content. As a sidebar it took ~210px of the
@@ -812,11 +812,43 @@ function PortfolioAnalysisView({
 
           <div className="analysis-section" data-section-key="performance" ref={(el) => (sectionRefs.current.performance = el)}>
             <h2 className="section-title">ביצועי התיק לאורך זמן</h2>
-            <p className="section-subtitle">
-              מחושב בזמן אמת משערי הסגירה ההיסטוריים בפועל (בורסת תל אביב, וול סטריט ושער הדולר), לפי ההחזקות שהיו בתיק
-              בכל תאריך - ולא מתוך שמירות שנשמרו מראש. שינוי בתאריך קנייה או בכמות משתקף בגרף מיידית. התשואה מחושבת
-              בשיטה משוקללת-זמן (Time-Weighted) ומנוטרלת מהפקדות, משיכות ורכישות חדשות.
-            </p>
+
+            {/* HOW THE NUMBER IS MADE, in four steps.
+                This replaces a paragraph that said the same things in
+                prose. A method is a sequence, and a reader checking
+                whether a figure means what they think has to find one
+                step in it - which a block of text makes them re-read the
+                whole thing to do. */}
+            <ol className="calc-guide">
+              <li className="calc-guide-step">
+                <span className="calc-guide-title">שערי סגירה אמיתיים</span>
+                <span className="calc-guide-text">
+                  התיק מוערך מחדש בכל תאריך לפי שערי הסגירה בפועל (תל אביב, וול סטריט ושער הדולר) ולפי ההחזקות
+                  שהיו בו באותו יום - לא מתוך נתונים שנשמרו מראש.
+                </span>
+              </li>
+              <li className="calc-guide-step">
+                <span className="calc-guide-title">נטרול הפקדות ומשיכות</span>
+                <span className="calc-guide-text">
+                  הטווח מחולק לתת-תקופות בכל תאריך שנכנס או יצא בו כסף. הפקדה מגדילה שווי בלי שההחזקות הרוויחו
+                  דבר, ולכן היא מנוכה מהחישוב ולא נספרת כתשואה.
+                </span>
+              </li>
+              <li className="calc-guide-step">
+                <span className="calc-guide-title">שרשור התקופות (TWR)</span>
+                <span className="calc-guide-text">
+                  כל תת-תקופה נמדדת בנפרד (Modified Dietz) והתוצאות מוכפלות זו בזו. כך גודל ההפקדות ותזמונן אינם
+                  משפיעים על התשואה - מה שנמדד הוא ביצועי הנכסים בלבד.
+                </span>
+              </li>
+              <li className="calc-guide-step">
+                <span className="calc-guide-title">הצגה באחוזים מ-100</span>
+                <span className="calc-guide-text">
+                  הגרף מתחיל ב-100 בתאריך הראשון, כך שכל נקודה היא הצמיחה המצטברת באחוזים מאותו יום - ולא שווי
+                  התיק בשקלים.
+                </span>
+              </li>
+            </ol>
 
             {/* WHAT THE CURVE IS ABOUT.
                 Two independent choices - which market, and whether the
@@ -883,6 +915,27 @@ function PortfolioAnalysisView({
                   : ' כל תאריך מומר לפי שער הדולר שלו באותו יום, כך שהתשואה כוללת גם את תנועת המטבע.')}
             </p>
 
+            {/* THE PERIODS ACTUALLY ASKED FOR, as one click each.
+                The date inputs below stay - they are the precise control,
+                and these are shortcuts into the same two values, not a
+                separate mode. Which one is current is derived from the
+                dates (see periodKeyForRange), so typing a range of your
+                own simply leaves none of them marked. */}
+            <div className="period-toggles" role="group" aria-label="תקופת תשואה">
+              {RETURN_PERIODS.map((period) => (
+                <button
+                  key={period.key}
+                  type="button"
+                  className={`period-toggle ${activeReturnPeriod === period.key ? 'active' : ''}`}
+                  aria-pressed={activeReturnPeriod === period.key}
+                  title={period.hint}
+                  onClick={() => selectReturnPeriod(period.key)}
+                >
+                  {period.label}
+                </button>
+              ))}
+            </div>
+
             {/* Layout lives in .date-range-controls, not in an inline style:
                 an inline align-items outranks the stylesheet, so the mobile
                 rule that stacks these could never take effect. */}
@@ -908,18 +961,6 @@ function PortfolioAnalysisView({
                   onChange={(e) => handlePerformanceToChange(e.target.value)}
                 />
               </div>
-              {isRangeNarrowed && (
-                <button
-                  type="button"
-                  className="monthly-toolbar-btn"
-                  onClick={() => {
-                    setPerformanceFrom('');
-                    setPerformanceTo('');
-                  }}
-                >
-                  חזרה לכל התקופה
-                </button>
-              )}
             </div>
 
             {segmentIsEmpty ? (
@@ -930,7 +971,7 @@ function PortfolioAnalysisView({
                 אין החזקות בבחירה הנוכחית ({describeSelection(marketSegment, fxMode)}). נסו שוק אחר או
                 היקף רחב יותר.
               </div>
-            ) : !portfolioInceptionDate ? (
+            ) : !segmentInceptionDate ? (
               <div className="history-empty-note">
                 עדיין אין החזקות עם תאריך קנייה/הפקדה בתיק, ולכן אין ממה לחשב ביצועים לאורך זמן.
               </div>
@@ -1194,103 +1235,16 @@ function PortfolioAnalysisView({
                 האלה מושמטים ולא מוצגים כירידה בשווי.
               </p>
             )}
-
-            {/* THE WORKING BEHIND THE CURVE.
-                Collapsed by default - it answers a question most
-                readings of the chart never raise, and it is a wide
-                table. Open, it shows where every figure came from. */}
-            <div className="audit-panel">
-              <button
-                type="button"
-                className="audit-toggle"
-                onClick={() => setShowAudit((open) => !open)}
-                aria-expanded={showAudit}
-                aria-controls="performance-audit"
-              >
-                <span className="audit-toggle-chevron" aria-hidden="true">
-                  ▾
-                </span>
-                בדיקת נתונים - איך חושבה התשואה
-              </button>
-
-              <div id="performance-audit" className="audit-body" hidden={!showAudit}>
-                <p className="section-subtitle">
-                  הטבלה משקפת את הבחירה הנוכחית:{' '}
-                  <strong>{describeSelection(marketSegment, fxMode)}</strong>. שינוי השוק או מצב המטבע
-                  למעלה מחשב מחדש גם את השורות כאן.
-                </p>
-                <p className="section-subtitle">
-                  כל נקודה בגרף, עם פירוט מה תרם לה כל אפיק, כמה כסף נכנס לתיק מאז הנקודה הקודמת, ומה הייתה
-                  התשואה של אותה תקופה אחרי נטרול ההפקדות. "שינוי נאיבי" הוא השינוי בשווי כולל הפקדות - הפער
-                  בינו לבין "תשואת התקופה" הוא בדיוק ההפקדות שנוטרלו.
-                </p>
-
-                <div className="audit-actions">
-                  <button type="button" className="audit-action" onClick={handleDownloadAuditCsv}>
-                    הורדת CSV
-                  </button>
-                  <button type="button" className="audit-action" onClick={handleDownloadAuditJson}>
-                    הורדת JSON
-                  </button>
-                  <button type="button" className="audit-action" onClick={handleLogAudit}>
-                    הדפסה לקונסול
-                  </button>
-                </div>
-
-                <div className="stocks-table-container">
-                  <table className="analysis-table audit-table">
-                    <thead>
-                      <tr>
-                        {AUDIT_COLUMNS.map((column) => (
-                          <th key={column.key}>{column.label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {auditRows.map((row) => (
-                        <tr key={row.date}>
-                          {AUDIT_COLUMNS.map((column) => {
-                            const value = row[column.key];
-                            if (column.type === 'text') return <td key={column.key}>{value}</td>;
-                            if (value === null || value === undefined) {
-                              return <td key={column.key}>—</td>;
-                            }
-                            if (column.type === 'percent') {
-                              return (
-                                <td
-                                  key={column.key}
-                                  className={value >= 0 ? 'profit-positive' : 'profit-negative'}
-                                >
-                                  {value >= 0 ? '+' : ''}
-                                  {value.toFixed(2)}%
-                                </td>
-                              );
-                            }
-                            return <td key={column.key}>{formatPriceWithSign(value)}</td>;
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <p className="section-subtitle" style={{ marginTop: 10 }}>
-                  סכום "תזרים מצטבר" הוא כל הכסף שנכנס לתיק בטווח המוצג. התשואה בראש הסעיף היא time-weighted:
-                  כל תת-תקופה נמדדת בנפרד (Modified Dietz) והתוצאות משורשרות, כך שגודל ההפקדות ותזמונן לא
-                  משפיעים עליה.
-                </p>
-              </div>
-            </div>
           </div>
 
           <div className="analysis-section analysis-section-half" data-section-key="pie" ref={(el) => (sectionRefs.current.pie = el)}>
             <h2 className="section-title">גרף עוגה - פיזור התיק</h2>
             <div className="pie-chart-container">
               <div className="pie-chart-wrapper">
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer width="100%" height={360}>
                   {/* The margin is what the callout labels live in - without
                       it they are drawn outside the SVG and simply clipped. */}
-                  <PieChart margin={{ top: 12, right: 78, bottom: 12, left: 78 }} key="pie-chart">
+                  <PieChart margin={{ top: 20, right: 104, bottom: 20, left: 104 }} key="pie-chart">
                     <Pie
                       key="pie-data"
                       data={[
@@ -1327,13 +1281,13 @@ function PortfolioAnalysisView({
                       ]}
                       cx="50%"
                       cy="50%"
-                      outerRadius={100}
-                      innerRadius={76}
+                      outerRadius="64%"
+                      innerRadius="47%"
                       paddingAngle={1}
                       fill={chart.accent}
                       dataKey="value"
                       label={renderSliceCallout}
-                      labelLine={{ stroke: chart.grid, strokeWidth: 1 }}
+                      labelLine={false}
                       isAnimationActive={false}
                     >
                       {chart.categorical.slice(0, 6).map((color) => (
@@ -1409,8 +1363,8 @@ function PortfolioAnalysisView({
               <>
                 <div className="pie-chart-container">
                   <div className="pie-chart-wrapper">
-                    <ResponsiveContainer width="100%" height={320}>
-                      <PieChart margin={{ top: 12, right: 78, bottom: 12, left: 78 }}>
+                    <ResponsiveContainer width="100%" height={360}>
+                      <PieChart margin={{ top: 20, right: 104, bottom: 20, left: 104 }}>
                         <Pie
                           data={sectorDistribution.sectors.map((s) => ({
                             name: sectorLabelHe(s.sectorKey),
@@ -1418,12 +1372,12 @@ function PortfolioAnalysisView({
                           }))}
                           cx="50%"
                           cy="50%"
-                          outerRadius={100}
-                          innerRadius={76}
+                          outerRadius="64%"
+                          innerRadius="47%"
                           paddingAngle={1}
                           dataKey="value"
                           label={renderSliceCallout}
-                          labelLine={{ stroke: chart.grid, strokeWidth: 1 }}
+                          labelLine={false}
                           isAnimationActive={false}
                         >
                           {sectorDistribution.sectors.map((s, i) => (

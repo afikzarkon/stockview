@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useIsraeliStockSearch } from '../hooks/useIsraeliStockSearch';
 import { useStockSearch } from '../hooks/useStockSearch';
+import BetaBanner from './BetaBanner';
 
 function StockFormView({
   isEditMode,
@@ -51,6 +52,9 @@ function StockFormView({
       <div className="form-container">
         <div className="form-content">
           <h1 className="form-title">{isEditMode ? 'עריכת מנייה' : 'הוספת מידע על מנייה'}</h1>
+
+          {/* The one screen that invites a real balance to be typed in. */}
+          <BetaBanner tone="data" />
 
           <form onSubmit={handleSubmit} className="stock-form">
             <div className="form-group">

@@ -8,12 +8,6 @@ import { NAV_GROUPS, ROUTES, routeByKey } from '../router/routes';
 const ICONS = {
   home: <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5Z" />,
   analysis: <path d="M4 20V10m5 10V4m5 16v-7m5 7V8" />,
-  research: (
-    <>
-      <circle cx="11" cy="11" r="6" />
-      <path d="m20 20-3.5-3.5" />
-    </>
-  ),
   israel: (
     <>
       <path d="m12 4 3.5 6h-7L12 4Z" />

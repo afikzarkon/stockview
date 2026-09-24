@@ -13,6 +13,70 @@ import { computeBankSavingsFundValue } from '../utils/bankSavingsFund';
 // (and the original behaviour) passes nothing.
 export const ACCOUNT_SECTIONS = ['pension', 'cash', 'bank', 'bank_savings'];
 
+// The column headers for each of the four tables, named once and used for
+// BOTH the <th> row and each cell's data-label. Below 720px a holdings
+// table is not a table any more - App.css turns every row into a card and
+// clips the header row away - so a value with no label of its own becomes
+// an anonymous number in a stack of anonymous numbers, which is what these
+// four tables were on a phone. Sourcing both from one object is what stops
+// a renamed header from leaving a card labelled with the old name.
+const PENSION_COL = {
+  name: 'שם קופה',
+  initial: 'סך השקעה ראשונית (₪)',
+  current: 'סך ערך השקעה כיום (₪)',
+  currentDate: 'תאריך שווי נוכחי',
+  previous: 'סך ערך ההשקעה בעדכון הקודם (₪)',
+  previousDate: 'תאריך שווי קודם',
+  indexToday: 'מדד היום (הידוע)',
+  indexAtDeposit: 'מדד ביום ההפקדה',
+  realGain: 'רווח ריאלי (חייב במס)',
+  inflationary: 'רווח אינפלציוני (פטור)',
+  afterTax: 'רווח לאחר מס (₪)',
+  periodReturn: 'תשואה (מעדכון קודם)',
+  cumulative: 'רווח מצטבר מול הפקדות',
+  totalProfit: 'סך רווח/הפסד (₪)',
+  updateProfit: 'רווח/הפסד מהשקעה קודמת להיום (₪)',
+  actions: 'פעולות'
+};
+
+const CASH_COL = {
+  name: 'שם',
+  securityId: 'מספר נייר ערך',
+  current: 'שווי נוכחי (₪)',
+  currentDate: 'תאריך שווי נוכחי',
+  previous: 'שווי בעדכון הקודם (₪)',
+  previousDate: 'תאריך שווי קודם',
+  periodReturn: 'תשואה (מעדכון קודם)',
+  actions: 'פעולות'
+};
+
+const BANK_COL = {
+  current: 'שווי נוכחי (₪)',
+  currentDate: 'תאריך שווי נוכחי',
+  previous: 'שווי בעדכון הקודם (₪)',
+  previousDate: 'תאריך שווי קודם',
+  periodReturn: 'תשואה (מעדכון קודם)',
+  actions: 'פעולות'
+};
+
+const SAVINGS_COL = {
+  name: 'שם',
+  track: 'מסלול השקעה',
+  rate: 'ריבית שנתית (%)',
+  linked: 'צמוד למדד?',
+  deposited: 'סך הפקדות (₪)',
+  current: 'שווי נוכחי (₪)',
+  profit: 'רווח/הפסד (₪)',
+  tax: 'מס (₪)',
+  afterTax: 'רווח אחרי מס (₪)',
+  actions: 'פעולות'
+};
+
+// A deposit row is not a row of the table's own columns - its first two
+// cells hold a date and an amount, under headings that mean something
+// else. As a card it says what it actually is.
+const DEPOSIT_COL = { date: 'תאריך הפקדה', amount: 'סכום' };
+
 function FinancialAccountsTables({
   pensionFunds,
   cashFunds,
@@ -100,22 +164,22 @@ function FinancialAccountsTables({
             <table className="stocks-table">
               <thead>
                 <tr>
-                  <th>שם קופה</th>
-                  <th>סך השקעה ראשונית (₪)</th>
-                  <th>סך ערך השקעה כיום (₪)</th>
-                  <th>תאריך שווי נוכחי</th>
-                  <th>סך ערך ההשקעה בעדכון הקודם (₪)</th>
-                  {showAdditionalData && <th>תאריך שווי קודם</th>}
-                  {showAdditionalData && <th>מדד היום (הידוע)</th>}
-                  {showAdditionalData && <th>מדד ביום ההפקדה</th>}
-                  {showAdditionalData && <th>רווח ריאלי (חייב במס)</th>}
-                  {showAdditionalData && <th>רווח אינפלציוני (פטור)</th>}
-                  {showAdditionalData && <th>רווח לאחר מס (₪)</th>}
-                  <th>תשואה (מעדכון קודם)</th>
-                  <th>רווח מצטבר מול הפקדות</th>
-                  <th>סך רווח/הפסד (₪)</th>
-                  <th>רווח/הפסד מהשקעה קודמת להיום (₪)</th>
-                  {isEditMode && <th>פעולות</th>}
+                  <th>{PENSION_COL.name}</th>
+                  <th>{PENSION_COL.initial}</th>
+                  <th>{PENSION_COL.current}</th>
+                  <th>{PENSION_COL.currentDate}</th>
+                  <th>{PENSION_COL.previous}</th>
+                  {showAdditionalData && <th>{PENSION_COL.previousDate}</th>}
+                  {showAdditionalData && <th>{PENSION_COL.indexToday}</th>}
+                  {showAdditionalData && <th>{PENSION_COL.indexAtDeposit}</th>}
+                  {showAdditionalData && <th>{PENSION_COL.realGain}</th>}
+                  {showAdditionalData && <th>{PENSION_COL.inflationary}</th>}
+                  {showAdditionalData && <th>{PENSION_COL.afterTax}</th>}
+                  <th>{PENSION_COL.periodReturn}</th>
+                  <th>{PENSION_COL.cumulative}</th>
+                  <th>{PENSION_COL.totalProfit}</th>
+                  <th>{PENSION_COL.updateProfit}</th>
+                  {isEditMode && <th>{PENSION_COL.actions}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -173,7 +237,7 @@ function FinancialAccountsTables({
                   return (
                     <React.Fragment key={item.id}>
                     <tr className={isEditMode ? 'editable-row' : ''}>
-                      <td onClick={() => handleCellClick(item.id, 'fundName', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
+                      <td onClick={() => handleCellClick(item.id, 'fundName', 'pension')} className={isEditMode ? 'editable-cell' : ''} data-label={PENSION_COL.name}>
                         <button onClick={() => toggleFundExpanded(item.id)} className="expand-button" style={{ marginRight: '8px', background: 'none', border: 'none', cursor: 'pointer' }}>
                           {isExpanded ? '▼' : '▶'}
                         </button>
@@ -188,10 +252,11 @@ function FinancialAccountsTables({
                           />
                         ) : item.fundName}
                       </td>
-                      <td>{`${formatPriceWithSign(initialInvestment)} ₪`}</td>
+                      <td data-label={PENSION_COL.initial}>{`${formatPriceWithSign(initialInvestment)} ₪`}</td>
                       <td
                         onClick={() => { if (editingField !== `${item.id}-currentValue`) startValueEdit(item, 'pension'); }}
                         className={isEditMode ? 'editable-cell' : ''}
+                        data-label={PENSION_COL.current}
                       >
                         {editingField === `${item.id}-currentValue` ? (
                           <div
@@ -220,7 +285,7 @@ function FinancialAccountsTables({
                           </div>
                         ) : `${formatPriceWithSign(currentValue)} ₪`}
                       </td>
-                      <td onClick={() => handleCellClick(item.id, 'currentValueDate', 'pension')} className={isEditMode ? 'editable-cell' : ''}>
+                      <td onClick={() => handleCellClick(item.id, 'currentValueDate', 'pension')} className={isEditMode ? 'editable-cell' : ''} data-label={PENSION_COL.currentDate}>
                         {editingField === `${item.id}-currentValueDate` ? (
                           <input
                             type="date"
@@ -236,33 +301,33 @@ function FinancialAccountsTables({
                           שלהן תעקוף את applyPensionValueUpdate שדואג לשמר היסטוריה נכונה
                           כשמעדכנים "שווי נוכחי" (ראו portfolioMath.js). זה בעצמו הבאג שהיה
                           כאן בעבר - השדות האלה משתנים רק כתוצאה מעדכון "שווי נוכחי" חדש. */}
-                      <td>{`${formatPriceWithSign(previousValue)} ₪`}</td>
+                      <td data-label={PENSION_COL.previous}>{`${formatPriceWithSign(previousValue)} ₪`}</td>
                       {showAdditionalData && (
-                        <td>{item.previousValueDate ? formatDate(item.previousValueDate) : '-'}</td>
+                        <td data-label={PENSION_COL.previousDate}>{item.previousValueDate ? formatDate(item.previousValueDate) : '-'}</td>
                       )}
                       {showAdditionalData && (
-                        <td>{cpi && cpi.currentIndex != null ? cpi.currentIndex : '-'}</td>
+                        <td data-label={PENSION_COL.indexToday}>{cpi && cpi.currentIndex != null ? cpi.currentIndex : '-'}</td>
                       )}
                       {/* מדד ביום ההפקדה הוא ערך פר-הפקדה (לכל הפקדה החודש שלה) - לא
                           מוצג כאן בשורת הסיכום כי לקופה יכולות להיות הפקדות ממספר
                           חודשים שונים; ראו את הערך האמיתי בשורות ההפקדה המורחבות למטה. */}
-                      {showAdditionalData && <td>-</td>}
+                      {showAdditionalData && <td data-label={PENSION_COL.indexAtDeposit}>-</td>}
                       {showAdditionalData && (
-                      <td className={realGain !== null && realGain > 0 ? 'profit-positive' : realGain !== null && realGain < 0 ? 'profit-negative' : ''}>
+                      <td className={realGain !== null && realGain > 0 ? 'profit-positive' : realGain !== null && realGain < 0 ? 'profit-negative' : ''} data-label={PENSION_COL.realGain}>
                         {realGain !== null ? `${formatPriceWithSign(realGain)} ₪` : '-'}
                       </td>
                       )}
                       {showAdditionalData && (
-                      <td>
+                      <td data-label={PENSION_COL.inflationary}>
                         {inflationaryGain !== null ? `${formatPriceWithSign(inflationaryGain)} ₪` : '-'}
                       </td>
                       )}
                       {showAdditionalData && (
-                      <td className={afterTaxProfit !== null && afterTaxProfit > 0 ? 'profit-positive' : afterTaxProfit !== null && afterTaxProfit < 0 ? 'profit-negative' : ''}>
+                      <td className={afterTaxProfit !== null && afterTaxProfit > 0 ? 'profit-positive' : afterTaxProfit !== null && afterTaxProfit < 0 ? 'profit-negative' : ''} data-label={PENSION_COL.afterTax}>
                         {afterTaxProfit !== null ? `${formatPriceWithSign(afterTaxProfit)} ₪` : '-'}
                       </td>
                       )}
-                      <td className={previousProfitPercent > 0 ? 'profit-positive' : previousProfitPercent < 0 ? 'profit-negative' : ''}>
+                      <td className={previousProfitPercent > 0 ? 'profit-positive' : previousProfitPercent < 0 ? 'profit-negative' : ''} data-label={PENSION_COL.periodReturn}>
                         {ambiguousPeriod && (
                           <span
                             className="ambiguous-period-warning"
@@ -273,17 +338,17 @@ function FinancialAccountsTables({
                         )}
                         {formatPercent(previousProfitPercent)}
                       </td>
-                      <td className={profitPercent > 0 ? 'profit-positive' : profitPercent < 0 ? 'profit-negative' : ''}>
+                      <td className={profitPercent > 0 ? 'profit-positive' : profitPercent < 0 ? 'profit-negative' : ''} data-label={PENSION_COL.cumulative}>
                         {formatPercent(profitPercent)}
                       </td>
-                      <td className={totalProfitLoss > 0 ? 'profit-positive' : totalProfitLoss < 0 ? 'profit-negative' : ''}>
+                      <td className={totalProfitLoss > 0 ? 'profit-positive' : totalProfitLoss < 0 ? 'profit-negative' : ''} data-label={PENSION_COL.totalProfit}>
                         {`${formatPriceWithSign(totalProfitLoss)} ₪`}
                       </td>
-                      <td className={updateProfitLoss > 0 ? 'profit-positive' : updateProfitLoss < 0 ? 'profit-negative' : ''}>
+                      <td className={updateProfitLoss > 0 ? 'profit-positive' : updateProfitLoss < 0 ? 'profit-negative' : ''} data-label={PENSION_COL.updateProfit}>
                         {updateProfitLoss !== null ? `${formatPriceWithSign(updateProfitLoss)} ₪` : '-'}
                       </td>
                       {isEditMode && (
-                        <td>
+                        <td data-label={PENSION_COL.actions}>
                           <button onClick={() => handleDelete(item.id, 'pension')} className="delete-button">מחק קופה</button>
                         </td>
                       )}
@@ -295,15 +360,15 @@ function FinancialAccountsTables({
                     )}
                     {isExpanded && deposits.map((d, i) => (
                       <tr key={i} className={`${isEditMode ? 'editable-row' : ''} detail-row`}>
-                        <td style={{ paddingLeft: '20px' }}>{d.date ? formatDate(d.date) : '-'}</td>
-                        <td>{`${formatPriceWithSign(d.amount)} ₪`}</td>
+                        <td style={{ paddingLeft: '20px' }} data-label={DEPOSIT_COL.date}>{d.date ? formatDate(d.date) : '-'}</td>
+                        <td data-label={DEPOSIT_COL.amount}>{`${formatPriceWithSign(d.amount)} ₪`}</td>
                         <td></td>
                         <td></td>
                         <td></td>
                         {showAdditionalData && <td></td>}
                         {showAdditionalData && <td></td>}
                         {showAdditionalData && (
-                          <td>{cpi && cpi.indexByMonth ? cpi.indexByMonth[monthKeyFromDate(d.date)] ?? '-' : '-'}</td>
+                          <td data-label={PENSION_COL.indexAtDeposit}>{cpi && cpi.indexByMonth ? cpi.indexByMonth[monthKeyFromDate(d.date)] ?? '-' : '-'}</td>
                         )}
                         {showAdditionalData && <td></td>}
                         {showAdditionalData && <td></td>}
@@ -335,14 +400,14 @@ function FinancialAccountsTables({
             <table className="stocks-table">
               <thead>
                 <tr>
-                  <th>שם</th>
-                  <th>מספר נייר ערך</th>
-                  <th>שווי נוכחי (₪)</th>
-                  <th>תאריך שווי נוכחי</th>
-                  <th>שווי בעדכון הקודם (₪)</th>
-                  {showAdditionalData && <th>תאריך שווי קודם</th>}
-                  <th>תשואה (מעדכון קודם)</th>
-                  {isEditMode && <th>פעולות</th>}
+                  <th>{CASH_COL.name}</th>
+                  <th>{CASH_COL.securityId}</th>
+                  <th>{CASH_COL.current}</th>
+                  <th>{CASH_COL.currentDate}</th>
+                  <th>{CASH_COL.previous}</th>
+                  {showAdditionalData && <th>{CASH_COL.previousDate}</th>}
+                  <th>{CASH_COL.periodReturn}</th>
+                  {isEditMode && <th>{CASH_COL.actions}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -357,7 +422,7 @@ function FinancialAccountsTables({
                   return (
                     <React.Fragment key={item.id}>
                       <tr className={isEditMode ? 'editable-row' : ''}>
-                        <td onClick={() => handleCellClick(item.id, 'fundName', 'cash_fund')} className={isEditMode ? 'editable-cell' : ''}>
+                        <td onClick={() => handleCellClick(item.id, 'fundName', 'cash_fund')} className={isEditMode ? 'editable-cell' : ''} data-label={CASH_COL.name}>
                           <button onClick={() => toggleCashFundExpanded(item.id)} className="expand-button" style={{ marginRight: '8px', background: 'none', border: 'none', cursor: 'pointer' }}>
                             {isExpanded ? '▼' : '▶'}
                           </button>
@@ -372,7 +437,7 @@ function FinancialAccountsTables({
                             />
                           ) : (item.fundName || '-')}
                         </td>
-                        <td onClick={() => handleCellClick(item.id, 'securityId', 'cash_fund')} className={isEditMode ? 'editable-cell' : ''}>
+                        <td onClick={() => handleCellClick(item.id, 'securityId', 'cash_fund')} className={isEditMode ? 'editable-cell' : ''} data-label={CASH_COL.securityId}>
                           {editingField === `${item.id}-securityId` ? (
                             <input
                               type="text"
@@ -387,6 +452,7 @@ function FinancialAccountsTables({
                         <td
                           onClick={() => { if (editingField !== `${item.id}-currentValue`) startValueEdit(item, 'cash_fund'); }}
                           className={isEditMode ? 'editable-cell' : ''}
+                          data-label={CASH_COL.current}
                         >
                           {editingField === `${item.id}-currentValue` ? (
                             <div
@@ -415,14 +481,14 @@ function FinancialAccountsTables({
                             </div>
                           ) : `${formatPriceWithSign(currentValue)} ₪`}
                         </td>
-                        <td>{item.currentValueDate ? formatDate(item.currentValueDate) : '-'}</td>
+                        <td data-label={CASH_COL.currentDate}>{item.currentValueDate ? formatDate(item.currentValueDate) : '-'}</td>
                         {/* previousValue/previousValueDate הן תצוגה בלבד בכוונה - ראו
                             הערת השדות המקבילים בטבלת קופות הגמל למעלה. */}
-                        <td>{`${formatPriceWithSign(previousValue)} ₪`}</td>
+                        <td data-label={CASH_COL.previous}>{`${formatPriceWithSign(previousValue)} ₪`}</td>
                         {showAdditionalData && (
-                          <td>{item.previousValueDate ? formatDate(item.previousValueDate) : '-'}</td>
+                          <td data-label={CASH_COL.previousDate}>{item.previousValueDate ? formatDate(item.previousValueDate) : '-'}</td>
                         )}
-                        <td className={periodReturnPercent > 0 ? 'profit-positive' : periodReturnPercent < 0 ? 'profit-negative' : ''}>
+                        <td className={periodReturnPercent > 0 ? 'profit-positive' : periodReturnPercent < 0 ? 'profit-negative' : ''} data-label={CASH_COL.periodReturn}>
                           {ambiguousPeriod && (
                             <span
                               className="ambiguous-period-warning"
@@ -434,7 +500,7 @@ function FinancialAccountsTables({
                           {formatPercent(periodReturnPercent)}
                         </td>
                         {isEditMode && (
-                          <td>
+                          <td data-label={CASH_COL.actions}>
                             <button onClick={() => handleDelete(item.id, 'cash_fund')} className="delete-button">מחק כספית</button>
                           </td>
                         )}
@@ -446,8 +512,8 @@ function FinancialAccountsTables({
                       )}
                       {isExpanded && deposits.map((d, i) => (
                         <tr key={i} className={`${isEditMode ? 'editable-row' : ''} detail-row`}>
-                          <td style={{ paddingLeft: '20px' }}>{d.date ? formatDate(d.date) : '-'}</td>
-                          <td>{`${formatPriceWithSign(d.amount)} ₪ ${d.amount < 0 ? '(משיכה)' : ''}`}</td>
+                          <td style={{ paddingLeft: '20px' }} data-label={DEPOSIT_COL.date}>{d.date ? formatDate(d.date) : '-'}</td>
+                          <td data-label={DEPOSIT_COL.amount}>{`${formatPriceWithSign(d.amount)} ₪ ${d.amount < 0 ? '(משיכה)' : ''}`}</td>
                           <td></td>
                           <td></td>
                           <td></td>
@@ -476,12 +542,12 @@ function FinancialAccountsTables({
             <table className="stocks-table">
               <thead>
                 <tr>
-                  <th>שווי נוכחי (₪)</th>
-                  <th>תאריך שווי נוכחי</th>
-                  <th>שווי בעדכון הקודם (₪)</th>
-                  {showAdditionalData && <th>תאריך שווי קודם</th>}
-                  <th>תשואה (מעדכון קודם)</th>
-                  {isEditMode && <th>פעולות</th>}
+                  <th>{BANK_COL.current}</th>
+                  <th>{BANK_COL.currentDate}</th>
+                  <th>{BANK_COL.previous}</th>
+                  {showAdditionalData && <th>{BANK_COL.previousDate}</th>}
+                  <th>{BANK_COL.periodReturn}</th>
+                  {isEditMode && <th>{BANK_COL.actions}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -499,6 +565,7 @@ function FinancialAccountsTables({
                         <td
                           onClick={() => { if (editingField !== `${item.id}-currentValue`) startValueEdit(item, 'bank'); }}
                           className={isEditMode ? 'editable-cell' : ''}
+                          data-label={BANK_COL.current}
                         >
                           <button onClick={() => toggleBankAccountExpanded(item.id)} className="expand-button" style={{ marginRight: '8px', background: 'none', border: 'none', cursor: 'pointer' }}>
                             {isExpanded ? '▼' : '▶'}
@@ -530,12 +597,12 @@ function FinancialAccountsTables({
                             </div>
                           ) : `${formatPriceWithSign(currentValue)} ₪`}
                         </td>
-                        <td>{item.currentValueDate ? formatDate(item.currentValueDate) : '-'}</td>
-                        <td>{`${formatPriceWithSign(previousValue)} ₪`}</td>
+                        <td data-label={BANK_COL.currentDate}>{item.currentValueDate ? formatDate(item.currentValueDate) : '-'}</td>
+                        <td data-label={BANK_COL.previous}>{`${formatPriceWithSign(previousValue)} ₪`}</td>
                         {showAdditionalData && (
-                          <td>{item.previousValueDate ? formatDate(item.previousValueDate) : '-'}</td>
+                          <td data-label={BANK_COL.previousDate}>{item.previousValueDate ? formatDate(item.previousValueDate) : '-'}</td>
                         )}
-                        <td className={periodReturnPercent > 0 ? 'profit-positive' : periodReturnPercent < 0 ? 'profit-negative' : ''}>
+                        <td className={periodReturnPercent > 0 ? 'profit-positive' : periodReturnPercent < 0 ? 'profit-negative' : ''} data-label={BANK_COL.periodReturn}>
                           {ambiguousPeriod && (
                             <span
                               className="ambiguous-period-warning"
@@ -547,7 +614,7 @@ function FinancialAccountsTables({
                           {formatPercent(periodReturnPercent)}
                         </td>
                         {isEditMode && (
-                          <td>
+                          <td data-label={BANK_COL.actions}>
                             <button onClick={() => handleDelete(item.id, 'bank')} className="delete-button">מחק חשבון</button>
                           </td>
                         )}
@@ -559,8 +626,8 @@ function FinancialAccountsTables({
                       )}
                       {isExpanded && deposits.map((d, i) => (
                         <tr key={i} className={`${isEditMode ? 'editable-row' : ''} detail-row`}>
-                          <td style={{ paddingLeft: '20px' }}>{`${formatPriceWithSign(d.amount)} ₪ ${d.amount < 0 ? '(משיכה)' : ''}`}</td>
-                          <td>{d.date ? formatDate(d.date) : '-'}</td>
+                          <td style={{ paddingLeft: '20px' }} data-label={DEPOSIT_COL.amount}>{`${formatPriceWithSign(d.amount)} ₪ ${d.amount < 0 ? '(משיכה)' : ''}`}</td>
+                          <td data-label={DEPOSIT_COL.date}>{d.date ? formatDate(d.date) : '-'}</td>
                           <td></td>
                           {showAdditionalData && <td></td>}
                           <td></td>
@@ -587,16 +654,16 @@ function FinancialAccountsTables({
             <table className="stocks-table">
               <thead>
                 <tr>
-                  <th>שם</th>
-                  <th>מסלול השקעה</th>
-                  <th>ריבית שנתית (%)</th>
-                  <th>צמוד למדד?</th>
-                  <th>סך הפקדות (₪)</th>
-                  <th>שווי נוכחי (₪)</th>
-                  <th>רווח/הפסד (₪)</th>
-                  {showAdditionalData && <th>מס (₪)</th>}
-                  {showAdditionalData && <th>רווח אחרי מס (₪)</th>}
-                  {isEditMode && <th>פעולות</th>}
+                  <th>{SAVINGS_COL.name}</th>
+                  <th>{SAVINGS_COL.track}</th>
+                  <th>{SAVINGS_COL.rate}</th>
+                  <th>{SAVINGS_COL.linked}</th>
+                  <th>{SAVINGS_COL.deposited}</th>
+                  <th>{SAVINGS_COL.current}</th>
+                  <th>{SAVINGS_COL.profit}</th>
+                  {showAdditionalData && <th>{SAVINGS_COL.tax}</th>}
+                  {showAdditionalData && <th>{SAVINGS_COL.afterTax}</th>}
+                  {isEditMode && <th>{SAVINGS_COL.actions}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -622,7 +689,7 @@ function FinancialAccountsTables({
                   return (
                     <React.Fragment key={item.id}>
                     <tr className={isEditMode ? 'editable-row' : ''}>
-                      <td onClick={() => handleCellClick(item.id, 'fundName', 'bank_savings')} className={isEditMode ? 'editable-cell' : ''}>
+                      <td onClick={() => handleCellClick(item.id, 'fundName', 'bank_savings')} className={isEditMode ? 'editable-cell' : ''} data-label={SAVINGS_COL.name}>
                         <button onClick={() => toggleBankSavingsFundExpanded(item.id)} className="expand-button" style={{ marginRight: '8px', background: 'none', border: 'none', cursor: 'pointer' }}>
                           {isExpanded ? '▼' : '▶'}
                         </button>
@@ -637,7 +704,7 @@ function FinancialAccountsTables({
                           />
                         ) : item.fundName}
                       </td>
-                      <td onClick={() => handleCellClick(item.id, 'investmentTrack', 'bank_savings')} className={isEditMode ? 'editable-cell' : ''}>
+                      <td onClick={() => handleCellClick(item.id, 'investmentTrack', 'bank_savings')} className={isEditMode ? 'editable-cell' : ''} data-label={SAVINGS_COL.track}>
                         {editingField === `${item.id}-investmentTrack` ? (
                           <input
                             type="text"
@@ -649,7 +716,7 @@ function FinancialAccountsTables({
                           />
                         ) : (item.investmentTrack || '-')}
                       </td>
-                      <td onClick={() => handleCellClick(item.id, 'interestRate', 'bank_savings')} className={isEditMode ? 'editable-cell' : ''}>
+                      <td onClick={() => handleCellClick(item.id, 'interestRate', 'bank_savings')} className={isEditMode ? 'editable-cell' : ''} data-label={SAVINGS_COL.rate}>
                         {editingField === `${item.id}-interestRate` ? (
                           <input
                             type="number"
@@ -663,7 +730,7 @@ function FinancialAccountsTables({
                           />
                         ) : `${item.interestRate ?? 0}%`}
                       </td>
-                      <td>
+                      <td data-label={SAVINGS_COL.linked}>
                         <input
                           type="checkbox"
                           checked={!!item.isLinkedToIndex}
@@ -671,21 +738,21 @@ function FinancialAccountsTables({
                           onChange={(e) => handleInlineEdit(item.id, 'isLinkedToIndex', e.target.checked, 'bank_savings')}
                         />
                       </td>
-                      <td>{`${formatPriceWithSign(totalDeposited)} ₪`}</td>
-                      <td>{`${formatPriceWithSign(currentValue)} ₪`}</td>
-                      <td className={profitLoss > 0 ? 'profit-positive' : profitLoss < 0 ? 'profit-negative' : ''}>
+                      <td data-label={SAVINGS_COL.deposited}>{`${formatPriceWithSign(totalDeposited)} ₪`}</td>
+                      <td data-label={SAVINGS_COL.current}>{`${formatPriceWithSign(currentValue)} ₪`}</td>
+                      <td className={profitLoss > 0 ? 'profit-positive' : profitLoss < 0 ? 'profit-negative' : ''} data-label={SAVINGS_COL.profit}>
                         {`${formatPriceWithSign(profitLoss)} ₪`}
                       </td>
                       {showAdditionalData && (
-                        <td>{tax !== null ? `${formatPriceWithSign(tax)} ₪` : '-'}</td>
+                        <td data-label={SAVINGS_COL.tax}>{tax !== null ? `${formatPriceWithSign(tax)} ₪` : '-'}</td>
                       )}
                       {showAdditionalData && (
-                        <td className={afterTaxProfit !== null && afterTaxProfit > 0 ? 'profit-positive' : afterTaxProfit !== null && afterTaxProfit < 0 ? 'profit-negative' : ''}>
+                        <td className={afterTaxProfit !== null && afterTaxProfit > 0 ? 'profit-positive' : afterTaxProfit !== null && afterTaxProfit < 0 ? 'profit-negative' : ''} data-label={SAVINGS_COL.afterTax}>
                           {afterTaxProfit !== null ? `${formatPriceWithSign(afterTaxProfit)} ₪` : '-'}
                         </td>
                       )}
                       {isEditMode && (
-                        <td>
+                        <td data-label={SAVINGS_COL.actions}>
                           <button onClick={() => handleDelete(item.id, 'bank_savings')} className="delete-button">מחק קופה</button>
                         </td>
                       )}
@@ -697,8 +764,8 @@ function FinancialAccountsTables({
                     )}
                     {isExpanded && deposits.map((d, i) => (
                       <tr key={i} className={`${isEditMode ? 'editable-row' : ''} detail-row`}>
-                        <td style={{ paddingLeft: '20px' }}>{d.date ? formatDate(d.date) : '-'}</td>
-                        <td>{`${formatPriceWithSign(d.amount)} ₪`}</td>
+                        <td style={{ paddingLeft: '20px' }} data-label={DEPOSIT_COL.date}>{d.date ? formatDate(d.date) : '-'}</td>
+                        <td data-label={DEPOSIT_COL.amount}>{`${formatPriceWithSign(d.amount)} ₪`}</td>
                         <td></td>
                         <td></td>
                         <td></td>

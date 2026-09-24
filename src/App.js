@@ -27,6 +27,7 @@ import HomeView from './components/HomeView';
 import AuthView from './components/AuthView';
 import AppShell from './components/AppShell';
 import ThemeToggleButton from './components/ThemeToggleButton';
+import BetaNoticeModal from './components/BetaNoticeModal';
 
 // ONE CHUNK PER PAGE, fetched when that page is first opened.
 //
@@ -44,7 +45,6 @@ const StockFormView = lazy(() => import('./components/StockFormView'));
 const PortfolioAnalysisView = lazy(() => import('./components/PortfolioAnalysisView'));
 const MonthlyTrackerView = lazy(() => import('./components/MonthlyTrackerView'));
 const TaxOffsetView = lazy(() => import('./components/TaxOffsetView'));
-const StockResearchView = lazy(() => import('./components/StockResearchView'));
 const IsraeliStocksPage = lazy(() => import('./components/pages/IsraeliStocksPage'));
 const UsStocksPage = lazy(() => import('./components/pages/UsStocksPage'));
 const ProvidentFundsPage = lazy(() => import('./components/pages/ProvidentFundsPage'));
@@ -173,6 +173,12 @@ function App() {
   const [showAmericanColumns, setShowAmericanColumns] = useState(true);
   const [editingField, setEditingField] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
+
+  // The beta/security disclaimer (see BetaNoticeModal.js). Plain component
+  // state, not localStorage: it is meant to be seen on every arrival -
+  // each login and each refresh - so there is deliberately nothing here
+  // that outlives the page.
+  const [betaNoticeAcknowledged, setBetaNoticeAcknowledged] = useState(false);
 
   const [legacyImportCompleted, setLegacyImportCompleted] = useState(false);
   const [legacyImportLoading, setLegacyImportLoading] = useState(false);
@@ -327,6 +333,8 @@ function App() {
     resetPortfolio();
     navigate('home');
     setLegacyImportBanner('');
+    // Signing back in is a new arrival, so the disclaimer is due again.
+    setBetaNoticeAcknowledged(false);
   };
 
   const handleLegacyImportOnce = async () => {
@@ -1164,9 +1172,6 @@ function App() {
           />
         );
 
-      case 'research':
-        return <StockResearchView onBack={() => navigate('home')} theme={theme} />;
-
       default:
         return (
           <HomeView
@@ -1180,26 +1185,34 @@ function App() {
   };
 
   return (
-    <AppShell
-      activePage={activePage}
-      onNavigate={handleNavigate}
-      user={user}
-      onLogout={handleLogout}
-      theme={theme}
-      onToggleTheme={toggleTheme}
-    >
-      {/* Only the lazily-loaded pages ever suspend; the dashboard is in the
-          initial bundle and renders straight through this. */}
-      <Suspense
-        fallback={
-          <div className="page-loading-wrap">
-            <p className="auth-loading-text">טוען…</p>
-          </div>
-        }
+    <>
+      {/* Rendered outside the shell, over everything, and before the page
+          is usable - it states what must not be typed into the system, so
+          it has to arrive ahead of the screens that invite typing. */}
+      {!betaNoticeAcknowledged && (
+        <BetaNoticeModal onAcknowledge={() => setBetaNoticeAcknowledged(true)} />
+      )}
+      <AppShell
+        activePage={activePage}
+        onNavigate={handleNavigate}
+        user={user}
+        onLogout={handleLogout}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       >
-        {renderPage()}
-      </Suspense>
-    </AppShell>
+        {/* Only the lazily-loaded pages ever suspend; the dashboard is in the
+            initial bundle and renders straight through this. */}
+        <Suspense
+          fallback={
+            <div className="page-loading-wrap">
+              <p className="auth-loading-text">טוען…</p>
+            </div>
+          }
+        >
+          {renderPage()}
+        </Suspense>
+      </AppShell>
+    </>
   );
 }
 

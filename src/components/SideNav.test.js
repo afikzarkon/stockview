@@ -24,7 +24,7 @@ function makeProps(overrides = {}) {
 
 describe('SideNav', () => {
   test('renders every destination and marks the active one', () => {
-    const { container } = render(<SideNav {...makeProps({ activePage: 'research' })} />);
+    const { container } = render(<SideNav {...makeProps({ activePage: 'tax-offset' })} />);
     NAV_KEYS.forEach((key) => {
       expect(screen.getByText(routeByKey(key).label)).toBeInTheDocument();
     });

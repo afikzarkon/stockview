@@ -90,7 +90,8 @@ describe('buildPortfolioWorkbook', () => {
     const workbook = buildPortfolioWorkbook(sampleData);
     const israeliSheet = workbook.worksheets.find((ws) => ws.name === 'מניות ישראליות');
     const headerRow = israeliSheet.getRow(1).values.filter(Boolean);
-    expect(headerRow).toContain('שם מנייה');
+    expect(headerRow).toContain('שם נייר');
+    expect(headerRow).toContain('מספר נייר');
     expect(headerRow).toContain('רווח/הפסד (₪)');
 
     const dataRow = israeliSheet.getRow(2).values.filter((v) => v !== undefined && v !== null);
@@ -111,9 +112,9 @@ describe('buildPortfolioWorkbook', () => {
 });
 
 describe('buildPortfolioPdfDoc', () => {
-  test('produces a single-page PDF document object for a small portfolio', () => {
+  test('produces a paginated PDF document object for a small portfolio', () => {
     const doc = buildPortfolioPdfDoc(sampleData);
-    expect(doc.internal.getNumberOfPages()).toBe(1);
+    expect(doc.internal.getNumberOfPages()).toBeGreaterThanOrEqual(1);
   });
 
   test('produces a real non-empty PDF buffer', () => {

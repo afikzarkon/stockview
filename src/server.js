@@ -15,7 +15,7 @@ const { mountSectorRoutes } = require('./server/sectorRoutes');
 const { mountAnalystRoutes } = require('./server/analystRoutes');
 const { mountRebalanceRoutes } = require('./server/rebalanceRoutes');
 const { mountDividendRoutes } = require('./server/dividendRoutes');
-const { mountStockResearchRoutes } = require('./server/stockResearchRoutes');
+const { mountStockSearchRoutes } = require('./server/stockSearchRoutes');
 const { mountHistoricalPricesRoutes } = require('./server/historicalPricesRoutes');
 
 const app = express();
@@ -30,7 +30,7 @@ mountBenchmarkRoutes(app);
 mountSectorRoutes(app);
 mountAnalystRoutes(app);
 mountDividendRoutes(app);
-mountStockResearchRoutes(app);
+mountStockSearchRoutes(app);
 mountHistoricalPricesRoutes(app);
 
 const PORT = Number(process.env.PORT) || 5000;

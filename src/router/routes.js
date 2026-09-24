@@ -63,7 +63,6 @@ export const ROUTES = [
     hint: 'ביצועים ופיזור',
     icon: 'analysis'
   },
-  { key: 'research', path: '/research', label: 'חקר מניות', hint: 'בדיקת מניה', icon: 'research' },
   // Reachable from the "+ הוספת מידע" action rather than the sidebar, but a
   // real route all the same so the form survives a refresh and the browser's
   // back button leaves it the way it leaves any other page.
@@ -80,7 +79,7 @@ export const NAV_GROUPS = [
     label: 'נכסים',
     keys: ['israeli-stocks', 'us-stocks', 'provident-funds', 'cash-and-checking', 'bank-savings']
   },
-  { label: 'כלים', keys: ['tax-offset', 'research'] }
+  { label: 'כלים', keys: ['tax-offset'] }
 ];
 
 const BY_KEY = ROUTES.reduce((acc, route) => ({ ...acc, [route.key]: route }), {});
