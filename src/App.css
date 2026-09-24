@@ -1834,6 +1834,26 @@ h3 {
   color: var(--sw-text-muted);
 }
 
+.sample-portfolio-cta {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--sw-border);
+}
+
+.sample-portfolio-cta button {
+  margin-top: 8px;
+}
+
+.sample-portfolio-note {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px dashed var(--sw-border);
+  background: var(--sw-surface);
+  color: var(--sw-text-secondary);
+  font-size: 0.9rem;
+}
+
 /* Israeli stocks table width */
 .stocks-table:not(.american-stocks-table) {
   min-width: 1200px;
