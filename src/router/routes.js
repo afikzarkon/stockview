@@ -71,6 +71,13 @@ export const ROUTES = [
     icon: 'report'
   },
   {
+    key: 'valuation',
+    path: '/valuation',
+    label: 'הערכת שווי',
+    hint: 'מכפילים ו-DCF',
+    icon: 'scale'
+  },
+  {
     key: 'recommendations',
     path: '/recommendations',
     label: 'המלצות',
@@ -107,7 +114,7 @@ export const NAV_GROUPS = [
     label: 'נכסים',
     keys: ['israeli-stocks', 'us-stocks', 'provident-funds', 'cash-and-checking', 'bank-savings']
   },
-  { label: 'כלים', keys: ['recommendations', 'transactions', 'tax-offset'] }
+  { label: 'כלים', keys: ['recommendations', 'valuation', 'transactions', 'tax-offset'] }
 ];
 
 const BY_KEY = ROUTES.reduce((acc, route) => ({ ...acc, [route.key]: route }), {});

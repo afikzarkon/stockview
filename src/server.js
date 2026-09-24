@@ -22,6 +22,8 @@ const { mountAlertRoutes } = require('./server/alertRoutes');
 const { mountInternalJobRoutes } = require('./server/internalJobRoutes');
 const { mountPreferenceRoutes } = require('./server/preferenceRoutes');
 const { mountMonthlySyncRoutes } = require('./server/monthlySyncRoutes');
+const { mountValuationRoutes } = require('./server/valuationRoutes');
+const { createValuationService, createDefaultSources } = require('./server/valuationService');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -37,6 +39,7 @@ mountAnalystRoutes(app);
 mountDividendRoutes(app);
 mountStockSearchRoutes(app);
 mountHistoricalPricesRoutes(app);
+mountValuationRoutes(app, { valuation: createValuationService({ sources: createDefaultSources() }) });
 
 const PORT = Number(process.env.PORT) || 5000;
 

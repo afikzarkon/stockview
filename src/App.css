@@ -7828,3 +7828,85 @@ select {
 .recommendation-why dd {
   margin: 0;
 }
+
+/* Valuation (ValuationView.js) */
+.muted-note {
+  color: var(--sw-text-muted);
+  font-size: 12px;
+}
+
+.range-bar .range-track {
+  stroke: var(--sw-border-strong);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.range-bar .range-avg {
+  stroke: var(--sw-text-secondary);
+  stroke-width: 2;
+}
+
+.range-bar .range-peer {
+  fill: var(--sw-amber);
+}
+
+.range-bar .range-now {
+  fill: var(--sw-accent);
+}
+
+.dcf-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 2fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .dcf-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dcf-slider input[type='range'] {
+  width: 100%;
+}
+
+.dcf-advanced {
+  margin: 8px 0 12px;
+}
+
+.dcf-bridge {
+  margin-top: 16px;
+}
+
+.dcf-warnings,
+.dcf-errors {
+  margin: 12px 0;
+  padding-inline-start: 20px;
+  color: var(--sw-amber);
+}
+
+.dcf-errors {
+  color: var(--sw-red);
+}
+
+.dcf-grid td,
+.dcf-grid th {
+  text-align: center;
+}
+
+.dcf-grid .cell-under {
+  background: var(--sw-green-soft);
+  color: var(--sw-green);
+}
+
+.dcf-grid .cell-over {
+  background: var(--sw-red-soft);
+  color: var(--sw-red);
+}
+
+.dcf-grid .cell-current {
+  outline: 2px solid var(--sw-accent);
+  outline-offset: -2px;
+  font-weight: 700;
+}

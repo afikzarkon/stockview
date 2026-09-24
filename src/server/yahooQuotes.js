@@ -496,5 +496,6 @@ module.exports = {
   fetchYahooAnalystData,
   fetchYahooDividendSummary,
   fetchYahooDividendHistory,
+  fetchYahooQuoteSummary,
   unwrapYahooNumber
 };

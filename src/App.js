@@ -59,6 +59,7 @@ const TransactionsView = lazy(() => import('./components/TransactionsView'));
 const AlertsView = lazy(() => import('./components/AlertsView'));
 const RecommendationsView = lazy(() => import('./components/RecommendationsView'));
 const ReportsView = lazy(() => import('./components/ReportsView'));
+const ValuationView = lazy(() => import('./components/ValuationView'));
 
 const LEGACY_KEYS = [
   'israeliStocks',
@@ -1277,6 +1278,9 @@ function App() {
             formatPriceWithSign={formatPriceWithSign}
           />
         );
+
+      case 'valuation':
+        return <ValuationView americanStocks={americanStocks} />;
 
       case 'reports':
         return (

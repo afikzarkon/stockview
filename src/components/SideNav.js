@@ -55,6 +55,12 @@ const ICONS = {
       <circle cx="16" cy="16" r="2" />
     </>
   ),
+  scale: (
+    <>
+      <path d="M12 4v16M7 20h10M5 8h14" />
+      <path d="m5 8-3 6a3 3 0 0 0 6 0L5 8Zm14 0-3 6a3 3 0 0 0 6 0l-3-6Z" />
+    </>
+  ),
   report: (
     <>
       <path d="M7 3h7l4 4v14H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
