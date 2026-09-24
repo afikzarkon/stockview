@@ -51,7 +51,7 @@ import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
 import { useDividendData } from '../hooks/useDividendData';
 import { useHistoricalPortfolioValue } from '../hooks/useHistoricalPortfolioValue';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { layoutSliceCallouts } from '../utils/pieCalloutLayout';
+import { layoutSliceCallouts, makeTextMeasurer, wrapLabel } from '../utils/pieCalloutLayout';
 import { formatDate } from '../utils/formatters';
 import {
   computeFirstStockPurchaseDate,
@@ -160,24 +160,24 @@ function PortfolioAnalysisView({
 
   // THE DISTRIBUTION DONUTS ON A PHONE.
   //
-  // The callout labels need ~116px of margin on each side. On a phone that
-  // leaves the ring a few dozen pixels across, and the labels on each side
-  // collide and run off the card. The legend cards under each chart already
-  // carry the name, amount and share of every slice, so on a narrow screen
-  // the callouts are dropped and the ring takes the freed width instead;
-  // the legend is then the key, which is why its swatches must match the
-  // slice colours exactly.
+  // The full callouts (name, amount, share) need ~116px of margin on each
+  // side, which on a phone leaves the ring a few dozen pixels across. So a
+  // narrow screen gets COMPACT callouts instead: name and share only, in
+  // smaller type, on a shorter leader. The amount is still in the legend
+  // card under each chart, whose swatch matches the slice colour.
   const isNarrowScreen = useMediaQuery('(max-width: 768px)');
   const donutLayout = useMemo(
     () =>
       isNarrowScreen
         ? {
-            height: 240,
-            margin: { top: 8, right: 8, bottom: 8, left: 8 },
-            outerRadius: '92%',
+            compact: true,
+            height: 300,
+            margin: { top: 16, right: 100, bottom: 16, left: 100 },
+            outerRadius: '90%',
             innerRadius: '64%'
           }
         : {
+            compact: false,
             height: 360,
             margin: { top: 20, right: 116, bottom: 20, left: 116 },
             outerRadius: '58%',
@@ -679,26 +679,74 @@ function PortfolioAnalysisView({
   // printed through one another. That needs every slice's position, not
   // just this one's, which is why this is a factory over the chart's values
   // rather than a plain renderer.
+  //
+  // Long names wrap onto more lines instead of running off the chart: on a
+  // phone there is only ~90px beside the ring, and "קופת חיסכון בבנק" does
+  // not fit on one line in it. The wrap is measured, and every label's
+  // spacing follows the tallest one.
+  const measureCalloutName = useMemo(
+    () => makeTextMeasurer(donutLayout.compact ? 11 : 13, 700),
+    [donutLayout.compact]
+  );
+  const measureCalloutValue = useMemo(() => makeTextMeasurer(12, 500), []);
   const makeSliceCallout = useCallback(
-    (values) => ({ cx, cy, midAngle, outerRadius, percent, name, value, index }) => {
+    (items) => ({ cx, cy, midAngle, outerRadius, percent, name, value, index }) => {
       if (!percent || percent < 0.03) return null;
       const radian = Math.PI / 180;
       const angle = -midAngle * radian;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
 
-      // Half the plot height: the chart's height less its top and bottom
-      // margins. The label block reaches ~14px above its y and ~22px below.
+      const { compact } = donutLayout;
       const plotHalf = (donutLayout.height - donutLayout.margin.top - donutLayout.margin.bottom) / 2;
+      const ELBOW_GAP = compact ? 8 : 12; // slice edge -> elbow
+      const RAIL_GAP = compact ? 16 : 34; // ring edge -> rail
+      const TEXT_GAP = compact ? 4 : 6; // rail -> first character
+      const LINE_HEIGHT = compact ? 14 : 17;
+
+      // The room beside the ring, the same on both sides: the margins are
+      // symmetric, so the SVG is 2 * cx wide.
+      const textRoom = cx - outerRadius - RAIL_GAP - TEXT_GAP - 4;
+      const values = items.map((item) => item.value);
+      const total = values.reduce((sum, v) => sum + (v > 0 ? v : 0), 0);
+      // Name lines (bold), then the figures: the share alone on a phone;
+      // amount and share on one line where they fit, or two where not.
+      const linesFor = (label, amount, share) => {
+        const pct = `${(share * 100).toFixed(1)}%`;
+        const amountText = `${formatPriceWithSign(amount)} ₪`;
+        const figures = compact
+          ? [pct]
+          : measureCalloutValue(`${amountText} · ${pct}`) <= textRoom
+          ? [`${amountText} · ${pct}`]
+          : [amountText, pct];
+        return [
+          ...wrapLabel(label, textRoom, measureCalloutName).map((text) => ({ text, bold: true })),
+          ...figures.map((text) => ({ text, bold: false }))
+        ];
+      };
+      const tallest = items.reduce(
+        (most, item) =>
+          total > 0 && item.value / total >= 0.03
+            ? Math.max(most, linesFor(item.name, item.value, item.value / total).length)
+            : most,
+        2
+      );
+      // Half the label block's height, plus room for the glyphs themselves.
+      const blockHalf = ((tallest - 1) / 2) * LINE_HEIGHT + 8;
+
       const placement = layoutSliceCallouts(values, {
         cy,
         outerRadius,
         paddingAngle: 1,
-        top: cy - plotHalf + 14,
-        bottom: cy + plotHalf - 22
+        elbowGap: ELBOW_GAP,
+        gap: tallest * LINE_HEIGHT + 8,
+        top: cy - plotHalf + blockHalf,
+        bottom: cy + plotHalf - blockHalf
       })[index];
       if (!placement) return null;
       const { isRight, labelY } = placement;
+
+      const lines = linesFor(name, value, percent);
 
       // THE LABEL RAIL.
       //
@@ -716,9 +764,6 @@ function PortfolioAnalysisView({
       // It also lines the labels up with each other, which is what makes
       // several of them readable as a set rather than as text scattered
       // around a circle.
-      const ELBOW_GAP = 12; // slice edge -> elbow
-      const RAIL_GAP = 34; // ring edge -> rail
-      const TEXT_GAP = 6; // rail -> first character
 
       const startX = cx + outerRadius * cos;
       const startY = cy + outerRadius * sin;
@@ -750,37 +795,27 @@ function PortfolioAnalysisView({
           {/* Marks the slice the label describes - the end of the line the
               reader's eye follows back to check it. */}
           <circle cx={startX} cy={startY} r={2.2} fill={chart.grid} />
-          {/* ONE <text>, TWO <tspan>s - not two <text> elements.
-
-              As two elements each was centred on its own y, six pixels
-              either side of the elbow. At 13px and 12px their line boxes
-              are about nineteen pixels tall, so thirteen pixels of
-              separation left them overlapping by six - the name and the
-              amount printed through each other on every slice.
-
-              Spacing tspans in `em` makes the gap a property of the type
-              rather than a constant that has to be re-derived whenever a
-              font size changes: 1.45em of the second line's own size is a
-              normal line height, so the two can no longer collide however
-              the sizes are adjusted. */}
-          <text
-            x={textX}
-            y={labelY}
-            fill={chart.axis}
-            textAnchor={textAnchor}
-            dominantBaseline="central"
-          >
-            <tspan x={textX} dy="-0.35em" fontSize={13} fontWeight={700}>
-              {name}
-            </tspan>
-            <tspan x={textX} dy="1.45em" fontSize={12} fontWeight={500}>
-              {`${formatPriceWithSign(value)} ₪ · ${(percent * 100).toFixed(1)}%`}
-            </tspan>
+          {/* ONE <text>, one <tspan> per line - not a <text> per line,
+              which were each centred on their own y and printed through
+              one another. Each line gets an explicit y, LINE_HEIGHT apart,
+              and the block is centred on the label's height. */}
+          <text x={textX} y={labelY} fill={chart.axis} textAnchor={textAnchor} dominantBaseline="central">
+            {lines.map((line, i) => (
+              <tspan
+                key={i}
+                x={textX}
+                y={labelY + (i - (lines.length - 1) / 2) * LINE_HEIGHT}
+                fontSize={compact ? 11 : line.bold ? 13 : 12}
+                fontWeight={line.bold ? 700 : 500}
+              >
+                {line.text}
+              </tspan>
+            ))}
           </text>
         </g>
       );
     },
-    [chart.axis, chart.grid, formatPriceWithSign, donutLayout]
+    [chart.axis, chart.grid, formatPriceWithSign, donutLayout, measureCalloutName, measureCalloutValue]
   );
 
   const sectionRefs = useRef({});
@@ -1375,7 +1410,7 @@ function PortfolioAnalysisView({
                       paddingAngle={1}
                       fill={chart.accent}
                       dataKey="value"
-                      label={isNarrowScreen ? false : makeSliceCallout(portfolioPieData.map((d) => d.value))}
+                      label={makeSliceCallout(portfolioPieData)}
                       labelLine={false}
                       isAnimationActive={false}
                     >
@@ -1465,14 +1500,14 @@ function PortfolioAnalysisView({
                           innerRadius={donutLayout.innerRadius}
                           paddingAngle={1}
                           dataKey="value"
-                          label={
-                            isNarrowScreen ? false : makeSliceCallout(sectorDistribution.sectors.map((sec) => sec.value))
-                          }
+                          label={makeSliceCallout(
+                            sectorDistribution.sectors.map((sec) => ({ name: sectorLabelHe(sec.sectorKey), value: sec.value }))
+                          )}
                           labelLine={false}
                           isAnimationActive={false}
                         >
                           {sectorDistribution.sectors.map((s, i) => (
-                            <Cell key={s.sectorKey} fill={SECTOR_COLORS[i % SECTOR_COLORS.length]} />
+                            <Cell key={s.sectorKey} fill={SECTOR_COLORS[i % SECTOR_COLORS.length]} stroke="none" />
                           ))}
                         </Pie>
                         <Tooltip formatter={(value) => [`${formatPriceWithSign(value)} ₪`, 'שווי']} />

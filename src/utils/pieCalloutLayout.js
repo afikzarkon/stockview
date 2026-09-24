@@ -79,3 +79,46 @@ export function layoutSliceCallouts(
   });
   return result;
 }
+
+// Breaks a label into lines no wider than `maxWidth`, at spaces. `measure`
+// returns a string's rendered width in px. A single word wider than the
+// limit keeps a line of its own rather than being split mid-word.
+export function wrapLabel(text, maxWidth, measure) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  words.forEach((word) => {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && measure(`${last} ${word}`) <= maxWidth) {
+      lines[lines.length - 1] = `${last} ${word}`;
+    } else {
+      lines.push(word);
+    }
+  });
+  return lines.length ? lines : [''];
+}
+
+// A text-width measurer for SVG labels, backed by a canvas. Falls back to a
+// rough per-character estimate where canvas is unavailable (jsdom).
+let measureCanvas;
+export function makeTextMeasurer(fontSize, fontWeight = 400) {
+  let ctx = null;
+  try {
+    // jsdom has no canvas and logs an error for every attempt to get one.
+    const isJsdom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent || '');
+    if (typeof document !== 'undefined' && !isJsdom) {
+      measureCanvas = measureCanvas || document.createElement('canvas');
+      ctx = measureCanvas.getContext ? measureCanvas.getContext('2d') : null;
+    }
+  } catch {
+    ctx = null;
+  }
+  if (!ctx) return (s) => String(s).length * fontSize * 0.55;
+  const family =
+    (typeof window !== 'undefined' && window.getComputedStyle && window.getComputedStyle(document.body).fontFamily) ||
+    'sans-serif';
+  const font = `${fontWeight} ${fontSize}px ${family}`;
+  return (s) => {
+    ctx.font = font;
+    return ctx.measureText(String(s)).width;
+  };
+}

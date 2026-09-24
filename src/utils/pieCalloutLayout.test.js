@@ -1,4 +1,4 @@
-import { layoutSliceCallouts, sliceMidAngles } from './pieCalloutLayout';
+import { layoutSliceCallouts, sliceMidAngles, wrapLabel } from './pieCalloutLayout';
 
 const opts = { cy: 180, outerRadius: 90, paddingAngle: 1, top: 34, bottom: 318 };
 
@@ -44,4 +44,12 @@ test('leaves a lone label at its natural height', () => {
   // A single full ring: mid-angle 180, so it sits on the left at centre height.
   expect(only.isRight).toBe(false);
   expect(only.labelY).toBeCloseTo(opts.cy);
+});
+
+test('wraps a label at spaces to fit the width', () => {
+  const measure = (s) => s.length * 10;
+  expect(wrapLabel('קופת חיסכון בבנק', 110, measure)).toEqual(['קופת חיסכון', 'בבנק']);
+  expect(wrapLabel('עו"ש', 110, measure)).toEqual(['עו"ש']);
+  // A word longer than the limit keeps a line of its own.
+  expect(wrapLabel('אבגדהוזחטיכל קצר', 50, measure)).toEqual(['אבגדהוזחטיכל', 'קצר']);
 });
