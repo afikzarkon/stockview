@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import PageToolbar from './PageToolbar';
+import BetaBanner from './BetaBanner';
 import { useHistoricalPortfolioValue } from '../hooks/useHistoricalPortfolioValue';
 import {
   compareMonthlySnapshots,
@@ -537,6 +538,10 @@ function MonthlyTrackerView({
             title="מעקב חודשי"
             subtitle="צילום מצב של התיק בסוף כל חודש - שמירה, עריכה והשוואה בין חודשים"
           />
+
+          {/* Checkpoints are typed in by hand here, so this is a screen
+              that invites real figures. */}
+          <BetaBanner tone="data" />
 
           {historyLoading && (
             <p className="history-empty-note">טוען נתונים היסטוריים למילוי אוטומטי…</p>

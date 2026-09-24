@@ -41,7 +41,10 @@ function PortfolioActionsToolbar({
   hasLoadedLivePrices = false,
   // Pages with no editable table (the overview) hide the edit-mode and
   // extra-columns toggles - there is nothing on them for either to act on.
-  showTableControls = true
+  showTableControls = true,
+  // Passed straight through to PageToolbar - see its note on why the
+  // dashboard's header is the one that does not pin.
+  sticky = true
 }) {
   const [exportError, setExportError] = useState('');
 
@@ -160,6 +163,7 @@ function PortfolioActionsToolbar({
       primaryAction={primaryAction}
       secondaryActions={secondaryActions}
       status={status}
+      sticky={sticky}
     />
   );
 }

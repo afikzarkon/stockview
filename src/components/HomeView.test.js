@@ -290,3 +290,39 @@ test('an empty portfolio shows no KPI tiles rather than a row of zeroes', () => 
   );
   expect(container.querySelectorAll('.kpi-tile').length).toBe(0);
 });
+
+// The dashboard has no long table below it to keep actions reachable
+// over, so pinning its header only reserves a strip across the figures
+// the page is opened to read.
+test('the header is not pinned - it scrolls away with the rest of the page', () => {
+  const { container } = render(<HomeView {...makeProps()} />);
+  const toolbar = container.querySelector('.page-toolbar');
+  expect(toolbar).toHaveClass('is-static');
+  expect(toolbar).not.toHaveClass('is-sticky');
+});
+
+// The hint used to be positioned into the card's title row, where it was
+// accent-coloured text drawn behind the heading and its underline.
+test('each card carries its own redirect hint, as a separate element from the title', () => {
+  const { container } = render(<HomeView {...makeProps({ onNavigate: noop })} />);
+  const links = Array.from(container.querySelectorAll('.summary-card-link'));
+  expect(links.length).toBeGreaterThan(0);
+
+  links.forEach((link) => {
+    const hint = link.querySelector('.summary-card-link-hint');
+    expect(hint).not.toBeNull();
+    expect(hint.textContent).toMatch(/הצגת הפירוט/);
+    // Decorative: the button already says where it goes via its own title,
+    // so announcing the hint as well would just repeat it.
+    expect(hint).toHaveAttribute('aria-hidden', 'true');
+    expect(link.querySelector('.summary-section-title')).not.toBe(hint);
+  });
+});
+
+// The system is a sandbox, and the dashboard is the first thing opened in
+// it - so the warning is on the page, not only in the modal that was
+// dismissed on arrival.
+test('carries the beta warning on the page itself', () => {
+  const { container } = render(<HomeView {...makeProps()} />);
+  expect(container.querySelector('.beta-banner')).not.toBeNull();
+});

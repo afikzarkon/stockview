@@ -5,6 +5,37 @@ import ValuePill from './ValuePill';
 import AssetCell from './AssetCell';
 import { profitClass, formatDailyChangePercent } from '../utils/formatters';
 
+// The column headers, named once and used for BOTH the <th> row and each
+// cell's data-label. Below 720px the table becomes one card per row and
+// the header row is clipped away, so every value needs its own label or
+// the card is an unlabelled column of numbers - which is exactly what
+// this table was on a phone. Sourcing both from one object is what stops
+// a renamed header from leaving a card labelled with the old name.
+const COL = {
+  name: 'שם מנייה',
+  date: 'תאריך קנייה',
+  buyPrice: 'מחיר קנייה',
+  quantity: 'כמות',
+  totalBuyUSD: 'סה"כ רכישה בדולר',
+  totalBuyILS: 'סה"כ רכישה בשקל',
+  rateAtBuy: 'שער חליפין ביום הקנייה',
+  rateToday: 'שער חליפין היום',
+  currentPrice: 'מחיר נוכחי',
+  totalValueUSD: 'סה"כ שווי בדולר',
+  totalValueILS: 'סה"כ שווי בש"ח',
+  profitUSD: 'סה"כ רווח/הפסד ($)',
+  profitILS: 'סה"כ רווח/הפסד (₪)',
+  profitPercent: 'אחוז רווח/הפסד',
+  dailyPercent: 'אחוז שינוי יומי',
+  dailyProfit: 'רווח/הפסד יומי בדולר',
+  fxImpact: 'השפעת שער חליפין',
+  tax: 'מס רווח הון (₪)',
+  afterTax: 'רווח לאחר מס (₪)',
+  inflationary: 'רווח אינפלציוני (₪)',
+  realGain: 'רווח ריאלי (₪)',
+  actions: 'פעולות'
+};
+
 // Renders the name/date/price/quantity editable fields for one American
 // stock row — used for both the single-stock row and each expanded detail
 // row. These are always visible (basic transaction info).
@@ -24,6 +55,7 @@ function AmericanEditableFields({ stock, editingField, isEditMode, handleCellCli
         handleKeyDown={handleKeyDown}
         displayValue={<AssetCell name={stock.stockName} />}
         style={nameCellStyle}
+        label={COL.name}
       />
       <EditableCell
         id={stock.id}
@@ -38,6 +70,7 @@ function AmericanEditableFields({ stock, editingField, isEditMode, handleCellCli
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
         displayValue={formatDate(stock.purchaseDate)}
+        label={COL.date}
       />
       <EditableCell
         id={stock.id}
@@ -54,6 +87,7 @@ function AmericanEditableFields({ stock, editingField, isEditMode, handleCellCli
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
         displayValue={`${formatPriceWithSign(stock.purchasePrice)} $`}
+        label={COL.buyPrice}
       />
       <EditableCell
         id={stock.id}
@@ -70,6 +104,7 @@ function AmericanEditableFields({ stock, editingField, isEditMode, handleCellCli
         finishInlineEdit={finishInlineEdit}
         handleKeyDown={handleKeyDown}
         displayValue={stock.quantity}
+        label={COL.quantity}
       />
     </>
   );
@@ -112,8 +147,8 @@ function AmericanSingleStockComputedCells({
 
   return (
     <>
-      <td>{formatPriceWithSign(totalPurchaseUSD)} $</td>
-      {showAdditionalData && <td>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
+      <td data-label={COL.totalBuyUSD}>{formatPriceWithSign(totalPurchaseUSD)} $</td>
+      {showAdditionalData && <td data-label={COL.totalBuyILS}>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
       {showAdditionalData && (
         <EditableCell
           id={stock.id}
@@ -130,10 +165,11 @@ function AmericanSingleStockComputedCells({
           finishInlineEdit={finishInlineEdit}
           handleKeyDown={handleKeyDown}
           displayValue={formatPrice(stock.exchangeRate)}
+          label={COL.rateAtBuy}
         />
       )}
-      <td>{formatPrice(currentExchangeRate)}</td>
-      <td>
+      <td data-label={COL.rateToday}>{formatPrice(currentExchangeRate)}</td>
+      <td data-label={COL.currentPrice}>
         <PendingPriceValue
           value={stock.currentPrice}
           pending={pricesPending}
@@ -141,7 +177,7 @@ function AmericanSingleStockComputedCells({
           suffix=" $"
         />
       </td>
-      <td>
+      <td data-label={COL.totalValueUSD}>
         <PendingPriceValue
           value={totalCurrentValueUSD}
           pending={pricesPending}
@@ -149,7 +185,7 @@ function AmericanSingleStockComputedCells({
           suffix=" $"
         />
       </td>
-      <td>
+      <td data-label={COL.totalValueILS}>
         <PendingPriceValue
           value={totalCurrentValueILS}
           pending={pricesPending}
@@ -157,26 +193,26 @@ function AmericanSingleStockComputedCells({
           suffix=" ₪"
         />
       </td>
-      <td className={profitClass(profitUSD)}>{formatPriceWithSign(profitUSD)} $</td>
-      <td className={profitClass(profitILS)}>{formatPriceWithSign(profitILS)} ₪</td>
-      <td>
+      <td className={profitClass(profitUSD)} data-label={COL.profitUSD}>{formatPriceWithSign(profitUSD)} $</td>
+      <td className={profitClass(profitILS)} data-label={COL.profitILS}>{formatPriceWithSign(profitILS)} ₪</td>
+      <td data-label={COL.profitPercent}>
         <ValuePill value={profitPercentage}>{profitPercentage}%</ValuePill>
       </td>
-      <td>
+      <td data-label={COL.dailyPercent}>
         <ValuePill value={stock.dailyChangePercent}>
           {formatDailyChangePercent(stock.dailyChangePercent)}%
         </ValuePill>
       </td>
-      <td className={profitClass(stock.dailyChangePercent)}>
+      <td className={profitClass(stock.dailyChangePercent)} data-label={COL.dailyProfit}>
         {formatPriceWithSign(((stock.dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $
       </td>
-      {showAdditionalData && <td className={profitClass(exchangeRateImpact)}>{formatPriceWithSign(exchangeRateImpact)} ₪</td>}
-      {showAdditionalData && <td className="profit-negative">{formatPriceWithSign(-taxILS)} ₪</td>}
-      {showAdditionalData && <td className={profitClass(afterTaxILS)}>{formatPriceWithSign(afterTaxILS)} ₪</td>}
-      {showAdditionalData && <td className={profitClass(currencyExemptGainILS)}>{formatPriceWithSign(currencyExemptGainILS)} ₪</td>}
-      {showAdditionalData && <td className={profitClass(realGainILS)}>{formatPriceWithSign(realGainILS)} ₪</td>}
+      {showAdditionalData && <td className={profitClass(exchangeRateImpact)} data-label={COL.fxImpact}>{formatPriceWithSign(exchangeRateImpact)} ₪</td>}
+      {showAdditionalData && <td className="profit-negative" data-label={COL.tax}>{formatPriceWithSign(-taxILS)} ₪</td>}
+      {showAdditionalData && <td className={profitClass(afterTaxILS)} data-label={COL.afterTax}>{formatPriceWithSign(afterTaxILS)} ₪</td>}
+      {showAdditionalData && <td className={profitClass(currencyExemptGainILS)} data-label={COL.inflationary}>{formatPriceWithSign(currencyExemptGainILS)} ₪</td>}
+      {showAdditionalData && <td className={profitClass(realGainILS)} data-label={COL.realGain}>{formatPriceWithSign(realGainILS)} ₪</td>}
       {isEditMode && (
-        <td>
+        <td data-label={COL.actions}>
           <button onClick={() => handleDelete(stock.id, 'american')} className="delete-button">מחק</button>
         </td>
       )}
@@ -219,28 +255,28 @@ function AmericanStocksTable({
             <table className="stocks-table american-stocks-table">
               <thead>
                 <tr>
-                  <th>שם מנייה</th>
-                  <th>תאריך קנייה</th>
-                  <th>מחיר קנייה</th>
-                  <th>כמות</th>
-                  <th>סה"כ רכישה בדולר</th>
-                  {showAdditionalData && <th>סה"כ רכישה בשקל</th>}
-                  {showAdditionalData && <th>שער חליפין ביום הקנייה</th>}
-                  <th>שער חליפין היום</th>
-                  <th>מחיר נוכחי</th>
-                  <th>סה"כ שווי בדולר</th>
-                  <th>סה"כ שווי בש"ח</th>
-                  <th>סה"כ רווח/הפסד ($)</th>
-                  <th>סה"כ רווח/הפסד (₪)</th>
-                  <th>אחוז רווח/הפסד</th>
-                  <th>אחוז שינוי יומי</th>
-                  <th>רווח/הפסד יומי בדולר</th>
-                  {showAdditionalData && <th>השפעת שער חליפין</th>}
-                  {showAdditionalData && <th>מס רווח הון (₪)</th>}
-                  {showAdditionalData && <th>רווח לאחר מס (₪)</th>}
-                  {showAdditionalData && <th>רווח אינפלציוני (₪)</th>}
-                  {showAdditionalData && <th>רווח ריאלי (₪)</th>}
-                  {isEditMode && <th>פעולות</th>}
+                  <th>{COL.name}</th>
+                  <th>{COL.date}</th>
+                  <th>{COL.buyPrice}</th>
+                  <th>{COL.quantity}</th>
+                  <th>{COL.totalBuyUSD}</th>
+                  {showAdditionalData && <th>{COL.totalBuyILS}</th>}
+                  {showAdditionalData && <th>{COL.rateAtBuy}</th>}
+                  <th>{COL.rateToday}</th>
+                  <th>{COL.currentPrice}</th>
+                  <th>{COL.totalValueUSD}</th>
+                  <th>{COL.totalValueILS}</th>
+                  <th>{COL.profitUSD}</th>
+                  <th>{COL.profitILS}</th>
+                  <th>{COL.profitPercent}</th>
+                  <th>{COL.dailyPercent}</th>
+                  <th>{COL.dailyProfit}</th>
+                  {showAdditionalData && <th>{COL.fxImpact}</th>}
+                  {showAdditionalData && <th>{COL.tax}</th>}
+                  {showAdditionalData && <th>{COL.afterTax}</th>}
+                  {showAdditionalData && <th>{COL.inflationary}</th>}
+                  {showAdditionalData && <th>{COL.realGain}</th>}
+                  {isEditMode && <th>{COL.actions}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -320,34 +356,34 @@ function AmericanStocksTable({
                           </button>
                           <AssetCell name={stockName} />
                         </td>
-                        <td>{isExpanded ? '' : 'פתח קיבוץ'}</td>
-                        <td>{isExpanded ? '' : 'פתח קיבוץ'}</td>
-                        <td>{summary.totalQuantity}</td>
-                        <td>{formatPriceWithSign(totalPurchaseUSD)} $</td>
-                        {showAdditionalData && <td>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
-                        {showAdditionalData && <td>{isExpanded ? '' : 'פתח קיבוץ'}</td>}
-                        <td>{formatPrice(stocks[0].currentExchangeRate || stocks[0].exchangeRate || 0)}</td>
-                        <td>{formatPriceWithSign(averageCurrentPriceUSD)} $</td>
-                        <td>{formatPriceWithSign(totalCurrentValueUSD)} $</td>
-                        <td>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>
-                        <td className={profitClass(totalProfitUSD)}>{formatPriceWithSign(totalProfitUSD)} $</td>
-                        <td className={profitClass(totalProfitILS)}>{formatPriceWithSign(totalProfitILS)} ₪</td>
-                        <td>
+                        <td data-label={COL.date}>{isExpanded ? '' : 'פתח קיבוץ'}</td>
+                        <td data-label={COL.buyPrice}>{isExpanded ? '' : 'פתח קיבוץ'}</td>
+                        <td data-label={COL.quantity}>{summary.totalQuantity}</td>
+                        <td data-label={COL.totalBuyUSD}>{formatPriceWithSign(totalPurchaseUSD)} $</td>
+                        {showAdditionalData && <td data-label={COL.totalBuyILS}>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
+                        {showAdditionalData && <td data-label={COL.rateAtBuy}>{isExpanded ? '' : 'פתח קיבוץ'}</td>}
+                        <td data-label={COL.rateToday}>{formatPrice(stocks[0].currentExchangeRate || stocks[0].exchangeRate || 0)}</td>
+                        <td data-label={COL.currentPrice}>{formatPriceWithSign(averageCurrentPriceUSD)} $</td>
+                        <td data-label={COL.totalValueUSD}>{formatPriceWithSign(totalCurrentValueUSD)} $</td>
+                        <td data-label={COL.totalValueILS}>{formatPriceWithSign(totalCurrentValueILS)} ₪</td>
+                        <td className={profitClass(totalProfitUSD)} data-label={COL.profitUSD}>{formatPriceWithSign(totalProfitUSD)} $</td>
+                        <td className={profitClass(totalProfitILS)} data-label={COL.profitILS}>{formatPriceWithSign(totalProfitILS)} ₪</td>
+                        <td data-label={COL.profitPercent}>
                           <ValuePill value={profitPercentage}>{profitPercentage}%</ValuePill>
                         </td>
-                        <td>
+                        <td data-label={COL.dailyPercent}>
                           <ValuePill value={stocks[0].dailyChangePercent}>
                             {formatDailyChangePercent(stocks[0].dailyChangePercent)}%
                           </ValuePill>
                         </td>
-                        <td className={profitClass(stocks[0].dailyChangePercent)}>
+                        <td className={profitClass(stocks[0].dailyChangePercent)} data-label={COL.dailyProfit}>
                           {formatPriceWithSign(((stocks[0].dailyChangePercent || 0) / 100) * totalCurrentValueUSD)} $
                         </td>
-                        {showAdditionalData && <td className={profitClass(totalExchangeRateImpact)}>{formatPriceWithSign(totalExchangeRateImpact)} ₪</td>}
-                        {showAdditionalData && <td className="profit-negative">{formatPriceWithSign(-totalTaxILS)} ₪</td>}
-                        {showAdditionalData && <td className={profitClass(totalAfterTaxILS)}>{formatPriceWithSign(totalAfterTaxILS)} ₪</td>}
-                        {showAdditionalData && <td className={profitClass(totalInflationaryGainILS)}>{formatPriceWithSign(totalInflationaryGainILS)} ₪</td>}
-                        {showAdditionalData && <td className={profitClass(totalRealGainILS)}>{formatPriceWithSign(totalRealGainILS)} ₪</td>}
+                        {showAdditionalData && <td className={profitClass(totalExchangeRateImpact)} data-label={COL.fxImpact}>{formatPriceWithSign(totalExchangeRateImpact)} ₪</td>}
+                        {showAdditionalData && <td className="profit-negative" data-label={COL.tax}>{formatPriceWithSign(-totalTaxILS)} ₪</td>}
+                        {showAdditionalData && <td className={profitClass(totalAfterTaxILS)} data-label={COL.afterTax}>{formatPriceWithSign(totalAfterTaxILS)} ₪</td>}
+                        {showAdditionalData && <td className={profitClass(totalInflationaryGainILS)} data-label={COL.inflationary}>{formatPriceWithSign(totalInflationaryGainILS)} ₪</td>}
+                        {showAdditionalData && <td className={profitClass(totalRealGainILS)} data-label={COL.realGain}>{formatPriceWithSign(totalRealGainILS)} ₪</td>}
                         {isEditMode && <td></td>}
                       </tr>
 

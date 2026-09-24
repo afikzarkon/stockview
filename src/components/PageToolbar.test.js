@@ -40,6 +40,21 @@ describe('PageToolbar', () => {
     expect(within(status).getByText('שמירה נכשלה')).toBeInTheDocument();
     expect(status.querySelector('button')).toBeNull();
   });
+
+  // Pinning earns its keep above a long holdings table and costs a strip
+  // of the screen everywhere else, so it is a decision the page makes.
+  // The class is what carries it - CSS cannot read a prop.
+  test('pins to the top by default', () => {
+    const { container } = render(<PageToolbar title="בורסה ישראלית" />);
+    expect(container.querySelector('.page-toolbar')).toHaveClass('is-sticky');
+  });
+
+  test('a page can opt out, and then the header scrolls away with the page', () => {
+    const { container } = render(<PageToolbar title="תיק ההשקעות שלך" sticky={false} />);
+    const toolbar = container.querySelector('.page-toolbar');
+    expect(toolbar).toHaveClass('is-static');
+    expect(toolbar).not.toHaveClass('is-sticky');
+  });
 });
 
 describe('ToolbarButton', () => {

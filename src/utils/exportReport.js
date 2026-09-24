@@ -16,7 +16,9 @@ import {
   buildPensionFundsExportRows,
   buildCashFundsExportRows,
   buildBankBalancesExportRows,
-  buildBankSavingsFundsExportRows
+  buildBankSavingsFundsExportRows,
+  buildHeadlineMetrics,
+  buildPortfolioReportSections
 } from './exportData';
 
 const todayFileStamp = () => new Date().toISOString().slice(0, 10);
@@ -114,67 +116,388 @@ export function toPdfDisplayText(text) {
   return mirrored.split('').reverse().join('');
 }
 
-function addPdfTable(doc, title, rows, startY) {
-  if (!rows || rows.length === 0) return startY;
-  // Leave room for the title + at least one table row before the page
-  // bottom (A4 height ~297mm); otherwise start the section on a fresh
-  // page instead of clipping the title at the bottom edge.
-  const pageHeight = doc.internal.pageSize.getHeight();
-  let y = startY;
-  if (y > pageHeight - 40) {
-    doc.addPage();
-    y = 20;
+// ---------------------------------------------------------------------
+// THE REPORT'S VISUAL LANGUAGE
+// ---------------------------------------------------------------------
+//
+// One accent, one ink, two greys, and a red/green pair reserved for
+// gain/loss. Anything the report needs to say is said with type size and
+// whitespace rather than with another colour - a printed statement that
+// uses six is a statement nobody can find the total in.
+//
+// RGB triples because that is what jsPDF's setFillColor/setTextColor take.
+const INK = [23, 26, 35];
+const MUTED = [110, 118, 135];
+const ACCENT = [86, 66, 168];
+const ACCENT_SOFT = [239, 236, 250];
+const RULE = [223, 226, 234];
+const ZEBRA = [247, 248, 251];
+const POSITIVE = [21, 128, 61];
+const NEGATIVE = [185, 28, 28];
+
+// A4 portrait in mm, and the margins every element is placed against, so
+// nothing in this file hardcodes "196" the way the old layout did.
+const PAGE_WIDTH = 210;
+const PAGE_HEIGHT = 297;
+const MARGIN = 14;
+const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+// Everything above this may draw; past it, start a new page. Leaves room
+// for the footer rule and its page number.
+const CONTENT_BOTTOM = PAGE_HEIGHT - 20;
+
+// The right edge is where a Hebrew line starts, so almost every text()
+// call in this file anchors to it.
+const RIGHT = PAGE_WIDTH - MARGIN;
+
+const formatAmount = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value ?? '');
+  return number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+// Cells arrive from exportData.js already rounded; this only decides how
+// they are typeset. Numbers get thousands separators (an eight-digit
+// shekel figure is unreadable without them), everything else passes
+// through the bidi fix.
+const formatCell = (value) => {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'number') return formatAmount(value);
+  return toPdfDisplayText(value);
+};
+
+// Which columns hold figures, decided once per table from its first row
+// rather than per cell - so a column with one blank cell in it does not
+// change alignment halfway down.
+const numericColumns = (rows, headers) =>
+  headers.map((header) => rows.some((row) => typeof row[header] === 'number'));
+
+// ---------------------------------------------------------------------
+// PAGE FURNITURE
+// ---------------------------------------------------------------------
+
+// The band across the top of the first page: what this document is, whose
+// it is, and when it was taken. A report that outlives the screen it came
+// from has to carry its own date.
+function drawCoverHeader(doc, generatedAt) {
+  doc.setFillColor(...ACCENT);
+  doc.rect(0, 0, PAGE_WIDTH, 34, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(20);
+  doc.text(toPdfDisplayText('דוח תיק השקעות'), RIGHT, 15, { align: 'right' });
+
+  doc.setFontSize(9.5);
+  doc.text(toPdfDisplayText(`הופק בתאריך ${generatedAt}`), RIGHT, 23, { align: 'right' });
+
+  // The product name stays Latin and stays on its own text() call - see
+  // toPdfDisplayText's note on why a mixed-script string is not safe here.
+  doc.setFontSize(13);
+  doc.text('StockView', MARGIN, 15);
+  doc.setFontSize(8);
+  doc.text('Portfolio Report', MARGIN, 21);
+
+  doc.setTextColor(...INK);
+}
+
+// A quiet footer rule with the page number, drawn on every page at the
+// very end (see stampFooters) rather than as each page is filled - the
+// total page count is only known once the document is complete.
+function stampFooters(doc) {
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let page = 1; page <= pageCount; page += 1) {
+    doc.setPage(page);
+    doc.setDrawColor(...RULE);
+    doc.setLineWidth(0.2);
+    doc.line(MARGIN, PAGE_HEIGHT - 14, RIGHT, PAGE_HEIGHT - 14);
+
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTED);
+    doc.text(`${page} / ${pageCount}`, MARGIN, PAGE_HEIGHT - 9);
+    doc.text(
+      toPdfDisplayText('הופק ב-StockView · אומדן בלבד, אינו ייעוץ מס או השקעות'),
+      RIGHT,
+      PAGE_HEIGHT - 9,
+      { align: 'right' }
+    );
+    doc.setTextColor(...INK);
   }
-  doc.setFontSize(12);
-  doc.text(toPdfDisplayText(title), 196, y, { align: 'right' });
-  const startYForTable = y;
-  const headers = Object.keys(rows[0]); // raw keys - used for row[h] lookups, must not be mangled
+}
+
+// A cursor over the document: how far down the current page we are, and
+// whether the next block fits. Passing `y` through every draw function and
+// remembering to compare it against the page height at each one is what
+// made the old layout clip titles at the bottom edge.
+function createFlow(doc) {
+  let y = 44;
+  return {
+    get y() {
+      return y;
+    },
+    set y(value) {
+      y = value;
+    },
+    // `needed` is how much vertical room the caller is about to use. A
+    // heading asks for its own height PLUS the first row of whatever
+    // follows it, so a heading is never left stranded alone at the foot
+    // of a page.
+    ensure(needed) {
+      if (y + needed <= CONTENT_BOTTOM) return;
+      doc.addPage();
+      y = MARGIN + 6;
+    }
+  };
+}
+
+// ---------------------------------------------------------------------
+// BLOCKS
+// ---------------------------------------------------------------------
+
+// The four headline figures, as a row of tiles. The first thing the report
+// says, and for most readings the only thing they need.
+function drawHeadlineTiles(doc, flow, metrics) {
+  if (!metrics.length) return;
+  const columns = 4;
+  const gap = 3;
+  const tileWidth = (CONTENT_WIDTH - gap * (columns - 1)) / columns;
+  const tileHeight = 24;
+
+  flow.ensure(tileHeight + 6);
+
+  metrics.slice(0, columns).forEach((metric, index) => {
+    // Right to left: the first tile is the rightmost one, because that is
+    // where a Hebrew reader starts.
+    const x = RIGHT - tileWidth - index * (tileWidth + gap);
+
+    doc.setFillColor(...ACCENT_SOFT);
+    doc.roundedRect(x, flow.y, tileWidth, tileHeight, 2, 2, 'F');
+
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTED);
+    doc.text(toPdfDisplayText(metric.label), x + tileWidth - 4, flow.y + 7, { align: 'right' });
+
+    const signed = metric.signed && metric.value !== 0;
+    doc.setTextColor(...(signed ? (metric.value > 0 ? POSITIVE : NEGATIVE) : INK));
+    doc.setFontSize(12);
+    doc.text(
+      `${signed && metric.value > 0 ? '+' : ''}${formatAmount(metric.value)} ${metric.unit}`,
+      x + tileWidth - 4,
+      flow.y + 15,
+      { align: 'right' }
+    );
+
+    doc.setFontSize(7.5);
+    doc.setTextColor(...MUTED);
+    doc.text(toPdfDisplayText(metric.note), x + tileWidth - 4, flow.y + 20.5, { align: 'right' });
+  });
+
+  doc.setTextColor(...INK);
+  flow.y += tileHeight + 10;
+}
+
+const SECTION_HEADING_HEIGHT = 12;
+
+// A section heading: the name of an asset class, over an accent rule.
+// `keepWith` is the height of everything that follows it and belongs with
+// it, so a heading is never left at the foot of a page with its figures
+// or its table on the next one.
+function drawSectionHeading(doc, flow, title, keepWith = 16) {
+  flow.ensure(SECTION_HEADING_HEIGHT + keepWith);
+
+  doc.setFontSize(13);
+  doc.setTextColor(...INK);
+  doc.text(toPdfDisplayText(title), RIGHT, flow.y, { align: 'right' });
+
+  doc.setDrawColor(...ACCENT);
+  doc.setLineWidth(0.6);
+  doc.line(MARGIN, flow.y + 2.5, RIGHT, flow.y + 2.5);
+
+  flow.y += 8;
+}
+
+const METRIC_COLUMNS = 2;
+const METRIC_ROW_HEIGHT = 6;
+
+// How tall a metric list will be, so the section above it can reserve the
+// room before anything is drawn (see the block-measuring note in
+// buildPortfolioPdfDoc).
+function measureMetricList(metrics) {
+  if (!metrics || metrics.length === 0) return 0;
+  return Math.ceil(metrics.length / METRIC_COLUMNS) * METRIC_ROW_HEIGHT + 6;
+}
+
+// An asset class's own figures: label/value pairs in two columns, with the
+// class's bottom line picked out in the accent.
+//
+// Which pair that is comes from the data (a third element on the pair),
+// not from its position. Several of these lists end on a tax estimate,
+// and drawing the last row as the conclusion would present the tax as
+// what the section adds up to.
+function drawMetricList(doc, flow, metrics) {
+  if (!metrics || metrics.length === 0) return;
+  const columnWidth = CONTENT_WIDTH / METRIC_COLUMNS;
+  const rowCount = Math.ceil(metrics.length / METRIC_COLUMNS);
+
+  flow.ensure(rowCount * METRIC_ROW_HEIGHT + 4);
+
+  metrics.forEach(([label, value, isTotal], index) => {
+    const column = index % METRIC_COLUMNS;
+    const row = Math.floor(index / METRIC_COLUMNS);
+    const rightEdge = RIGHT - column * columnWidth;
+    const y = flow.y + row * METRIC_ROW_HEIGHT;
+
+    doc.setFontSize(8.5);
+    doc.setTextColor(...(isTotal ? ACCENT : MUTED));
+    doc.text(toPdfDisplayText(label), rightEdge, y, { align: 'right' });
+
+    doc.setTextColor(...(isTotal ? ACCENT : INK));
+    doc.text(formatAmount(value), rightEdge - columnWidth + 6, y, { align: 'left' });
+  });
+
+  doc.setTextColor(...INK);
+  flow.y += rowCount * METRIC_ROW_HEIGHT + 6;
+}
+
+// The itemized rows under a section: every stock, fund or account that
+// makes up the figures above it.
+//
+// autoTable owns its own pagination, so the flow cursor is handed to it as
+// a start position and read back from doc.lastAutoTable afterwards.
+function drawDetailTable(doc, flow, rows) {
+  if (!rows || rows.length === 0) return;
+  const headers = Object.keys(rows[0]);
+  const isNumeric = numericColumns(rows, headers);
+
+  // Reversed, because autoTable lays columns out left to right and this
+  // document is read right to left - so the first key in exportData.js's
+  // row object has to be the LAST column autoTable draws.
+  const order = headers.map((_, index) => headers.length - 1 - index);
+
+  flow.ensure(20);
+
   autoTable(doc, {
-    startY: startYForTable + 4,
-    head: [headers.map(toPdfDisplayText)],
-    body: rows.map((row) => headers.map((h) => toPdfDisplayText(row[h]))),
+    startY: flow.y,
+    margin: { left: MARGIN, right: MARGIN, bottom: 20 },
+    head: [order.map((index) => toPdfDisplayText(headers[index]))],
+    body: rows.map((row) => order.map((index) => formatCell(row[headers[index]]))),
+    theme: 'plain',
     // jspdf-autotable defaults header cells to fontStyle 'bold', which
     // silently falls back to a non-Hebrew font since only the 'normal'
     // weight of Alef is registered (confirmed during development: without
     // this override, header text renders as garbled Latin-1 characters,
     // the same failure mode as unregistered Hebrew text entirely).
-    styles: { font: 'Alef', fontStyle: 'normal', halign: 'right' },
-    headStyles: { font: 'Alef', fontStyle: 'normal', halign: 'right' },
-    margin: { right: 14, left: 14 }
+    styles: {
+      font: 'Alef',
+      fontStyle: 'normal',
+      fontSize: 7,
+      cellPadding: { top: 2, right: 2, bottom: 2, left: 2 },
+      textColor: INK,
+      lineColor: RULE,
+      lineWidth: 0.1,
+      overflow: 'linebreak'
+    },
+    headStyles: {
+      font: 'Alef',
+      fontStyle: 'normal',
+      fontSize: 7,
+      fillColor: ACCENT,
+      textColor: [255, 255, 255],
+      halign: 'center',
+      cellPadding: { top: 2.5, right: 2, bottom: 2.5, left: 2 }
+    },
+    // A rule under every row would be a grid; a tint on every other one
+    // does the same job of keeping the eye on a line without adding ink.
+    alternateRowStyles: { fillColor: ZEBRA },
+    // A figure column is read by comparing digits down it, which only
+    // works when they share an edge. Text columns stay right-aligned with
+    // the rest of the document.
+    columnStyles: order.reduce((acc, headerIndex, columnIndex) => {
+      acc[columnIndex] = { halign: isNumeric[headerIndex] ? 'left' : 'right' };
+      return acc;
+    }, {})
   });
-  return doc.lastAutoTable.finalY + 12;
+
+  flow.y = doc.lastAutoTable.finalY + 8;
 }
 
-// data: same shape as buildPortfolioWorkbook. Produces one summary report
-// (not the full raw data dump the Excel export gives - a printable
-// overview is what a PDF is actually good for; anyone wanting the full
-// data should use the Excel export instead).
+function drawEmptyNote(doc, flow, note) {
+  if (!note) return;
+  flow.ensure(10);
+  doc.setFontSize(8.5);
+  doc.setTextColor(...MUTED);
+  doc.text(toPdfDisplayText(note), RIGHT, flow.y, { align: 'right' });
+  doc.setTextColor(...INK);
+  flow.y += 9;
+}
+
+// The standing disclaimer, at the end of the document rather than the
+// start: it qualifies every figure above it, and putting it first would
+// make the reader scroll past a warning to reach the report they asked
+// for. Same text the app's own beta notice carries, for the same reason -
+// a printed copy outlives the session it was taken in.
+function drawDisclaimer(doc, flow) {
+  const lines = [
+    'המערכת נמצאת בשלב בדיקות (Beta) ואינה מאובטחת סייבר.',
+    'הנתונים בדוח זה הם אומדן בלבד, ואינם ייעוץ מס, ייעוץ השקעות או חוות דעת מחייבת.',
+    'חישובי המס, ההצמדה למדד וקיזוז ההפסדים הם הערכה חישובית - התייעצו עם יועץ מס או רואה חשבון מוסמך.',
+    'מחירים ותשואות עשויים להיות חלקיים או מתעכבים.'
+  ];
+  const boxHeight = 8 + lines.length * 4.6;
+
+  flow.ensure(boxHeight + 4);
+
+  doc.setFillColor(...ACCENT_SOFT);
+  doc.roundedRect(MARGIN, flow.y, CONTENT_WIDTH, boxHeight, 2, 2, 'F');
+
+  doc.setFontSize(8);
+  doc.setTextColor(...MUTED);
+  lines.forEach((line, index) => {
+    doc.text(toPdfDisplayText(line), RIGHT - 4, flow.y + 6 + index * 4.6, { align: 'right' });
+  });
+
+  doc.setTextColor(...INK);
+  flow.y += boxHeight + 4;
+}
+
+// data: same shape as buildPortfolioWorkbook. A full printed statement:
+// the headline figures, then one section per asset class - its own metrics
+// above the itemized rows that make them up - and the standing disclaimer
+// at the end.
 export function buildPortfolioPdfDoc(data) {
-  const doc = new jsPDF();
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   registerHebrewFont(doc);
 
-  // Two separate text() calls, not one mixed Hebrew+Latin string - a
-  // single string mixing scripts isn't safely handled by toPdfDisplayText
-  // either (it's a whole-string reversal, not per-run bidi - see that
-  // function's comment). Every string passed to text()/autoTable
-  // elsewhere in this file is single-script for the same reason - table
-  // cells only ever hold pure Hebrew, a pure ticker, or a pure
-  // number/date, never a mix.
-  doc.setFontSize(10);
-  doc.text('StockView', 14, 15);
-  doc.setFontSize(18);
-  doc.text(toPdfDisplayText('דוח תיק השקעות'), 196, 18, { align: 'right' });
-  doc.setFontSize(10);
-  doc.text(todayFileStamp(), 196, 25, { align: 'right' });
+  drawCoverHeader(doc, todayFileStamp());
 
-  let y = 35;
-  y = addPdfTable(doc, 'סיכום', buildSummaryExportRows(data.summary), y);
-  y = addPdfTable(doc, 'מניות ישראליות', buildIsraeliStocksExportRows(data.israeliStocks), y);
-  y = addPdfTable(doc, 'מניות אמריקאיות', buildAmericanStocksExportRows(data.americanStocks), y);
-  y = addPdfTable(doc, 'קופות גמל', buildPensionFundsExportRows(data.pensionFunds), y);
-  y = addPdfTable(doc, 'קרנות כספיות', buildCashFundsExportRows(data.cashFunds), y);
-  y = addPdfTable(doc, 'עו"ש', buildBankBalancesExportRows(data.bankBalances), y);
-  addPdfTable(doc, 'קופות חיסכון בבנק', buildBankSavingsFundsExportRows(data.bankSavingsFunds), y);
+  const flow = createFlow(doc);
+
+  drawHeadlineTiles(doc, flow, buildHeadlineMetrics(data.summary));
+
+  buildPortfolioReportSections(data).forEach((section) => {
+    // A SECTION IS ONE BLOCK, and the page break is decided once, here.
+    //
+    // Each piece used to check for itself whether it fit, which is not the
+    // same question: the heading and its figures would fit in the last
+    // 30mm of a page, the table under them would not, and the reader got
+    // a heading on one page and an unlabelled table of figures on the
+    // next. So the room reserved for a heading is its own height plus its
+    // metrics plus enough of the table to establish what the table is -
+    // its header row and a first line of data.
+    //
+    // Only the START of a long table is kept with the heading. A holdings
+    // table that runs to three pages has to break somewhere, and
+    // autoTable repeats the column headers on each page it continues onto.
+    const detailHeight = section.isEmpty ? 10 : 24;
+    drawSectionHeading(doc, flow, section.title, measureMetricList(section.metrics) + detailHeight);
+    drawMetricList(doc, flow, section.metrics);
+    if (section.isEmpty) {
+      drawEmptyNote(doc, flow, section.emptyNote);
+    } else {
+      drawDetailTable(doc, flow, section.rows);
+    }
+  });
+
+  drawDisclaimer(doc, flow);
+  stampFooters(doc);
 
   return doc;
 }

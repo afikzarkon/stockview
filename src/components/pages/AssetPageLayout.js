@@ -1,5 +1,6 @@
 import React from 'react';
 import PortfolioActionsToolbar from '../PortfolioActionsToolbar';
+import BetaBanner from '../BetaBanner';
 
 // The frame every asset page shares: the portfolio action toolbar, an
 // optional summary card for that asset class, and then the page's table.
@@ -31,6 +32,11 @@ function AssetPageLayout({
                 : subtitle
             }
           />
+
+          {/* Every asset page holds an editable table, so the "do not
+              type real figures" half of the warning is the one that
+              applies here. */}
+          <BetaBanner tone="data" />
 
           {/* No card when the page has nothing in it: a card of zeroes
               reads as a real position worth nothing, rather than as an

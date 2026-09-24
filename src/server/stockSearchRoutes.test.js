@@ -2,13 +2,12 @@
  * @jest-environment node
  */
 jest.mock('./yahooQuotes', () => ({
-  fetchYahooStockResearch: jest.fn(),
   fetchYahooSymbolSearch: jest.fn()
 }));
 
 const http = require('http');
 const express = require('express');
-const { mountStockResearchRoutes } = require('./stockResearchRoutes');
+const { mountStockSearchRoutes } = require('./stockSearchRoutes');
 const yahooQuotes = require('./yahooQuotes');
 
 // Jest's node test environment doesn't expose global fetch, so use Node's
@@ -31,14 +30,14 @@ function get(url) {
   });
 }
 
-describe('stockResearchRoutes', () => {
+describe('stockSearchRoutes', () => {
   let app;
   let server;
   let baseUrl;
 
   beforeAll((done) => {
     app = express();
-    mountStockResearchRoutes(app);
+    mountStockSearchRoutes(app);
     server = app.listen(0, () => {
       baseUrl = `http://localhost:${server.address().port}`;
       done();
@@ -50,32 +49,7 @@ describe('stockResearchRoutes', () => {
   });
 
   beforeEach(() => {
-    yahooQuotes.fetchYahooStockResearch.mockReset();
     yahooQuotes.fetchYahooSymbolSearch.mockReset();
-  });
-
-  describe('GET /api/stock-research/:symbol', () => {
-    test('returns the research data, uppercasing the symbol', async () => {
-      yahooQuotes.fetchYahooStockResearch.mockResolvedValue({ trailingPE: 26.6 });
-      const res = await get(`${baseUrl}/api/stock-research/koal1`);
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual({ symbol: 'KOAL1', research: { trailingPE: 26.6 } });
-      expect(yahooQuotes.fetchYahooStockResearch).toHaveBeenCalledWith('KOAL1');
-    });
-
-    test('returns 502 (not a crash) when the fetch fails', async () => {
-      yahooQuotes.fetchYahooStockResearch.mockRejectedValue(new Error('quoteSummary down'));
-      const res = await get(`${baseUrl}/api/stock-research/BADTICKER`);
-      expect(res.status).toBe(502);
-      expect(res.body.error).toBeTruthy();
-    });
-
-    test('caches per symbol so a repeat request does not re-fetch', async () => {
-      yahooQuotes.fetchYahooStockResearch.mockResolvedValue({ trailingPE: 1 });
-      await get(`${baseUrl}/api/stock-research/NVDA`);
-      await get(`${baseUrl}/api/stock-research/NVDA`);
-      expect(yahooQuotes.fetchYahooStockResearch).toHaveBeenCalledTimes(1);
-    });
   });
 
   describe('GET /api/stock-search', () => {

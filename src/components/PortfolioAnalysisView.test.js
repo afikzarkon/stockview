@@ -550,135 +550,6 @@ describe('PortfolioAnalysisView', () => {
     });
   });
 
-  // The working behind the performance curve - see utils/performanceAudit.js.
-  describe('performance data inspection panel', () => {
-    function openAudit() {
-      const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
-      const toggle = screen.getByText(/בדיקת נתונים/);
-      return { container, toggle };
-    }
-
-    test('is offered, and starts closed so it does not crowd the chart', () => {
-      const { container, toggle } = openAudit();
-      expect(toggle).toHaveAttribute('aria-expanded', 'false');
-      expect(container.querySelector('.audit-body')).toHaveAttribute('hidden');
-    });
-
-    test('opens and closes, stating which it is rather than only showing it', () => {
-      const { container, toggle } = openAudit();
-
-      fireEvent.click(toggle);
-      expect(toggle).toHaveAttribute('aria-expanded', 'true');
-      expect(container.querySelector('.audit-body')).not.toHaveAttribute('hidden');
-
-      fireEvent.click(toggle);
-      expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    });
-
-    test('shows a column for every asset class, plus the flows and both return figures', () => {
-      const { container, toggle } = openAudit();
-      fireEvent.click(toggle);
-      const headers = Array.from(container.querySelectorAll('.audit-table th')).map((th) => th.textContent);
-      [
-        'תאריך',
-        'שווי התיק (₪)',
-        'בורסה ישראלית',
-        'בורסה אמריקאית',
-        'קופות גמל',
-        'כספית שקלית',
-        'עו"ש',
-        'חיסכון בבנק',
-        'תזרים בתקופה (₪)',
-        'תזרים מצטבר (₪)',
-        'שינוי נאיבי (%)',
-        'תשואת התקופה (%)',
-        'TWR מצטבר (%)'
-      ].forEach((label) => expect(headers).toContain(label));
-    });
-
-    test('offers the data as a file and to the console, not only on screen', () => {
-      const { toggle } = openAudit();
-      fireEvent.click(toggle);
-      expect(screen.getByText('הורדת CSV')).toBeInTheDocument();
-      expect(screen.getByText('הורדת JSON')).toBeInTheDocument();
-      expect(screen.getByText('הדפסה לקונסול')).toBeInTheDocument();
-    });
-
-// Requirement: the inspection table has to describe the SAME portfolio
-    // the chart above it is drawing, or the two disagree silently.
-    test('states which selection its rows describe', () => {
-      const { container, toggle } = openAudit();
-      fireEvent.click(toggle);
-      const body = container.querySelector('.audit-body');
-      expect(body.textContent).toContain('מניות בלבד');
-
-      fireEvent.click(within(container.querySelector('.segment-controls')).getByText('בורסה אמריקאית'));
-      expect(container.querySelector('.audit-body').textContent).toContain('דולרית');
-    });
-
-    test('recomputes its rows when the market changes', async () => {
-      global.fetch.mockImplementation((url) => {
-        const u = String(url);
-        if (u.includes('israeli-stocks-history')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => ({
-              history: {
-                TEVA: [
-                  { date: '2023-01-15', close: 10000 },
-                  { date: '2024-06-01', close: 12000 }
-                ]
-              }
-            })
-          });
-        }
-        if (u.includes('american-stocks-history')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => ({ history: { AAPL: [{ date: '2023-01-15', close: 150 }] } })
-          });
-        }
-        if (u.includes('exchange-rate-history')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => ({ history: [{ date: '2023-01-15', close: 3.6 }] })
-          });
-        }
-        return Promise.resolve({ ok: true, json: async () => ({}) });
-      });
-
-      const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
-      fireEvent.click(screen.getByText(/בדיקת נתונים/));
-
-      const valuesFor = () =>
-        Array.from(container.querySelectorAll('.audit-table tbody tr')).map(
-          (tr) => tr.querySelectorAll('td')[1].textContent
-        );
-
-      await waitFor(() => expect(valuesFor().length).toBeGreaterThan(0));
-      const combined = valuesFor();
-
-      // Israeli only: the same dates, but a smaller portfolio behind them.
-      fireEvent.click(within(container.querySelector('.segment-controls')).getByText('בורסה ישראלית'));
-      await waitFor(() => expect(valuesFor()).not.toEqual(combined));
-    });
-
-    test('printing to the console emits the rows as a table', () => {
-      const table = jest.spyOn(console, 'table').mockImplementation(() => {});
-      const group = jest.spyOn(console, 'groupCollapsed').mockImplementation(() => {});
-      jest.spyOn(console, 'groupEnd').mockImplementation(() => {});
-      jest.spyOn(console, 'log').mockImplementation(() => {});
-
-      const { toggle } = openAudit();
-      fireEvent.click(toggle);
-      fireEvent.click(screen.getByText('הדפסה לקונסול'));
-
-      expect(group).toHaveBeenCalled();
-      expect(table).toHaveBeenCalled();
-      jest.restoreAllMocks();
-    });
-  });
-
   describe('dividend table - projected annual income column', () => {
     test('shows dividendRate × quantity held (not the historical "received" amount) for a known holding', () => {
       // americanStocks (top-level fixture) has one AAPL lot with quantity 10.
@@ -736,22 +607,110 @@ describe('PortfolioAnalysisView', () => {
       });
     };
 
-    test('defaults the range to the portfolio inception date, with no snapshots saved at all', async () => {
+    // The period buttons and the date inputs write the same two values,
+    // so a test that wants the whole history asks for it the way a user
+    // does rather than reaching past the UI.
+    const selectPeriod = (label) => fireEvent.click(screen.getByRole('button', { name: label }));
+
+    const yearStart = `${new Date().getUTCFullYear()}-01-01`;
+
+    // Requirement: the range a user lands on is the one they almost always
+    // want. Opening on the full history instead meant a first paint that
+    // fetched every year back to the first purchase to answer a question
+    // about a decade ago.
+    test('opens on year-to-date rather than on the whole history', async () => {
       mockHistoryFetch();
       const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
 
-      // The earliest purchase date across the holdings (TEVA, 2023-01-15).
-      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe(yearStart));
+      expect(screen.getByRole('button', { name: 'מתחילת השנה' })).toHaveAttribute('aria-pressed', 'true');
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/israeli-stocks-history'),
         expect.objectContaining({ method: 'POST' })
       );
     });
 
+    test('offers a quick toggle for each of the periods actually asked for', () => {
+      mockHistoryFetch();
+      render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      ['יומי', 'חודשי', 'מתחילת השנה', 'שנה', '3 שנים', '5 שנים', 'הכל'].forEach((label) => {
+        expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+      });
+    });
+
+    test('a period toggle sets the range, and the button for it is the one marked current', async () => {
+      mockHistoryFetch();
+      const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe(yearStart));
+
+      selectPeriod('שנה');
+
+      const expected = new Date();
+      expected.setUTCFullYear(expected.getUTCFullYear() - 1);
+      await waitFor(() =>
+        expect(container.querySelector('#performanceFrom').value).toBe(
+          expected.toISOString().slice(0, 10)
+        )
+      );
+      expect(screen.getByRole('button', { name: 'שנה' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'מתחילת השנה' })).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    // Typing a range of your own is not one of the offered periods, so
+    // none of them may keep claiming to be what the chart is showing.
+    test('no period is marked current once a range is typed by hand', async () => {
+      mockHistoryFetch();
+      const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe(yearStart));
+
+      fireEvent.change(container.querySelector('#performanceFrom'), { target: { value: '2023-06-11' } });
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'מתחילת השנה' })).toHaveAttribute('aria-pressed', 'false')
+      );
+      ['יומי', 'חודשי', 'שנה', '3 שנים', '5 שנים', 'הכל'].forEach((label) => {
+        expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-pressed', 'false');
+      });
+    });
+
+    // THE REQUIREMENT THIS SECTION EXISTS FOR: "הכל" on a chart of stocks
+    // means the first stock, not the first anything. A provident-fund
+    // deposit years earlier used to open the curve on a date with no
+    // shares in it, and every figure below claimed to measure from there.
+    test('"all" starts at the first share purchase, not at an earlier provident-fund deposit', async () => {
+      mockHistoryFetch();
+      const earlyPension = [
+        { fundName: 'קופת גמל', currentValue: 50000, deposits: [{ date: '2012-04-01', amount: 40000 }] }
+      ];
+      const { container } = render(
+        <PortfolioAnalysisView {...makeProps({ americanStocks: [], pensionFunds: earlyPension })} />
+      );
+
+      selectPeriod('הכל');
+
+      // TEVA, 2023-01-15 - the earliest actual purchase, not 2012.
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+    });
+
+    // Each market's curve contains only that market's lots, so its own
+    // "all" has to start where those lots start.
+    test('"all" follows the selected market to that market own first purchase', async () => {
+      mockHistoryFetch();
+      const { container } = render(<PortfolioAnalysisView {...makeProps()} />);
+
+      selectPeriod('הכל');
+      // Both markets: the AAPL lot from 2022 is the earlier one.
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2022-03-01'));
+
+      fireEvent.click(within(container.querySelector('.segment-controls')).getByText('בורסה ישראלית'));
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+    });
+
     test('computes the return since inception from the historical closes', async () => {
       mockHistoryFetch();
-      const { getByText } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
-      await waitFor(() => expect(getByText('תשואה מאז תחילת ההשקעה')).toBeInTheDocument());
+      render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      selectPeriod('הכל');
+      await waitFor(() => expect(screen.getByText('תשואה מאז תחילת ההשקעה')).toBeInTheDocument());
       // The old label measured from the first saved snapshot instead.
       expect(screen.queryByText('תשואה מאז תחילת המעקב')).toBeNull();
     });
@@ -759,7 +718,7 @@ describe('PortfolioAnalysisView', () => {
     test('narrowing the range re-fetches and recomputes, rather than reading a stored figure', async () => {
       mockHistoryFetch();
       const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
-      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe(yearStart));
 
       const callsBefore = global.fetch.mock.calls.length;
       fireEvent.change(container.querySelector('#performanceFrom'), { target: { value: '2024-01-01' } });
@@ -774,6 +733,7 @@ describe('PortfolioAnalysisView', () => {
     test('the headline stops claiming "since inception" once the range is narrowed', async () => {
       mockHistoryFetch();
       const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      selectPeriod('הכל');
       await waitFor(() => expect(screen.getByText('תשואה מאז תחילת ההשקעה')).toBeInTheDocument());
 
       fireEvent.change(container.querySelector('#performanceFrom'), { target: { value: '2024-01-01' } });
@@ -798,7 +758,7 @@ describe('PortfolioAnalysisView', () => {
     test('ignores the half-typed year values a date input emits while being typed into', async () => {
       mockHistoryFetch();
       const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
-      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe(yearStart));
 
       const fromInput = container.querySelector('#performanceFrom');
       const callsBefore = global.fetch.mock.calls.length;
@@ -807,7 +767,7 @@ describe('PortfolioAnalysisView', () => {
       ['0002-03-01', '0020-03-01', '0202-03-01'].forEach((partial) => {
         fireEvent.change(fromInput, { target: { value: partial } });
         // Not committed: the input keeps showing the last good range.
-        expect(fromInput.value).toBe('2023-01-15');
+        expect(fromInput.value).toBe(yearStart);
       });
 
       // And nothing was refetched or recomputed for any of them.
@@ -821,7 +781,7 @@ describe('PortfolioAnalysisView', () => {
     test('ignores a future date, which has no prices to value the portfolio at', async () => {
       mockHistoryFetch();
       const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
-      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe(yearStart));
 
       const toInput = container.querySelector('#performanceTo');
       const committed = toInput.value;
@@ -832,7 +792,7 @@ describe('PortfolioAnalysisView', () => {
     test('a start date after the end date collapses to a valid range instead of blanking the section', async () => {
       mockHistoryFetch();
       const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
-      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe('2023-01-15'));
+      await waitFor(() => expect(container.querySelector('#performanceFrom').value).toBe(yearStart));
 
       fireEvent.change(container.querySelector('#performanceTo'), { target: { value: '2024-01-01' } });
       fireEvent.change(container.querySelector('#performanceFrom'), { target: { value: '2025-01-01' } });
@@ -853,14 +813,14 @@ describe('PortfolioAnalysisView', () => {
     test('the return is labelled as neutralized, and the raw value change is not offered beside it', async () => {
       mockHistoryFetch();
       const { container } = render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      selectPeriod('הכל');
 
       await waitFor(() => expect(screen.getByText('תשואה מאז תחילת ההשקעה')).toBeInTheDocument());
       expect(screen.getByText(/מנוטרל הפקדות ורכישות/)).toBeInTheDocument();
       expect(screen.queryByText('שינוי בשווי התיק (כולל הפקדות)')).toBeNull();
 
-      // Scoped to the headline cards. The audit panel below still carries a
-      // "naive change" column, which is the evidence for the neutralization
-      // rather than a return presented as performance.
+      // Scoped to the headline cards: a return that includes deposits is
+      // not a return, so no card may present one as performance.
       const metricCards = Array.from(container.querySelectorAll('.distribution-card h3')).map(
         (el) => el.textContent
       );
@@ -870,12 +830,13 @@ describe('PortfolioAnalysisView', () => {
     test('the removed metrics are gone: no health score, no max drawdown, no Sharpe ratio', async () => {
       mockHistoryFetch();
       render(<PortfolioAnalysisView {...makeProps({ americanStocks: [] })} />);
+      selectPeriod('הכל');
       await waitFor(() => expect(screen.getByText('תשואה מאז תחילת ההשקעה')).toBeInTheDocument());
 
       expect(screen.queryByText('ציון בריאות תיק')).toBeNull();
       expect(screen.queryByText('ירידה מקסימלית (Drawdown)')).toBeNull();
       expect(screen.queryByText('Sharpe Ratio (משוער)')).toBeNull();
-      // Annualized volatility stays - it was audited, not removed.
+      // Annualized volatility stays - it was kept, not removed.
       expect(screen.getByText('תנודתיות שנתית (משוערת)')).toBeInTheDocument();
     });
   });

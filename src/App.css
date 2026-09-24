@@ -92,6 +92,11 @@
   --sw-red-border: rgba(239, 68, 68, 0.32);
   --sw-amber: #f59e0b;
   --sw-amber-soft: rgba(245, 158, 11, 0.16);
+  /* Label color ON a solid amber fill (the beta tag). Near-black in BOTH
+     themes, so it is defined once here and deliberately not overridden
+     below: amber is a mid-tone in either, and white on it lands around
+     3.9:1 - under the 4.5 a tag this small needs. */
+  --sw-on-amber: #1a1206;
 
   /* Elevation. Dark mode reads depth from light, not from shadow, so the
      shadows stay deep and are paired with a hairline top highlight. */
@@ -864,20 +869,45 @@ h3 {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
 }
 
+/* The "open the full page" hint.
+
+   It used to sit at top/inset-inline-start, which in this RTL layout put
+   it directly underneath .summary-section-title - accent-coloured text
+   drawn behind the card's own heading and its accent underline, which is
+   exactly where it was least readable.
+
+   It is now a solid chip pinned to the card's bottom-left corner: away
+   from the title entirely, on its own opaque background so nothing shows
+   through it, and in plain white so the text carries its own contrast
+   instead of borrowing the accent the heading already uses. `left` is
+   physical on purpose - the corner it occupies is the one the spec asks
+   for, and it must not flip with the document's direction. The title
+   itself is start-aligned, i.e. hard against the card's right edge in
+   this RTL layout, so the left of that same row is empty space. */
 .summary-card-link-hint {
   position: absolute;
-  top: 18px;
-  inset-inline-start: 20px;
-  font-size: 0.78rem;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
   font-weight: 600;
-  color: var(--sw-accent-strong);
+  line-height: 1.4;
+  white-space: nowrap;
+  color: #fff;
+  background: var(--sw-accent-strong);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   opacity: 0;
-  transition: opacity 0.16s ease;
+  transform: translateY(-4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  pointer-events: none;
 }
 
 .summary-card-link:hover .summary-card-link-hint,
 .summary-card-link:focus-visible .summary-card-link-hint {
   opacity: 1;
+  transform: translateY(0);
 }
 
 /* Touch has no hover to reveal the hint with, so it is simply always
@@ -885,6 +915,7 @@ h3 {
 @media (hover: none) {
   .summary-card-link-hint {
     opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -1545,9 +1576,18 @@ h3 {
   border-radius: 15px;
   padding: 20px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  /* `clip`, not `hidden` - see the WIDE TABLES note further down. `hidden`
+     makes this a scroll container, and every `position: sticky` inside it
+     then sticks to a box that never scrolls, which silently disabled the
+     table header rows this section exists to hold. `clip` rounds the
+     corners the same way without creating one. */
   border: 1px solid rgba(169, 130, 47, 0.1);
   width: 100%;
+  max-width: 100%;
+  /* The fallback for browsers without `clip` is the old behaviour, which
+     is no worse than it was. */
   overflow: hidden;
+  overflow: clip;
 }
 
 .section-title {
@@ -1757,10 +1797,15 @@ h3 {
 
   .table-container {
     border-radius: var(--sw-radius);
-    /* A fading edge on the scrollable side, so it's visible that the
-       table continues past the viewport. */
-    -webkit-mask-image: linear-gradient(to left, transparent 0, #000 18px);
-    mask-image: linear-gradient(to left, transparent 0, #000 18px);
+    /* The fading edge that used to live here is gone. It was a static
+       mask over the scrollable side, so it faded the leftmost 18px of
+       the table PERMANENTLY - including once the user had scrolled to
+       the end, where there is nothing more to hint at and the last
+       column was simply half-erased. On a phone that reads as the table
+       being cut off, which is exactly the complaint it was meant to
+       prevent. The affordance is now the scrollbar itself, kept visible
+       on these containers rather than implied by hiding content (see
+       the mobile-tables block below). */
   }
 }
 
@@ -2667,93 +2712,6 @@ h3 {
   .segment-buttons {
     overflow-x: auto;
   }
-}
-
-/* ── בדיקת נתונים: the working behind the performance curve ─────────── */
-
-.audit-panel {
-  margin-top: 14px;
-  border: 1px solid var(--sw-border);
-  border-radius: 10px;
-  background: var(--sw-surface);
-  overflow: hidden;
-}
-
-.audit-toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border: none;
-  background: none;
-  color: var(--sw-text);
-  font: inherit;
-  font-weight: 600;
-  text-align: start;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.audit-toggle:hover {
-  background: var(--sw-surface-2);
-}
-
-.audit-toggle-chevron {
-  flex-shrink: 0;
-  font-size: 0.8rem;
-  color: var(--sw-text-dim);
-  transform: rotate(90deg);
-  transition: transform 0.18s ease;
-}
-
-.audit-toggle[aria-expanded='true'] .audit-toggle-chevron {
-  transform: rotate(0deg);
-}
-
-.audit-body {
-  padding: 0 14px 14px;
-  border-top: 1px solid var(--sw-border);
-}
-
-.audit-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 12px 0;
-}
-
-.audit-action {
-  padding: 7px 14px;
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius-sm);
-  background: var(--sw-surface-2);
-  color: var(--sw-text);
-  font: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.audit-action:hover {
-  border-color: var(--sw-accent);
-  background: var(--sw-surface);
-}
-
-/* Thirteen columns of figures. Tabular numerals so a column reads as a
-   column, and a smaller size so more of it fits before the container has
-   to scroll sideways. */
-.audit-table {
-  font-size: 0.82rem;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.audit-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--sw-surface-2);
 }
 
 /* ── פיזור לפי תאריכי קנייה: year accordion ─────────────────────────── */
@@ -5038,17 +4996,26 @@ select {
    ============================================================ */
 
 .page-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 15;
+  position: static;
   padding: 18px 0 14px;
   margin-bottom: 18px;
   border-bottom: 1px solid var(--sw-border);
   background: var(--sw-bg);
 }
 
+/* Pinning is opt-in per page (see PageToolbar.js). It earns its keep above
+   a long holdings table, where the actions would otherwise be a scroll
+   away; on the dashboard it only reserves a strip over the figures the
+   page exists to show, so that page renders .is-static and the header
+   scrolls out of view with everything else. */
+.page-toolbar.is-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+}
+
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  .page-toolbar {
+  .page-toolbar.is-sticky {
     background: var(--sw-glass);
     -webkit-backdrop-filter: blur(var(--sw-glass-blur)) saturate(180%);
     backdrop-filter: blur(var(--sw-glass-blur)) saturate(180%);
@@ -5517,6 +5484,26 @@ select {
     width: auto;
   }
 
+  /* THE FLOOR HAS TO GO WITH THE TABLE.
+     .stocks-table carries a min-width (1200/1500px, 900/1100px under
+     768px) so that AS A TABLE its columns stay legible and it scrolls
+     inside .table-container instead of compressing. Here it is not a
+     table: it is a block, and a 1100px floor on a block makes every card
+     1100px wide inside a 390px screen. The label sits at the card's
+     start and the value at its end, so the value landed ~700px off the
+     left edge - and .app-main-inner clips rather than scrolls, so it
+     could not be reached at all.
+
+     That is the "tables are cut off in portrait, rotate to landscape"
+     bug: rotating past 720px turns the cards back into a real table,
+     where the same floor is correct and the container does scroll. */
+  .stocks-table,
+  .stocks-table:not(.american-stocks-table),
+  .american-stocks-table {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .stocks-table tbody tr {
     position: relative;
     margin-bottom: 12px;
@@ -5962,7 +5949,6 @@ select {
   .benchmark-toggle-button,
   .toolbar-btn,
   .monthly-toolbar-btn,
-  .audit-action,
   .sw-sidebar-item {
     min-height: 44px;
   }
@@ -6207,14 +6193,6 @@ select {
     min-height: 44px;
   }
 
-  .audit-actions {
-    flex-wrap: wrap;
-  }
-
-  .audit-action {
-    flex: 1 1 auto;
-  }
-
   .reports-grid,
   .rebalance-inputs-grid,
   .monthly-cashflow-grid,
@@ -6256,10 +6234,9 @@ select {
    =============================================================
 
    .analysis-table is width: 100% with no floor, so on a narrow screen it
-   did not scroll - it compressed. The eight-column holdings breakdown and
-   the thirteen-column audit table were squeezed into ~25px per column,
-   wrapping Hebrew headers one character per line into something unreadable
-   but technically "fitting".
+   did not scroll - it compressed. The eight-column holdings breakdown was
+   squeezed into ~25px per column, wrapping Hebrew headers one character
+   per line into something unreadable but technically "fitting".
 
    A floor turns that back into what the scroll container was always for:
    the columns keep a legible width and the table scrolls inside its own
@@ -6269,14 +6246,51 @@ select {
     min-width: 620px;
   }
 
-  .audit-table {
-    min-width: 900px;
+  /* Both scroll containers carry momentum scrolling and stop a sideways
+     swipe at the table's edge from turning into a page-level gesture. */
+  .table-container,
+  .stocks-table-container {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
   }
 
-  /* The holdings tables ask for 1200/1500px at full size, which is a lot
-     of sideways travel on a phone. With the smaller mobile type and
-     padding the same columns are legible in less, so the floor comes down
-     with them - less scrolling for the same content. */
+  /* THE SCROLL HAS TO BE VISIBLE, not just possible.
+     A table that scrolls sideways with no sign that it does reads as a
+     table that has been cut off - which is what sent people to landscape
+     rather than to a swipe. The scrollbar is what says so, so on these
+     containers it is always drawn rather than fading out when idle. It is
+     the same 4px thumb the rest of the app uses, so it states the
+     overflow without turning into a grey bar under every table. */
+  .table-container,
+  .stocks-table-container {
+    scrollbar-width: thin;
+    padding-bottom: 2px;
+  }
+
+  .table-container::-webkit-scrollbar,
+  .stocks-table-container::-webkit-scrollbar {
+    height: 6px;
+    -webkit-appearance: none;
+  }
+
+  .table-container::-webkit-scrollbar-thumb,
+  .stocks-table-container::-webkit-scrollbar-thumb {
+    border-radius: 3px;
+    background: var(--sw-border-strong);
+  }
+}
+
+/* The holdings tables' own floor, for the narrow band where they are
+   still TABLES - between the card breakpoint and the tablet one.
+   They ask for 1200/1500px at full size, which is a lot of sideways
+   travel; with the smaller mobile type and padding the same columns are
+   legible in less, so the floor comes down with them.
+
+   Scoped from 721px up on purpose. Below that a row is a card (see
+   MOBILE: TABLES BECOME CARDS), a floor makes every card wider than the
+   screen instead of making a table scrollable, and the value at the
+   card's far end is pushed off the display. */
+@media (min-width: 721px) and (max-width: 768px) {
   .stocks-table:not(.american-stocks-table) {
     min-width: 900px;
   }
@@ -6284,13 +6298,62 @@ select {
   .american-stocks-table {
     min-width: 1100px;
   }
+}
 
-  /* Both scroll containers carry momentum scrolling and stop a sideways
-     swipe at the table's edge from turning into a page-level gesture. */
-  .table-container,
+/* =============================================================
+   PORTRAIT ON A PHONE
+   =============================================================
+
+   NOTE the boundary before changing anything here. Below 720px a holdings
+   table is NOT a table any more - MOBILE: TABLES BECOME CARDS above turns
+   every row into a labelled card. A width floor, a cell padding or a
+   font size aimed at "the table" therefore does not tighten a table at
+   this size; it stretches a stack of cards, and a floor in particular
+   gives the card list a horizontal scrollbar it has no use for.
+
+   So what is left to do here is the page chrome around those cards, and
+   the tables on the analysis page, which stay tables at every width. */
+@media (max-width: 520px) {
+  .app-main-inner {
+    padding-inline: 10px;
+  }
+
+  /* The wrappers a card list sits inside. Every one of them was still
+     charging its own padding, so on a 360px screen the card was ~300px
+     wide before a label and its value were laid out across it. */
+  .stocks-section {
+    margin-top: 18px;
+    padding: 12px 8px;
+    border-radius: var(--sw-radius);
+  }
+
+  .analysis-section {
+    padding: 14px 10px;
+  }
+
+  /* The analysis page's tables are still tables here. Smaller type and
+     tighter cells carry the same columns in less width, so their floor
+     comes down with them - less sideways travel for identical content. */
+  .analysis-table {
+    font-size: 0.72rem;
+    min-width: 520px;
+  }
+
+  .analysis-table th,
+  .analysis-table td {
+    padding: 7px 6px;
+  }
+
+  /* A header that wraps to three lines doubles the height of the table's
+     top edge before a single figure is visible. */
+  .analysis-table th {
+    white-space: nowrap;
+  }
+
   .stocks-table-container {
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
+    margin-inline: -4px;
+    width: calc(100% + 8px);
+    max-width: calc(100% + 8px);
   }
 }
 
@@ -6780,15 +6843,6 @@ select {
   padding: 6px 8px;
 }
 
-.audit-table {
-  font-size: 0.76rem;
-}
-
-.audit-table th,
-.audit-table td {
-  padding: 5px 8px;
-}
-
 /* The ledger tables inside a holdings row (a fund's deposit list) sit one
    level deeper and were already tighter; they come down in proportion so
    the nesting stays legible as nesting. */
@@ -6835,10 +6889,6 @@ select {
     padding: 6px 5px;
   }
 
-  .audit-table th,
-  .audit-table td {
-    padding: 5px 6px;
-  }
 }
 
 /* =============================================================
@@ -7335,4 +7385,295 @@ select {
   background: var(--sw-surface-2);
   border-color: var(--sw-border);
   color: var(--sw-text-secondary);
+}
+
+/* =============================================================
+   BETA NOTICE - the arrival modal and the standing banners
+   =============================================================
+
+   The system is a sandbox, and everything it invites a user to type is
+   something they should not type into it. That warning has two jobs and
+   therefore two forms: an overlay that has to be acknowledged on arrival,
+   and a strip that stays on the pages where the warning still applies.
+   See BetaNoticeModal.js and BetaBanner.js. */
+
+.beta-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .beta-modal-overlay {
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+}
+
+/* Opaque, not the translucent surface token the cards use: this sits over
+   a blurred copy of the whole app, and a pane there would let the page's
+   own text show through the warning. */
+.beta-modal {
+  width: min(680px, 100%);
+  margin: auto;
+  border-radius: var(--sw-radius-lg);
+  border: 1px solid var(--sw-border-strong);
+  background: var(--sw-bg-elevated);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.beta-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--sw-border);
+  background: var(--sw-amber-soft);
+}
+
+.beta-modal-tag,
+.beta-banner-tag {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border-radius: var(--sw-radius-pill);
+  background: var(--sw-amber);
+  /* See --sw-on-amber: near-black in both themes, because white on
+     amber fails contrast at this size. */
+  color: var(--sw-on-amber);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.beta-modal-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--sw-text);
+}
+
+.beta-modal-body {
+  padding: 20px 24px 8px;
+  color: var(--sw-text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.beta-modal-lead {
+  margin: 0 0 14px;
+  color: var(--sw-text);
+}
+
+.beta-modal-list {
+  margin: 0 0 14px;
+  padding-inline-start: 20px;
+  display: grid;
+  gap: 10px;
+}
+
+.beta-modal-list strong {
+  color: var(--sw-text);
+}
+
+.beta-modal-note {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--sw-text-muted);
+}
+
+.beta-modal-actions {
+  padding: 16px 24px 22px;
+}
+
+.beta-modal-button {
+  width: 100%;
+  padding: 13px 20px;
+  border: none;
+  border-radius: var(--sw-radius);
+  background: var(--sw-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.beta-modal-button:hover {
+  background: var(--sw-accent-strong);
+}
+
+.beta-modal-button:focus-visible {
+  outline: 2px solid var(--sw-accent-2);
+  outline-offset: 2px;
+}
+
+/* The standing strip. Amber rather than red: this is a condition of use,
+   not an error that has happened. */
+.beta-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border-radius: var(--sw-radius);
+  border: 1px solid var(--sw-amber);
+  background: var(--sw-amber-soft);
+}
+
+.beta-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.beta-banner-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--sw-text);
+}
+
+.beta-banner-body {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--sw-text-secondary);
+}
+
+@media (max-width: 600px) {
+  .beta-modal-header,
+  .beta-modal-body,
+  .beta-modal-actions {
+    padding-inline: 16px;
+  }
+
+  .beta-modal-title {
+    font-size: 1.05rem;
+  }
+}
+
+/* =============================================================
+   THE PERFORMANCE SECTION'S CALCULATION GUIDE
+   =============================================================
+
+   Four numbered steps replacing a paragraph of prose. A method is a
+   sequence, and the thing a reader wants from it is one step - which a
+   block of text makes them re-read the whole thing to find. */
+
+.calc-guide {
+  counter-reset: calc-step;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+}
+
+.calc-guide-step {
+  counter-increment: calc-step;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px 12px 14px;
+  padding-inline-start: 44px;
+  border-radius: var(--sw-radius);
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface-2);
+}
+
+/* The step number as a counter rather than typed into the markup, so the
+   order is the DOM's and cannot drift from it. */
+.calc-guide-step::before {
+  content: counter(calc-step);
+  position: absolute;
+  top: 12px;
+  inset-inline-start: 12px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--sw-radius-pill);
+  background: var(--sw-accent);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.calc-guide-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--sw-text);
+}
+
+.calc-guide-text {
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--sw-text-secondary);
+}
+
+/* =============================================================
+   QUICK RETURN-PERIOD TOGGLES
+   ============================================================= */
+
+.period-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.period-toggle {
+  padding: 7px 14px;
+  border-radius: var(--sw-radius-pill);
+  border: 1px solid var(--sw-border);
+  background: var(--sw-surface-2);
+  color: var(--sw-text-secondary);
+  font: inherit;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.period-toggle:hover {
+  color: var(--sw-text);
+  border-color: var(--sw-border-hover);
+}
+
+.period-toggle.active {
+  background: var(--sw-accent);
+  border-color: var(--sw-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.period-toggle:focus-visible {
+  outline: 2px solid var(--sw-accent-2);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  /* One scrolling row rather than three wrapped ones - seven short
+     buttons stacked is most of a screen spent on a filter. */
+  .period-toggles {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    padding-bottom: 4px;
+  }
+
+  .period-toggle {
+    flex: 0 0 auto;
+  }
 }

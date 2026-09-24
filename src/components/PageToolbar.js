@@ -17,9 +17,23 @@ import React from 'react';
 //
 // Sticky, so the actions stay reachable while scrolling a long table
 // instead of requiring a trip back to the top.
-function PageToolbar({ title, subtitle, primaryAction, secondaryActions, status, children }) {
+//
+// `sticky` is opt-out for the pages where that is the wrong trade. The
+// dashboard is one: it has no long table to keep actions reachable over,
+// and pinning its header means the figures below it are read through a
+// permanently reserved strip. There the header is just the top of the
+// page, and scrolls away like the rest of it.
+function PageToolbar({
+  title,
+  subtitle,
+  primaryAction,
+  secondaryActions,
+  status,
+  children,
+  sticky = true
+}) {
   return (
-    <div className="page-toolbar">
+    <div className={`page-toolbar ${sticky ? 'is-sticky' : 'is-static'}`}>
       <div className="page-toolbar-main">
         <div className="page-toolbar-heading">
           <h1 className="page-toolbar-title">{title}</h1>

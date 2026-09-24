@@ -190,9 +190,9 @@ function closeOnOrBefore(date, closes) {
 //
 // The returned point also carries `byCategory` - what each asset class
 // contributed to the total - and `missingSymbols`, the holdings that could
-// not be priced. Neither is used to draw the chart; both exist so the
-// figure can be inspected and explained rather than only trusted (see
-// utils/performanceAudit.js).
+// not be priced. Neither is used to draw the chart; `missingSymbols` is
+// what lets the page name the holdings behind a date it had to skip (see
+// summarizePartialPoints in utils/portfolioStats.js).
 export const computePortfolioValueAtDate = (
   date,
   {

@@ -28,8 +28,96 @@ export function computePortfolioInceptionDate({
   return dates.sort()[0].slice(0, 10);
 }
 
+// The earliest date a SHARE was bought - deposits into provident funds,
+// bank savings and cash accounts deliberately excluded.
+//
+// This is what "since the beginning" means for a performance curve about
+// equities. computePortfolioInceptionDate above answers a different
+// question (when did this portfolio start existing at all), and using it
+// for the stock curve dragged the range back to whatever non-traded
+// account happened to be funded first - a provident-fund deposit in 2008
+// opening a chart of stocks first bought in 2012, with four empty years
+// in front of it.
+export function computeFirstStockPurchaseDate({ israeliStocks = [], americanStocks = [] } = {}) {
+  return computePortfolioInceptionDate({ israeliStocks, americanStocks });
+}
+
 export function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// THE QUICK PERIOD TOGGLES.
+//
+// A date range is the precise control and stays; these are the handful of
+// ranges actually asked for, as one click each. `key` is what the UI holds
+// in state, and is also what tells it which button to mark as current.
+//
+// 'ytd' is the default the page opens on (see DEFAULT_RETURN_PERIOD): the
+// question a portfolio is opened with is almost always "how is it doing
+// this year", and opening on the full history instead answered a question
+// about 2012 with a curve nobody had asked for and a fetch across every
+// year in between.
+//
+// 'all' is the escape hatch back to the whole history. It resolves to ''
+// rather than to a date, because '' is what the page reads as "track
+// inception as holdings change" rather than pinning a start.
+export const RETURN_PERIODS = [
+  { key: 'day', label: 'יומי', hint: 'מאז סגירת המסחר הקודמת' },
+  { key: 'month', label: 'חודשי', hint: 'החודש האחרון' },
+  { key: 'ytd', label: 'מתחילת השנה', hint: 'מ-1 בינואר ועד היום' },
+  { key: '1y', label: 'שנה', hint: 'שנה אחורה' },
+  { key: '3y', label: '3 שנים', hint: 'שלוש שנים אחורה' },
+  { key: '5y', label: '5 שנים', hint: 'חמש שנים אחורה' },
+  { key: 'all', label: 'הכל', hint: 'מאז הרכישה הראשונה' }
+];
+
+export const DEFAULT_RETURN_PERIOD = 'ytd';
+
+// UTC throughout, like every other date in this module: the ISO strings
+// these produce are compared against ISO strings from the exchanges, and a
+// local-time construction shifts the boundary by the offset - which in
+// Israel means "1 בינואר" resolving to the 31st of December.
+export function startDateForPeriod(periodKey, today = todayISO()) {
+  if (periodKey === 'all') return '';
+  const base = new Date(`${today}T00:00:00Z`);
+  if (Number.isNaN(base.getTime())) return '';
+
+  const shifted = new Date(base.getTime());
+  switch (periodKey) {
+    case 'day':
+      shifted.setUTCDate(shifted.getUTCDate() - 1);
+      break;
+    case 'month':
+      shifted.setUTCMonth(shifted.getUTCMonth() - 1);
+      break;
+    case 'ytd':
+      return `${base.getUTCFullYear()}-01-01`;
+    case '1y':
+      shifted.setUTCFullYear(shifted.getUTCFullYear() - 1);
+      break;
+    case '3y':
+      shifted.setUTCFullYear(shifted.getUTCFullYear() - 3);
+      break;
+    case '5y':
+      shifted.setUTCFullYear(shifted.getUTCFullYear() - 5);
+      break;
+    default:
+      return '';
+  }
+  return shifted.toISOString().slice(0, 10);
+}
+
+// Which toggle a given range corresponds to, or null when the user has
+// typed a range of their own. Derived rather than stored alongside the
+// dates, so editing a date input cannot leave a button highlighted for a
+// period the chart is no longer showing.
+export function periodKeyForRange(fromDate, toDate, today = todayISO()) {
+  if (toDate && toDate !== today) return null;
+  if (!fromDate) return 'all';
+  const match = RETURN_PERIODS.find(
+    (period) => period.key !== 'all' && startDateForPeriod(period.key, today) === fromDate
+  );
+  return match ? match.key : null;
 }
 
 // A "YYYY-MM" key -> a Hebrew month name and year ("מרץ 2024").
