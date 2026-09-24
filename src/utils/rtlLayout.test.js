@@ -139,20 +139,58 @@ describe('responsiveness of the new layout', () => {
     expect(mobile).toMatch(/\.app-shell\s*\{[^}]*padding-bottom/);
   });
 
-  test('tables become one card per row on a phone', () => {
-    const cards = CSS.slice(CSS.indexOf('@media (max-width: 720px)'));
-    expect(cards).toMatch(/\.stocks-table tbody tr\s*\{/);
-    expect(cards).toMatch(/content:\s*attr\(data-label\)/);
+  // A table stays a table at every width: the rows used to become one
+  // card per holding on a phone, which reads well for a single position
+  // and makes comparing two of them impossible.
+  test('rows stay table rows rather than becoming cards on a phone', () => {
+    const phone = CSS.slice(CSS.indexOf('@media (max-width: 720px)'));
+    // The card layout turned rows and cells into blocks and printed the
+    // column name from a data attribute. Neither may come back.
+    expect(phone).not.toMatch(/content:\s*attr\(data-label\)/);
+    expect(phone).not.toMatch(/\.stocks-table tr,[\s\S]{0,80}display:\s*block/);
   });
 
-  // display:none would drop the headers from the accessibility tree too,
-  // and they are what give each value its meaning.
-  test('the visually-hidden table header stays available to assistive tech', () => {
-    const cards = CSS.slice(CSS.indexOf('@media (max-width: 720px)'));
-    const head = cards.slice(cards.indexOf('.stocks-table thead'));
-    const block = head.slice(head.indexOf('{'), head.indexOf('}'));
-    expect(block).not.toMatch(/display\s*:\s*none/);
-    expect(block).toMatch(/clip-path|position:\s*absolute/);
+  // Pinning the identifier is what makes the sideways scroll legible:
+  // without it a swipe leaves a grid of anonymous numbers.
+  test('the identifying column is pinned while the metrics scroll', () => {
+    const block = CSS.slice(CSS.lastIndexOf('.stocks-table th:first-child,'));
+    const rule = block.slice(0, block.indexOf('}'));
+    expect(rule).toMatch(/position:\s*sticky/);
+    // Logical, not physical: the first column renders at the right edge
+    // in this RTL document, and that is the edge it must stick to.
+    expect(rule).toMatch(/inset-inline-start:\s*0/);
+    expect(rule).toMatch(/z-index/);
+  });
+
+  // A translucent pinned cell shows the rows sliding underneath it,
+  // which is worse than not pinning at all.
+  test('the pinned column is painted on an opaque surface', () => {
+    const block = CSS.slice(CSS.lastIndexOf('.stocks-table th:first-child,'));
+    const rule = block.slice(0, block.indexOf('}'));
+    expect(rule).toMatch(/background:\s*var\(--sw-surface-3\)/);
+    // --sw-surface-3 is the token documented as opaque, and it has to be
+    // opaque in BOTH themes or the pinned column leaks in one of them.
+    const values = [...CSS.matchAll(/--sw-surface-3:\s*([^;]+);/g)].map((m) => m[1].trim());
+    expect(values.length).toBeGreaterThanOrEqual(2);
+    values.forEach((v) => expect(v).not.toMatch(/rgba|transparent/));
+  });
+
+  // A figure broken across two lines stops being one number, and one
+  // wrapped cell sets the height of its whole row.
+  test('data cells do not wrap', () => {
+    // The nowrap rule pairs these two selectors; they appear together
+    // nowhere else in the stylesheet.
+    const at = CSS.search(/\.stocks-table td,\s*\.analysis-table td \{/);
+    expect(at).toBeGreaterThan(-1);
+    const block = CSS.slice(at);
+    const rule = block.slice(0, block.indexOf('}'));
+    expect(rule).toMatch(/white-space:\s*nowrap/);
+  });
+
+  test('the table scrolls inside its own container rather than widening the page', () => {
+    const block = CSS.slice(CSS.indexOf('.table-container {'));
+    const rule = block.slice(0, block.indexOf('}'));
+    expect(rule).toMatch(/overflow-x:\s*auto/);
   });
 
   test('motion is disabled for users who ask for reduced motion', () => {

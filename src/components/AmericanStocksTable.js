@@ -3,6 +3,7 @@ import EditableCell from './EditableCell';
 import PendingPriceValue from './PendingPriceValue';
 import ValuePill from './ValuePill';
 import AssetCell from './AssetCell';
+import ScrollableTable from './ScrollableTable';
 import { profitClass, formatDailyChangePercent } from '../utils/formatters';
 
 // The column headers, named once and used for BOTH the <th> row and each
@@ -257,8 +258,7 @@ function AmericanStocksTable({
       {americanStocks.length > 0 && (
         <div className="stocks-section">
           <h2 className="section-title">בורסה אמריקאית</h2>
-          <div className="table-container">
-            <table className="stocks-table american-stocks-table">
+          <ScrollableTable label="בורסה אמריקאית" tableClassName="american-stocks-table">
               <thead>
                 <tr>
                   <th>{COL.name}</th>
@@ -407,8 +407,7 @@ function AmericanStocksTable({
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+          </ScrollableTable>
         </div>
       )}
     </>

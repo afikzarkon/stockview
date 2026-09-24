@@ -3,6 +3,7 @@ import EditableCell from './EditableCell';
 import PendingPriceValue from './PendingPriceValue';
 import ValuePill from './ValuePill';
 import AssetCell from './AssetCell';
+import ScrollableTable from './ScrollableTable';
 import { profitClass, formatDailyChangePercent } from '../utils/formatters';
 import { calculateStockRealGainTax, monthKeyFromDate } from '../utils/cpiTax';
 import { sectorLabelHe } from '../utils/sectorLabels';
@@ -271,8 +272,7 @@ function IsraeliStocksTable({
       {israeliStocks.length > 0 && (
         <div className="stocks-section">
           <h2 className="section-title">בורסה ישראלית</h2>
-          <div className="table-container">
-            <table className="stocks-table">
+          <ScrollableTable label="בורסה ישראלית">
               <thead>
                 <tr>
                   <th>{COL.name}</th>
@@ -437,8 +437,7 @@ function IsraeliStocksTable({
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+          </ScrollableTable>
         </div>
       )}
     </>

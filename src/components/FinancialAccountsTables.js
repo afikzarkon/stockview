@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ScrollableTable from './ScrollableTable';
 import { calculatePensionRealGainTax, calculateBankSavingsFundTax, monthKeyFromDate } from '../utils/cpiTax';
 import { calculateLedgerPeriodReturn, hasAmbiguousLedgerPeriod } from '../utils/portfolioMath';
 import { computeBankSavingsFundValue } from '../utils/bankSavingsFund';
@@ -160,8 +161,7 @@ function FinancialAccountsTables({
       {shows('pension') && pensionFunds.length > 0 && (
         <div className="stocks-section">
           <h2 className="section-title">קופות גמל</h2>
-          <div className="table-container">
-            <table className="stocks-table">
+          <ScrollableTable label="קופות גמל">
               <thead>
                 <tr>
                   <th>{PENSION_COL.name}</th>
@@ -388,16 +388,14 @@ function FinancialAccountsTables({
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+          </ScrollableTable>
         </div>
       )}
 
       {shows('cash') && cashFunds.length > 0 && (
         <div className="stocks-section">
           <h2 className="section-title">כספית שקלית</h2>
-          <div className="table-container">
-            <table className="stocks-table">
+          <ScrollableTable label="כספית שקלית">
               <thead>
                 <tr>
                   <th>{CASH_COL.name}</th>
@@ -530,16 +528,14 @@ function FinancialAccountsTables({
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+          </ScrollableTable>
         </div>
       )}
 
       {shows('bank') && bankBalances.length > 0 && (
         <div className="stocks-section">
           <h2 className="section-title">עו"ש</h2>
-          <div className="table-container">
-            <table className="stocks-table">
+          <ScrollableTable label={'עו"ש'}>
               <thead>
                 <tr>
                   <th>{BANK_COL.current}</th>
@@ -642,16 +638,14 @@ function FinancialAccountsTables({
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+          </ScrollableTable>
         </div>
       )}
 
       {shows('bank_savings') && bankSavingsFunds.length > 0 && (
         <div className="stocks-section">
           <h2 className="section-title">קופות חיסכון בבנק</h2>
-          <div className="table-container">
-            <table className="stocks-table">
+          <ScrollableTable label="קופות חיסכון בבנק">
               <thead>
                 <tr>
                   <th>{SAVINGS_COL.name}</th>
@@ -784,8 +778,7 @@ function FinancialAccountsTables({
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+          </ScrollableTable>
         </div>
       )}
     </>

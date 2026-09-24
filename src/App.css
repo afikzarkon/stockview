@@ -49,6 +49,10 @@
      most of all - where translucency would let the rows show straight
      through the header text. */
   --sw-surface-3: #1b1b1f;
+  /* The hovered state of an OPAQUE surface. --sw-surface-hover is
+     translucent, which is right for a card floating over the page and
+     wrong for a pinned table cell that rows slide underneath. */
+  --sw-surface-hover-solid: #232329;
 
   /* Glassmorphism: a translucent card over the page's ambient glows. The
      blur is what sells it, so the fill stays low-alpha. */
@@ -128,6 +132,7 @@
   --sw-surface: #ffffff;
   --sw-surface-2: #f8fafc;
   --sw-surface-3: #f1f5f9;
+  --sw-surface-hover-solid: #e6edf5;
 
   --sw-glass: rgba(255, 255, 255, 0.78);
   --sw-glass-strong: rgba(255, 255, 255, 0.92);
@@ -5445,187 +5450,133 @@ select {
 }
 
 /* ============================================================
-   MOBILE: TABLES BECOME CARDS
-   A 20-column financial table cannot be made readable at 380px by
-   shrinking it, and horizontal scrolling alone hides the identifying
-   column behind a swipe. Below 720px each ROW becomes a card and each
-   CELL a labelled line, driven by the data-label the header supplies.
-   Above that breakpoint none of this applies and the table is a table.
+   A TABLE STAYS A TABLE
+   ============================================================
+
+   These rows used to become one card per holding below 720px, each cell
+   a labelled line. That reads well for a single position and destroys
+   the thing a table is for: you cannot compare two holdings that are a
+   screen apart, and a column of figures is no longer a column.
+
+   So the table stays a table at every width. What changes with the
+   viewport is density, not structure - and the two things that make a
+   wide table usable on a narrow screen:
+
+     * the container scrolls sideways (.table-container, above), and
+     * the identifying column is pinned to the inline start edge, so
+       whatever metric you have scrolled to, you can still see which
+       holding it belongs to.
+
+   Pinning is what makes the horizontal scroll legible rather than
+   disorienting; without it a swipe leaves a grid of anonymous numbers.
    ============================================================ */
 
+/* THE PINNED COLUMN.
+
+   `inset-inline-start` rather than `left`: this document is RTL, the
+   first column renders at the right edge, and that is the edge it has
+   to stick to. A physical `left` would pin it to the far side of the
+   table - visually the LAST column - which is not the identifier.
+
+   The background must be OPAQUE. The surface tokens the cards use are
+   translucent by design, and a translucent pinned cell shows the rows
+   sliding underneath it, which is worse than not pinning at all.
+   --sw-surface-3 exists for exactly this (see its own note: the token
+   for surfaces something scrolls beneath). */
+.stocks-table th:first-child,
+.stocks-table td:first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 2;
+  background: var(--sw-surface-3);
+  /* A hairline on the scrolling side, so the pinned column reads as an
+     edge the data passes behind rather than as a cell that happens to
+     be there. */
+  box-shadow: 1px 0 0 var(--sw-border) inset;
+}
+
+/* The corner cell is pinned on BOTH axes - it is in the sticky header
+   row and in the sticky column - so it has to sit above each of them,
+   or the other one scrolls over it. */
+.stocks-table thead th:first-child {
+  z-index: 3;
+}
+
+/* A hovered row re-paints its cells; without this the pinned cell keeps
+   the un-hovered fill and the row appears to break in half. */
+.stocks-table tbody tr:hover td:first-child {
+  background: var(--sw-surface-hover-solid);
+}
+
+/* FIGURES MUST NOT WRAP.
+
+   A shekel amount broken across two lines stops being one number, and
+   one wrapped cell sets the height of its whole row. Headers wrap
+   freely - they are read once - but no cell of data does. */
+.stocks-table td,
+.analysis-table td {
+  white-space: nowrap;
+}
+
+/* The identifying cell is the exception: a fund name is prose, it is
+   the widest thing in the table, and letting it run forces every reader
+   to scroll past it to reach the first figure. */
+.stocks-table td:first-child {
+  white-space: normal;
+  min-width: 9rem;
+  max-width: 13rem;
+}
+
+/* DENSITY, not structure, is what the breakpoints change. */
 @media (max-width: 720px) {
-  .table-container {
-    overflow: visible;
-    border: none;
-    background: transparent;
-    box-shadow: none;
-    -webkit-mask-image: none;
-    mask-image: none;
-  }
-
-  /* The header is what a data-label repeats, so it's redundant here. */
-  .stocks-table thead {
-    /* Not display:none - that removes it from the accessibility tree too,
-       and the headers are what give each value its meaning. Clipped
-       instead, so it stays available to a screen reader. */
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
   .stocks-table,
-  .stocks-table tbody,
-  .stocks-table tr,
-  .stocks-table td {
-    display: block;
-    width: auto;
+  .analysis-table {
+    font-size: 0.78rem;
   }
 
-  /* THE FLOOR HAS TO GO WITH THE TABLE.
-     .stocks-table carries a min-width (1200/1500px, 900/1100px under
-     768px) so that AS A TABLE its columns stay legible and it scrolls
-     inside .table-container instead of compressing. Here it is not a
-     table: it is a block, and a 1100px floor on a block makes every card
-     1100px wide inside a 390px screen. The label sits at the card's
-     start and the value at its end, so the value landed ~700px off the
-     left edge - and .app-main-inner clips rather than scrolls, so it
-     could not be reached at all.
+  .stocks-table th,
+  .stocks-table td,
+  .analysis-table th,
+  .analysis-table td {
+    padding: 6px 8px;
+  }
 
-     That is the "tables are cut off in portrait, rotate to landscape"
-     bug: rotating past 720px turns the cards back into a real table,
-     where the same floor is correct and the container does scroll. */
+  /* With nothing wrapping, the table is exactly as wide as its content
+     needs - no more, and never less than a legible column. A fixed
+     floor would guess at that and be wrong in both directions. */
   .stocks-table,
   .stocks-table:not(.american-stocks-table),
-  .american-stocks-table {
-    min-width: 0;
-    max-width: 100%;
+  .american-stocks-table,
+  .analysis-table {
+    min-width: max-content;
   }
 
-  .stocks-table tbody tr {
-    position: relative;
-    margin-bottom: 12px;
-    /* No vertical padding: the first and last cells already carry their
-       own, and a card-level pad on top of that stretched every row by
-       8px of nothing. */
-    padding: 0;
-    border-radius: var(--sw-radius);
-    border: 1px solid var(--sw-border);
-    background: var(--sw-surface);
-    box-shadow: var(--sw-shadow);
-    overflow: hidden;
-  }
-
-  [data-theme='dark'] .stocks-table tbody tr {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 90px), var(--sw-surface);
-  }
-
-  /* The identifying cell becomes the card's header strip rather than one
-     more labelled line: it names the holding the rest of the card is
-     about, so it reads as a title and not as the first of twenty
-     equally-weighted facts. */
   .stocks-table td:first-child {
-    position: static;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 11px 14px;
-    border-bottom: 1px solid var(--sw-border-strong);
-    background: var(--sw-surface-2);
-    box-shadow: none;
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--sw-text);
+    min-width: 7.5rem;
+    max-width: 10rem;
   }
 
-  /* The group expand control sits in that header strip. Given a real
-     target it stops being a 10px glyph the thumb has to find. */
-  .stocks-table td:first-child .expand-button {
-    flex-shrink: 0;
-    min-width: 32px;
-    min-height: 32px;
-    margin: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--sw-radius-sm);
-    color: var(--sw-text-secondary);
+  .detail-row td:first-child {
+    padding-inline-start: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .stocks-table,
+  .analysis-table {
+    font-size: 0.72rem;
   }
 
-  .stocks-table td:first-child::before {
-    content: none;
+  .stocks-table th,
+  .stocks-table td,
+  .analysis-table th,
+  .analysis-table td {
+    padding: 5px 6px;
   }
 
-  /* Every other cell: its column header on one side, its value on the
-     other. data-label is set by the table components from the same header
-     text, so the two can't drift apart. */
-  /* A two-column key/value grid rather than a flex row with
-     space-between. Flex sized each line to its own content, so the
-     values down a card landed on a different edge on every row and the
-     column of figures the card exists to show could not be scanned.
-     A grid gives every row the same split, so labels share one edge and
-     values share the other.
-
-     The label track is capped rather than fixed: a long header wraps
-     inside its own column instead of pushing the value off the card,
-     and a short one does not leave a gulf in the middle. */
-  .stocks-table td:not(:first-child) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: baseline;
-    gap: 10px;
-    padding: 8px 14px;
-    text-align: start;
-    border-bottom: 1px solid var(--sw-border);
-    white-space: normal;
-    min-height: 0;
-  }
-
-  .stocks-table td:not(:first-child)::before {
-    content: attr(data-label);
-    font-size: 0.76rem;
-    font-weight: 600;
-    line-height: 1.35;
-    letter-spacing: 0.02em;
-    color: var(--sw-text-secondary);
-  }
-
-  /* The figure itself: tabular numerals so the digits in a column line
-     up, and end-aligned against the shared right edge the grid gives
-     them. */
-  .stocks-table td:not(:first-child) {
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* A row whose value is a pill or a button should not stretch it to
-     the full track - it sits at the same edge as a plain figure. */
-  .stocks-table td:not(:first-child) > * {
-    justify-self: end;
-  }
-
-  .stocks-table tbody tr td:last-child {
-    border-bottom: none;
-  }
-
-  /* A cell the header couldn't label (a spacer, an actions cell) would
-     otherwise render an empty label column. */
-  .stocks-table td:not(:first-child):not([data-label])::before {
-    content: none;
-  }
-
-  .stocks-table tbody tr:hover,
-  .stocks-table tbody tr:hover td:first-child {
-    background-color: var(--sw-surface);
-  }
-
-  .asset-cell {
-    gap: 3px;
-  }
-
-  .detail-row {
-    margin-inline-start: 14px;
+  .stocks-table td:first-child {
+    min-width: 6.5rem;
+    max-width: 8.5rem;
   }
 }
 
@@ -6328,39 +6279,17 @@ select {
   }
 }
 
-/* The holdings tables' own floor, for the narrow band where they are
-   still TABLES - between the card breakpoint and the tablet one.
-   They ask for 1200/1500px at full size, which is a lot of sideways
-   travel; with the smaller mobile type and padding the same columns are
-   legible in less, so the floor comes down with them.
-
-   Scoped from 721px up on purpose. Below that a row is a card (see
-   MOBILE: TABLES BECOME CARDS), a floor makes every card wider than the
-   screen instead of making a table scrollable, and the value at the
-   card's far end is pushed off the display. */
-@media (min-width: 721px) and (max-width: 768px) {
-  .stocks-table:not(.american-stocks-table) {
-    min-width: 900px;
-  }
-
-  .american-stocks-table {
-    min-width: 1100px;
-  }
-}
-
 /* =============================================================
    PORTRAIT ON A PHONE
    =============================================================
 
-   NOTE the boundary before changing anything here. Below 720px a holdings
-   table is NOT a table any more - MOBILE: TABLES BECOME CARDS above turns
-   every row into a labelled card. A width floor, a cell padding or a
-   font size aimed at "the table" therefore does not tighten a table at
-   this size; it stretches a stack of cards, and a floor in particular
-   gives the card list a horizontal scrollbar it has no use for.
+   The page chrome around the tables. Every wrapper between the screen
+   edge and a cell was charging its own padding, so on a 360px display
+   roughly a quarter of the width went on the gaps between nested
+   rounded rectangles before a single figure was drawn - and every pixel
+   spent there is a pixel of table the reader has to scroll to reach.
 
-   So what is left to do here is the page chrome around those cards, and
-   the tables on the analysis page, which stay tables at every width. */
+   The tables' own density lives in A TABLE STAYS A TABLE above. */
 @media (max-width: 520px) {
   .app-main-inner {
     padding-inline: 10px;
@@ -6379,18 +6308,6 @@ select {
     padding: 14px 10px;
   }
 
-  /* The analysis page's tables are still tables here. Smaller type and
-     tighter cells carry the same columns in less width, so their floor
-     comes down with them - less sideways travel for identical content. */
-  .analysis-table {
-    font-size: 0.72rem;
-    min-width: 520px;
-  }
-
-  .analysis-table th,
-  .analysis-table td {
-    padding: 7px 6px;
-  }
 
   /* A header that wraps to three lines doubles the height of the table's
      top edge before a single figure is visible. */
