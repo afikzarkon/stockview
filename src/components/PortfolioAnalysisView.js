@@ -795,23 +795,29 @@ function PortfolioAnalysisView({
           {/* Marks the slice the label describes - the end of the line the
               reader's eye follows back to check it. */}
           <circle cx={startX} cy={startY} r={2.2} fill={chart.grid} />
-          {/* ONE <text>, one <tspan> per line - not a <text> per line,
-              which were each centred on their own y and printed through
-              one another. Each line gets an explicit y, LINE_HEIGHT apart,
-              and the block is centred on the label's height. */}
-          <text x={textX} y={labelY} fill={chart.axis} textAnchor={textAnchor} dominantBaseline="central">
-            {lines.map((line, i) => (
-              <tspan
-                key={i}
-                x={textX}
-                y={labelY + (i - (lines.length - 1) / 2) * LINE_HEIGHT}
-                fontSize={compact ? 11 : line.bold ? 13 : 12}
-                fontWeight={line.bold ? 700 : 500}
-              >
-                {line.text}
-              </tspan>
-            ))}
-          </text>
+          {/* One <text> PER LINE, each at its own explicit y, LINE_HEIGHT
+              apart and centred as a block on the label's height.
+
+              Not one <text> with a <tspan> per line: iOS Safari lays out
+              absolutely positioned tspans inside RTL text as a single run,
+              so it printed the percentage on the name's line and broke
+              the name mid-word ("קופו" / "ת גמל"). Separate elements have
+              no shared run to reorder. */}
+          {lines.map((line, i) => (
+            <text
+              key={i}
+              x={textX}
+              y={labelY + (i - (lines.length - 1) / 2) * LINE_HEIGHT}
+              fill={chart.axis}
+              textAnchor={textAnchor}
+              dominantBaseline="central"
+              direction="rtl"
+              fontSize={compact ? 11 : line.bold ? 13 : 12}
+              fontWeight={line.bold ? 700 : 500}
+            >
+              {line.text}
+            </text>
+          ))}
         </g>
       );
     },
