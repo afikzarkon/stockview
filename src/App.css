@@ -2954,9 +2954,12 @@ h3 {
     padding: 10px 5px;
   }
   
+  /* Sized by its content: the donut drops its callouts on a phone (see
+     PortfolioAnalysisView.js) and is much shorter, so a fixed minimum
+     only left an empty band above and below it. */
   .pie-chart-container {
-    padding: 20px 15px;
-    min-height: 400px;
+    padding: 16px 12px;
+    min-height: 0;
   }
   
   .pie-chart-wrapper {

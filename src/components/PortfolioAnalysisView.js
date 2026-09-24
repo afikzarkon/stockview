@@ -50,6 +50,7 @@ import { useStockSectors } from '../hooks/useStockSectors';
 import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
 import { useDividendData } from '../hooks/useDividendData';
 import { useHistoricalPortfolioValue } from '../hooks/useHistoricalPortfolioValue';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { formatDate } from '../utils/formatters';
 import {
   computeFirstStockPurchaseDate,
@@ -155,6 +156,30 @@ function PortfolioAnalysisView({
   const chart = useMemo(() => getChartTheme(theme), [theme]);
   const chartTooltip = useMemo(() => tooltipStyles(theme), [theme]);
   const SECTOR_COLORS = chart.categorical;
+
+  // THE DISTRIBUTION DONUTS ON A PHONE.
+  //
+  // The callout labels need ~116px of margin on each side. On a phone that
+  // leaves the ring a few dozen pixels across, and the labels on each side
+  // collide and run off the card. The legend cards under each chart already
+  // carry the name, amount and share of every slice, so on a narrow screen
+  // the callouts are dropped and the ring takes the freed width instead;
+  // the legend is then the key, which is why its swatches must match the
+  // slice colours exactly.
+  const isNarrowScreen = useMediaQuery('(max-width: 768px)');
+  const donutLayout = isNarrowScreen
+    ? {
+        height: 240,
+        margin: { top: 8, right: 8, bottom: 8, left: 8 },
+        outerRadius: '92%',
+        innerRadius: '64%'
+      }
+    : {
+        height: 360,
+        margin: { top: 20, right: 116, bottom: 20, left: 116 },
+        outerRadius: '58%',
+        innerRadius: '42%'
+      };
   // PERFORMANCE OVER TIME - computed on the fly, not read back from saved
   // snapshots.
   //
@@ -1277,10 +1302,10 @@ function PortfolioAnalysisView({
             <h2 className="section-title">גרף עוגה - פיזור התיק</h2>
             <div className="pie-chart-container">
               <div className="pie-chart-wrapper">
-                <ResponsiveContainer width="100%" height={360}>
+                <ResponsiveContainer width="100%" height={donutLayout.height}>
                   {/* The margin is what the callout labels live in - without
                       it they are drawn outside the SVG and simply clipped. */}
-                  <PieChart margin={{ top: 20, right: 116, bottom: 20, left: 116 }} key="pie-chart">
+                  <PieChart margin={donutLayout.margin} key="pie-chart">
                     <Pie
                       key="pie-data"
                       data={[
@@ -1317,12 +1342,12 @@ function PortfolioAnalysisView({
                       ]}
                       cx="50%"
                       cy="50%"
-                      outerRadius="58%"
-                      innerRadius="42%"
+                      outerRadius={donutLayout.outerRadius}
+                      innerRadius={donutLayout.innerRadius}
                       paddingAngle={1}
                       fill={chart.accent}
                       dataKey="value"
-                      label={renderSliceCallout}
+                      label={isNarrowScreen ? false : renderSliceCallout}
                       labelLine={false}
                       isAnimationActive={false}
                     >
@@ -1335,7 +1360,7 @@ function PortfolioAnalysisView({
 
                 <div className="pie-labels-side">
                   <div className="pie-label-item">
-                    <div className="label-color" style={{ backgroundColor: '#667eea' }}></div>
+                    <div className="label-color" style={{ backgroundColor: chart.categorical[0] }}></div>
                     <div className="label-content">
                       <div className="label-name">בורסה ישראלית</div>
                       <div className="label-value">{formatPriceWithSign(analysis.exchangeDistribution.israeli.value)} ₪</div>
@@ -1343,7 +1368,7 @@ function PortfolioAnalysisView({
                     </div>
                   </div>
                   <div className="pie-label-item">
-                    <div className="label-color" style={{ backgroundColor: '#764ba2' }}></div>
+                    <div className="label-color" style={{ backgroundColor: chart.categorical[1] }}></div>
                     <div className="label-content">
                       <div className="label-name">בורסה אמריקאית</div>
                       <div className="label-value">{formatPriceWithSign(analysis.exchangeDistribution.american.value)} ₪</div>
@@ -1351,7 +1376,7 @@ function PortfolioAnalysisView({
                     </div>
                   </div>
                   <div className="pie-label-item">
-                    <div className="label-color" style={{ backgroundColor: '#16a34a' }}></div>
+                    <div className="label-color" style={{ backgroundColor: chart.categorical[2] }}></div>
                     <div className="label-content">
                       <div className="label-name">קופות גמל</div>
                       <div className="label-value">{formatPriceWithSign(analysis.exchangeDistribution.pension.value)} ₪</div>
@@ -1359,7 +1384,7 @@ function PortfolioAnalysisView({
                     </div>
                   </div>
                   <div className="pie-label-item">
-                    <div className="label-color" style={{ backgroundColor: '#f59e0b' }}></div>
+                    <div className="label-color" style={{ backgroundColor: chart.categorical[3] }}></div>
                     <div className="label-content">
                       <div className="label-name">קרנות כספיות</div>
                       <div className="label-value">{formatPriceWithSign(analysis.exchangeDistribution.cashFunds.value)} ₪</div>
@@ -1367,7 +1392,7 @@ function PortfolioAnalysisView({
                     </div>
                   </div>
                   <div className="pie-label-item">
-                    <div className="label-color" style={{ backgroundColor: '#0ea5e9' }}></div>
+                    <div className="label-color" style={{ backgroundColor: chart.categorical[4] }}></div>
                     <div className="label-content">
                       <div className="label-name">עו"ש</div>
                       <div className="label-value">{formatPriceWithSign(analysis.exchangeDistribution.bank.value)} ₪</div>
@@ -1375,7 +1400,7 @@ function PortfolioAnalysisView({
                     </div>
                   </div>
                   <div className="pie-label-item">
-                    <div className="label-color" style={{ backgroundColor: '#ec4899' }}></div>
+                    <div className="label-color" style={{ backgroundColor: chart.categorical[5] }}></div>
                     <div className="label-content">
                       <div className="label-name">קופת חיסכון בבנק</div>
                       <div className="label-value">{formatPriceWithSign(analysis.exchangeDistribution.bankSavings.value)} ₪</div>
@@ -1399,8 +1424,8 @@ function PortfolioAnalysisView({
               <>
                 <div className="pie-chart-container">
                   <div className="pie-chart-wrapper">
-                    <ResponsiveContainer width="100%" height={360}>
-                      <PieChart margin={{ top: 20, right: 116, bottom: 20, left: 116 }}>
+                    <ResponsiveContainer width="100%" height={donutLayout.height}>
+                      <PieChart margin={donutLayout.margin}>
                         <Pie
                           data={sectorDistribution.sectors.map((s) => ({
                             name: sectorLabelHe(s.sectorKey),
@@ -1408,11 +1433,11 @@ function PortfolioAnalysisView({
                           }))}
                           cx="50%"
                           cy="50%"
-                          outerRadius="58%"
-                          innerRadius="42%"
+                          outerRadius={donutLayout.outerRadius}
+                          innerRadius={donutLayout.innerRadius}
                           paddingAngle={1}
                           dataKey="value"
-                          label={renderSliceCallout}
+                          label={isNarrowScreen ? false : renderSliceCallout}
                           labelLine={false}
                           isAnimationActive={false}
                         >
