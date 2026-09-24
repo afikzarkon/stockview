@@ -28,6 +28,7 @@ import AuthView from './components/AuthView';
 import AppShell from './components/AppShell';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import BetaNoticeModal from './components/BetaNoticeModal';
+import { buildSamplePortfolio } from './utils/samplePortfolio';
 
 // ONE CHUNK PER PAGE, fetched when that page is first opened.
 //
@@ -180,6 +181,13 @@ function App() {
   // that outlives the page.
   const [betaNoticeAcknowledged, setBetaNoticeAcknowledged] = useState(false);
 
+  // True while the demo portfolio from the empty home screen is on screen
+  // and not yet saved. It is loaded locally only: nothing reaches the server
+  // unless the user chooses to save it, and until then the automatic
+  // daily/monthly snapshots stay off so demo figures never land in their
+  // history.
+  const [isSamplePortfolio, setIsSamplePortfolio] = useState(false);
+
   const [legacyImportCompleted, setLegacyImportCompleted] = useState(false);
   const [legacyImportLoading, setLegacyImportLoading] = useState(false);
   const [legacyImportBanner, setLegacyImportBanner] = useState('');
@@ -268,7 +276,7 @@ function App() {
   // into the same gate as firstPriceCycleComplete so a snapshot is never
   // captured before the portfolio has actually finished loading either.
   useAutoSnapshot({
-    firstCycleComplete: firstPriceCycleComplete && portfolioReady,
+    firstCycleComplete: firstPriceCycleComplete && portfolioReady && !isSamplePortfolio,
     totalValueILS: analysis.summaryMetrics.overallTotalValueILS,
     breakdown: snapshotBreakdown,
     snapshots,
@@ -331,10 +339,23 @@ function App() {
   const handleLogout = async () => {
     await logout();
     resetPortfolio();
+    setIsSamplePortfolio(false);
     navigate('home');
     setLegacyImportBanner('');
     // Signing back in is a new arrival, so the disclaimer is due again.
     setBetaNoticeAcknowledged(false);
+  };
+
+  const handleLoadSamplePortfolio = () => {
+    replacePortfolio(buildSamplePortfolio());
+    // Unsaved, so the save button offers to keep it - replacePortfolio
+    // itself marks the portfolio as matching the server.
+    setHasUnsavedChanges(true);
+    setIsSamplePortfolio(true);
+  };
+
+  const handleSavePortfolio = async () => {
+    if (await savePortfolio()) setIsSamplePortfolio(false);
   };
 
   const handleLegacyImportOnce = async () => {
@@ -1085,7 +1106,7 @@ function App() {
     showLegacyImportButton,
     legacyImportLoading,
     handleLegacyImportOnce,
-    savePortfolio,
+    savePortfolio: handleSavePortfolio,
     hasUnsavedChanges,
     saveLoading,
     lastSavedAt,
@@ -1193,6 +1214,8 @@ function App() {
             {...toolbarProps}
             summary={summary}
             onNavigate={navigate}
+            onLoadSamplePortfolio={handleLoadSamplePortfolio}
+            isSamplePortfolio={isSamplePortfolio}
           />
         );
     }
