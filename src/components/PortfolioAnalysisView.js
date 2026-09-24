@@ -20,6 +20,7 @@ import {
   summarizePartialPoints
 } from '../utils/portfolioStats';
 import { buildPortfolioCashFlows } from '../utils/portfolioCashFlows';
+import { expandHoldingsWithClosedLots } from '../shared/transactionLedger';
 import { buildComparisonSeries, benchmarkPointsInILS } from '../utils/benchmarkComparison';
 import {
   MARKET_SEGMENTS,
@@ -126,6 +127,8 @@ const NAV_GROUPS = [
 // the page - used to resolve which tab is current.
 const NAV_KEYS = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.key));
 
+const EMPTY_TRANSACTIONS = [];
+
 function PortfolioAnalysisView({
   analysis,
   formatPriceWithSign,
@@ -143,6 +146,10 @@ function PortfolioAnalysisView({
   cashFunds = [],
   bankBalances = [],
   bankSavingsFunds = [],
+  // The transactions ledger. Sales recorded there come back into the
+  // performance history as closed slices (held until the sale date) and
+  // their proceeds as outflows, so a sale is never charted as a loss.
+  transactions = EMPTY_TRANSACTIONS,
   cpi = null,
   rebalanceTargets = null,
   rebalanceTargetsLoading = false,
@@ -300,9 +307,18 @@ function PortfolioAnalysisView({
   const setRequestedFxMode = (mode) =>
     setFxModeBySegment((prev) => ({ ...prev, [marketSegment]: mode }));
 
+  // History, not the current position: the open lots plus the units that
+  // recorded sales closed (shared/transactionLedger.js). Everything below
+  // that values the PAST reads these; anything about what is held NOW keeps
+  // reading israeliStocks/americanStocks directly.
+  const historyStocks = useMemo(
+    () => expandHoldingsWithClosedLots({ israeliStocks, americanStocks }, transactions),
+    [israeliStocks, americanStocks, transactions]
+  );
+
   const segmentHoldings = useMemo(
-    () => selectSegmentHoldings({ israeliStocks, americanStocks }, marketSegment),
-    [israeliStocks, americanStocks, marketSegment]
+    () => selectSegmentHoldings(historyStocks, marketSegment),
+    [historyStocks, marketSegment]
   );
 
   // WHERE "הכל" STARTS.
@@ -440,9 +456,11 @@ function PortfolioAnalysisView({
         includeLedgerOpeningBalances: true,
         // Same rate the holdings are valued at, or the contribution and the
         // value change it caused would not cancel.
-        americanExchangeRate: fixedExchangeRate
+        americanExchangeRate: fixedExchangeRate,
+        // Sale proceeds and dividends of the symbols in this segment.
+        transactions
       }),
-    [segmentHoldings, fixedExchangeRate]
+    [segmentHoldings, fixedExchangeRate, transactions]
   );
 
   const stats = useMemo(

@@ -20,6 +20,7 @@ import { useMonthlySnapshots } from './hooks/useMonthlySnapshots';
 import { useAutoSnapshot } from './hooks/useAutoSnapshot';
 import { buildItemizedMonthlyBreakdown } from './utils/monthlySnapshotBreakdown';
 import { useRebalanceTargets } from './hooks/useRebalanceTargets';
+import { useTransactions } from './hooks/useTransactions';
 import { useTheme } from './hooks/useTheme';
 import { monthKeyFromDate } from './utils/cpiTax';
 import { useRoute } from './hooks/useRoute';
@@ -51,6 +52,7 @@ const UsStocksPage = lazy(() => import('./components/pages/UsStocksPage'));
 const ProvidentFundsPage = lazy(() => import('./components/pages/ProvidentFundsPage'));
 const CashAndCheckingPage = lazy(() => import('./components/pages/CashAndCheckingPage'));
 const BankSavingsPage = lazy(() => import('./components/pages/BankSavingsPage'));
+const TransactionsView = lazy(() => import('./components/TransactionsView'));
 
 const LEGACY_KEYS = [
   'israeliStocks',
@@ -356,6 +358,52 @@ function App() {
 
   const handleSavePortfolio = async () => {
     if (await savePortfolio()) setIsSamplePortfolio(false);
+  };
+
+  // The ledger changes the portfolio ON THE SERVER (a sale reduces lots, a
+  // withdrawal adds a ledger entry) in the same database transaction that
+  // stores it. So unsaved edits go first - otherwise the server would apply
+  // the transaction to a stale copy - and the copy the server returns then
+  // replaces the one in memory.
+  const {
+    transactions,
+    loading: transactionsLoading,
+    preview: previewTransaction,
+    record: recordTransaction,
+    remove: removeTransaction
+  } = useTransactions(user, authHeader);
+
+  const adoptServerPortfolio = (portfolio) => {
+    if (!portfolio) return;
+    replacePortfolio({
+      ...portfolio,
+      israeliStocks: normalizeIsraeliStocksFromStorage(portfolio.israeliStocks || [])
+    });
+    setIsSamplePortfolio(false);
+  };
+
+  const saveBeforeLedgerChange = async () => {
+    if (!hasUnsavedChanges) return true;
+    return savePortfolio();
+  };
+
+  const handleRecordTransaction = async (tx) => {
+    if (!(await saveBeforeLedgerChange())) return { ok: false, error: 'יש שינויים שלא נשמרו והשמירה נכשלה' };
+    const result = await recordTransaction(tx);
+    if (result.ok) adoptServerPortfolio(result.portfolio);
+    return result;
+  };
+
+  const handlePreviewTransaction = async (tx) => {
+    if (!(await saveBeforeLedgerChange())) return { ok: false, error: 'יש שינויים שלא נשמרו והשמירה נכשלה' };
+    return previewTransaction(tx);
+  };
+
+  const handleDeleteTransaction = async (id) => {
+    if (!(await saveBeforeLedgerChange())) return { ok: false, error: 'יש שינויים שלא נשמרו והשמירה נכשלה' };
+    const result = await removeTransaction(id);
+    if (result.ok) adoptServerPortfolio(result.portfolio);
+    return result;
   };
 
   const handleLegacyImportOnce = async () => {
@@ -1161,6 +1209,7 @@ function App() {
         return (
           <MonthlyTrackerView
             {...holdings}
+            transactions={transactions}
             formatPriceWithSign={formatPriceWithSign}
             monthlySnapshots={monthlySnapshots}
             monthlySnapshotsLoading={monthlySnapshotsLoading}
@@ -1191,10 +1240,25 @@ function App() {
           />
         );
 
+      case 'transactions':
+        return (
+          <TransactionsView
+            {...holdings}
+            transactions={transactions}
+            transactionsLoading={transactionsLoading}
+            onRecordTransaction={handleRecordTransaction}
+            onPreviewTransaction={handlePreviewTransaction}
+            onDeleteTransaction={handleDeleteTransaction}
+            cpi={cpi}
+            formatPriceWithSign={formatPriceWithSign}
+          />
+        );
+
       case 'analytics':
         return (
           <PortfolioAnalysisView
             {...holdings}
+            transactions={transactions}
             theme={theme}
             analysis={analysis}
             formatPriceWithSign={formatPriceWithSign}

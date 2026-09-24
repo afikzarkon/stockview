@@ -34,6 +34,7 @@
 // The two are additive per category - a period can both have an
 // auto-detected purchase AND a manually-declared withdrawal.
 
+import { ledgerCashFlows } from '../shared/transactionLedger';
 import { calculateModifiedDietzReturn } from './modifiedDietz';
 
 export const MONTHLY_CATEGORY_KEYS = ['israeli', 'american', 'pension', 'cashFunds', 'bank', 'bankSavings'];
@@ -99,8 +100,10 @@ export function normalizeCategoryItems(categoryValue, categoryKey) {
 // flows - only point-in-time values). This means the adjustment is only as
 // good as the live data still being around: a deposit row the user has
 // since deleted, or a fund/stock removed entirely, can no longer be netted
-// out of an old comparison - a known, inherent limitation of not having a
-// separate immutable transaction ledger.
+// out of an old comparison. Sales and dividends recorded in the
+// transactions ledger ARE netted out: pass `liveHoldings.transactions`
+// together with lots expanded by expandHoldingsWithClosedLots, so a sold
+// position still has its purchase and its sale proceeds.
 export function buildLiveCashFlows(liveHoldings) {
   const flows = { israeli: new Map(), american: new Map(), pension: new Map(), bankSavings: new Map() };
   const push = (map, key, date, amount) => {
@@ -127,6 +130,11 @@ export function buildLiveCashFlows(liveHoldings) {
     (Array.isArray(fund.deposits) ? fund.deposits : []).forEach((d) => {
       push(flows.bankSavings, fund.fundName, d.date, d.amount || 0);
     });
+  });
+  (liveHoldings?.transactions || []).forEach((tx) => {
+    if (!tx || (tx.assetClass !== 'israeli' && tx.assetClass !== 'american')) return;
+    const [flow] = ledgerCashFlows([tx]);
+    if (flow) push(flows[tx.assetClass], tx.assetId, flow.date, flow.amount);
   });
   return flows;
 }

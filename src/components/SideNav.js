@@ -54,6 +54,12 @@ const ICONS = {
       <circle cx="8" cy="8" r="2" />
       <circle cx="16" cy="16" r="2" />
     </>
+  ),
+  ledger: (
+    <>
+      <path d="M7 4h11a1 1 0 0 1 1 1v15H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+      <path d="M9 9h6m-6 4h6m-6 4h3" />
+    </>
   )
 };
 
