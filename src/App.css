@@ -7706,3 +7706,106 @@ select {
     padding: 6px 10px;
   }
 }
+
+/* ------------------------------------------------------------------------
+   Smart Alerts (AlertsView.js) and the nav badge
+   ------------------------------------------------------------------------ */
+.side-nav-badge {
+  margin-inline-start: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--sw-radius-pill);
+  background: var(--sw-red);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.alerts-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.alert-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.alert-card {
+  border: 1px solid var(--sw-border);
+  border-inline-start-width: 4px;
+  border-radius: var(--sw-radius);
+  background: var(--sw-surface);
+  padding: 12px 16px;
+}
+
+.alert-card.severity-critical {
+  border-inline-start-color: var(--sw-red);
+}
+
+.alert-card.severity-warning {
+  border-inline-start-color: var(--sw-amber);
+}
+
+.alert-card.severity-info {
+  border-inline-start-color: var(--sw-cyan);
+}
+
+.alert-card.is-unread {
+  background: var(--sw-surface-2);
+}
+
+.alert-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.alert-card-title {
+  margin: 0;
+  font-size: 15px;
+  color: var(--sw-text);
+}
+
+.alert-card-time {
+  margin-inline-start: auto;
+  font-size: 12px;
+  color: var(--sw-text-muted);
+}
+
+.alert-card-message,
+.alert-card-recommendation {
+  margin: 8px 0 0;
+  color: var(--sw-text-secondary);
+  line-height: 1.5;
+}
+
+.alert-severity-badge {
+  border-radius: var(--sw-radius-pill);
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.alert-severity-badge.severity-critical {
+  background: var(--sw-red-soft);
+  color: var(--sw-red);
+}
+
+.alert-severity-badge.severity-warning {
+  background: var(--sw-amber-soft);
+  color: var(--sw-amber);
+}
+
+.alert-severity-badge.severity-info {
+  background: var(--sw-accent-soft);
+  color: var(--sw-accent);
+}

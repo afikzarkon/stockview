@@ -2,21 +2,28 @@
 // memory), plus the real Postgres store when TEST_DATABASE_URL points at a
 // throwaway database - e.g.
 //   TEST_DATABASE_URL=postgres://test@localhost:5433/stockview_test npm test
-// The Postgres database is WIPED (public schema dropped) before each use, so
-// the URL must name a database containing "test".
+// Each Postgres store lives in a throwaway schema; the URL must still name a
+// database containing "test".
 const { sqliteStore, openSqlite, pgStore } = require('../dataStore');
 
 const pgUrl = process.env.TEST_DATABASE_URL || '';
 
+// Each store gets its own schema (Jest runs test files in parallel, and
+// they must not wipe each other's tables), dropped again on close.
 async function makePgStore() {
   if (!/test/i.test(pgUrl)) throw new Error('TEST_DATABASE_URL must name a test database');
   process.env.DATABASE_SSL = '0';
   const { Pool } = require('pg');
+  const schema = `t_${process.pid}_${Math.random().toString(36).slice(2, 10)}`;
   const admin = new Pool({ connectionString: pgUrl, ssl: false });
-  await admin.query('DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;');
-  await admin.end();
-  const store = await pgStore(pgUrl);
-  store.close = () => store.pool.end();
+  await admin.query(`CREATE SCHEMA ${schema}`);
+  const sep = pgUrl.includes('?') ? '&' : '?';
+  const store = await pgStore(`${pgUrl}${sep}options=${encodeURIComponent(`-c search_path=${schema}`)}`);
+  store.close = async () => {
+    await store.pool.end();
+    await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+    await admin.end();
+  };
   return store;
 }
 

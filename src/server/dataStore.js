@@ -9,6 +9,7 @@ const {
   txToRow,
   rowToTx
 } = require('./transactionRows');
+const { makeSqliteSql, makePgSql } = require('./sqlAdapter');
 
 const emptyPortfolioObject = () => ({
   israeliStocks: [],
@@ -95,6 +96,12 @@ function openSqlite(dbPathOverride) {
 function sqliteStore(db) {
   return {
     kind: 'sqlite',
+    // Portable query interface used by the newer feature stores
+    // (featureStore.js) - see sqlAdapter.js.
+    sql: makeSqliteSql(db),
+    async listUserIds() {
+      return db.prepare('SELECT id FROM users ORDER BY id').all().map((r) => Number(r.id));
+    },
     async findUserIdByEmail(email) {
       return db.prepare('SELECT id FROM users WHERE email = ?').get(email) || null;
     },
@@ -619,6 +626,11 @@ async function pgStore(connectionString) {
   return {
     kind: 'postgres',
     pool,
+    sql: makePgSql(pool),
+    async listUserIds() {
+      const { rows } = await pool.query('SELECT id FROM users ORDER BY id');
+      return rows.map((r) => Number(r.id));
+    },
     async findUserIdByEmail(email) {
       const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
       return rows[0] || null;

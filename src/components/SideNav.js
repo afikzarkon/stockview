@@ -55,6 +55,12 @@ const ICONS = {
       <circle cx="16" cy="16" r="2" />
     </>
   ),
+  bell: (
+    <>
+      <path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16Z" />
+      <path d="M10 20a2 2 0 0 0 4 0" />
+    </>
+  ),
   ledger: (
     <>
       <path d="M7 4h11a1 1 0 0 1 1 1v15H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
@@ -97,7 +103,8 @@ export const NAV_ITEMS = ROUTES.filter((route) => !route.hidden);
 //
 // On narrow screens it becomes a bottom bar - thumb-reachable, and it
 // doesn't steal horizontal space a table needs.
-function SideNav({ activePage, onNavigate, user, onLogout, theme, onToggleTheme }) {
+// badges: { [routeKey]: count } - a count shown on that link (unread alerts).
+function SideNav({ activePage, onNavigate, user, onLogout, theme, onToggleTheme, badges = {} }) {
   return (
     <nav className="side-nav" aria-label="ניווט ראשי">
       <div className="side-nav-brand">
@@ -133,6 +140,11 @@ function SideNav({ activePage, onNavigate, user, onLogout, theme, onToggleTheme 
                     >
                       <NavIcon name={item.icon} />
                       <span className="side-nav-label">{item.label}</span>
+                      {badges[item.key] > 0 && (
+                        <span className="side-nav-badge" aria-label={`${badges[item.key]} חדשות`}>
+                          {badges[item.key] > 99 ? '99+' : badges[item.key]}
+                        </span>
+                      )}
                     </button>
                   </li>
                 );

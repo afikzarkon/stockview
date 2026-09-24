@@ -21,6 +21,7 @@ import { useAutoSnapshot } from './hooks/useAutoSnapshot';
 import { buildItemizedMonthlyBreakdown } from './utils/monthlySnapshotBreakdown';
 import { useRebalanceTargets } from './hooks/useRebalanceTargets';
 import { useTransactions } from './hooks/useTransactions';
+import { useAlerts } from './hooks/useAlerts';
 import { useTheme } from './hooks/useTheme';
 import { monthKeyFromDate } from './utils/cpiTax';
 import { useRoute } from './hooks/useRoute';
@@ -53,6 +54,7 @@ const ProvidentFundsPage = lazy(() => import('./components/pages/ProvidentFundsP
 const CashAndCheckingPage = lazy(() => import('./components/pages/CashAndCheckingPage'));
 const BankSavingsPage = lazy(() => import('./components/pages/BankSavingsPage'));
 const TransactionsView = lazy(() => import('./components/TransactionsView'));
+const AlertsView = lazy(() => import('./components/AlertsView'));
 
 const LEGACY_KEYS = [
   'israeliStocks',
@@ -372,6 +374,18 @@ function App() {
     record: recordTransaction,
     remove: removeTransaction
   } = useTransactions(user, authHeader);
+
+  const {
+    alerts,
+    unreadCount: unreadAlertCount,
+    loading: alertsLoading,
+    markRead: markAlertRead,
+    markAllRead: markAllAlertsRead,
+    loadCalendar,
+    loadSettings: loadAlertSettings,
+    saveSettings: saveAlertSettings,
+    refreshNow: refreshAlertsNow
+  } = useAlerts(user, authHeader);
 
   const adoptServerPortfolio = (portfolio) => {
     if (!portfolio) return;
@@ -1240,6 +1254,22 @@ function App() {
           />
         );
 
+      case 'alerts':
+        return (
+          <AlertsView
+            alerts={alerts}
+            unreadCount={unreadAlertCount}
+            alertsLoading={alertsLoading}
+            onMarkRead={markAlertRead}
+            onMarkAllRead={markAllAlertsRead}
+            loadCalendar={loadCalendar}
+            loadSettings={loadAlertSettings}
+            saveSettings={saveAlertSettings}
+            refreshNow={refreshAlertsNow}
+            formatPriceWithSign={formatPriceWithSign}
+          />
+        );
+
       case 'transactions':
         return (
           <TransactionsView
@@ -1300,6 +1330,7 @@ function App() {
         onLogout={handleLogout}
         theme={theme}
         onToggleTheme={toggleTheme}
+        badges={{ alerts: unreadAlertCount }}
       >
         {/* Only the lazily-loaded pages ever suspend; the dashboard is in the
             initial bundle and renders straight through this. */}

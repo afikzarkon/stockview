@@ -18,6 +18,12 @@ const { mountDividendRoutes } = require('./server/dividendRoutes');
 const { mountStockSearchRoutes } = require('./server/stockSearchRoutes');
 const { mountHistoricalPricesRoutes } = require('./server/historicalPricesRoutes');
 const { mountTransactionRoutes } = require('./server/transactionRoutes');
+const { initFeatureStore } = require('./server/featureStore');
+const { createMarketData } = require('./server/alertEngine');
+const { mountAlertRoutes } = require('./server/alertRoutes');
+const { createJobRunner } = require('./server/jobRunner');
+const { createJobHandlers } = require('./server/jobs');
+const { mountInternalJobRoutes } = require('./server/internalJobRoutes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -37,13 +43,24 @@ mountHistoricalPricesRoutes(app);
 const PORT = Number(process.env.PORT) || 5000;
 
 initDataStore()
-  .then((store) => {
+  .then(async (store) => {
+    const features = await initFeatureStore(store);
+    const marketData = createMarketData();
+    const runner = createJobRunner({
+      features,
+      handlers: createJobHandlers({ store, features, marketData })
+    });
     mountAuthRoutes(app, store);
     mountPortfolioRoutes(app, store);
     mountSnapshotRoutes(app, store);
     mountMonthlySnapshotRoutes(app, store);
     mountRebalanceRoutes(app, store);
     mountTransactionRoutes(app, store);
+    mountAlertRoutes(app, { store, features, marketData });
+    mountInternalJobRoutes(app, { features, runner });
+    // Drains due jobs while the process is up; the external scheduler covers
+    // the time the host is asleep. JOBS_POLL=0 turns the poller off.
+    if (process.env.JOBS_POLL !== '0') runner.start();
     console.log(`DB: ${store.kind === 'postgres' ? 'PostgreSQL (DATABASE_URL)' : 'SQLite local file'}`);
     app.listen(PORT, () => {
       console.log(`StockView API http://localhost:${PORT}`);
