@@ -170,9 +170,9 @@ function RecommendationsView({
                     </div>
                     <p className="alert-card-message">{rec.rationale}</p>
                     <p className="alert-card-recommendation">
-                      סכום: {formatPriceWithSign(rec.amountILS)} ₪
-                      {rec.estTaxILS ? ` · מס משוער ${formatPriceWithSign(rec.estTaxILS)} ₪` : ''}
-                      {rec.estTaxSavedILS ? ` · חיסכון מס משוער ${formatPriceWithSign(rec.estTaxSavedILS)} ₪` : ''}
+                      סכום: <bdi>{formatPriceWithSign(rec.amountILS)} ₪</bdi>
+                      {rec.estTaxILS ? <> · מס משוער <bdi>{formatPriceWithSign(rec.estTaxILS)} ₪</bdi></> : null}
+                      {rec.estTaxSavedILS ? <> · חיסכון מס משוער <bdi>{formatPriceWithSign(rec.estTaxSavedILS)} ₪</bdi></> : null}
                       {rec.blocked ? ` · חסום עד ${rec.blocked.until}` : ''}
                     </p>
                     <button type="button" className="benchmark-toggle-button" onClick={() => setShowWhy(showWhy === rec.id ? null : rec.id)} aria-expanded={showWhy === rec.id}>

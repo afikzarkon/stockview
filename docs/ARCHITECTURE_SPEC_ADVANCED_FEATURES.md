@@ -844,3 +844,23 @@ CREATE TABLE sector_benchmarks (
 ---
 
 *All recommendations produced by these modules are rule-based, informational outputs and not investment or tax advice. The UI must say so wherever a Sell/Trim/Harvest action or a valuation verdict is shown.*
+
+---
+
+## 7. Implementation notes (as built)
+
+All four steps plus the Step 0 ledger are implemented. Where the build differs from the design above, this section says so.
+
+| Area | Where | Notes |
+|---|---|---|
+| Transactions ledger | `src/shared/transactionLedger.js`, `server/transactionRoutes.js`, `/transactions` | Lot rows hold only what is still owned. Each SELL stores a snapshot of the units it closed, and `expandHoldingsWithClosedLots` brings them back for history. Withdrawals are negative entries in the account's `deposits` list. The ledger row and the portfolio change are saved in one DB transaction. |
+| Shared code | `src/shared/*.js` | CommonJS without spread or `class extends`, so the untranspiled server and the CRA bundle can both use it. `sharedModules.test.js` enforces this. |
+| New tables | `server/featureStore.js` over `server/sqlAdapter.js` | Written once for SQLite and Postgres. Integration tests run on both when `TEST_DATABASE_URL` is set. |
+| Holdings index | `server/holdingsIndex.js` | **Deviation:** derived from the stored portfolios on each scan rather than a `user_holdings` table, so it can never drift. |
+| Alerts | `shared/anomalyDetection.js`, `server/alertEngine.js`, `/alerts` | As specified. TASE volume field names are read defensively (the TASE API is undocumented). |
+| Event calendar | `shared/eventCalendar.js` | **US holdings only.** TASE dates come from Maya, which has no public API. |
+| Scheduling | `.github/workflows/scheduled-jobs.yml`, `server/internalJobRoutes.js`, `src/worker.js` | Needs the `STOCKVIEW_API_URL` and `CRON_SECRET` repository secrets, and `CRON_SECRET` on the server. |
+| Exact TWR / MWR | `utils/performanceReturns.js`, analytics page | Exact TWR ignores the difference between a sale's fill price and that day's close. |
+| Recommendations | `utils/recommendationEngine.js`, `/recommendations` | **Deviation:** computed in the browser (where CPI and holdings already live) rather than `GET /api/recommendations`. Preferences are stored via `/api/preferences/recommendations`. |
+| Monthly report | `server/report/*`, `/reports` | The HTML is built with template strings rather than React SSR, since the server is not transpiled. Storage is Supabase when configured, otherwise local disk. E-mail via Resend is opt-in. |
+| Valuation | `shared/valuationMultiples.js`, `utils/dcfValuation.js`, `server/fundamentals.js`, `/valuation` | Statements come from Yahoo's timeseries (about 4-5 years) or FMP with `FMP_API_KEY`. The sector benchmark is the median of Yahoo's peer list. **US symbols only.** |

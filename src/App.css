@@ -7910,3 +7910,13 @@ select {
   outline-offset: -2px;
   font-weight: 700;
 }
+
+.inline-input {
+  padding: 8px 12px;
+  border: 1px solid var(--sw-border-strong);
+  border-radius: var(--sw-radius-sm);
+  background: var(--sw-surface);
+  color: var(--sw-text);
+  font: inherit;
+  width: 120px;
+}

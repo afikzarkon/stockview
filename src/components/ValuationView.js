@@ -13,6 +13,10 @@ const METRIC_LABELS = { PE: 'מכפיל רווח (P/E)', PS: 'מכפיל מכי�
 export const VERDICT_LABELS = { UNDERVALUED: 'מתומחרת בחסר', FAIRLY_VALUED: 'מתומחרת בהוגן', OVERVALUED: 'מתומחרת ביתר', 'N/A': 'לא ניתן לקבוע' };
 const VERDICT_TONE = { UNDERVALUED: 'profit-positive', OVERVALUED: 'profit-negative', FAIRLY_VALUED: '', 'N/A': '' };
 
+// Numbers are isolated as left-to-right runs so a sign never jumps to the
+// wrong side inside right-to-left text ("-82.8%", not "82.8%-").
+const Num = ({ children }) => <bdi dir="ltr">{children}</bdi>;
+
 const fmtX = (v) => (v === null || v === undefined || !Number.isFinite(v) ? 'N/M' : `${v.toFixed(1)}x`);
 const fmtPct = (v, digits = 1) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(digits)}%`);
 const fmtMoney = (v, currency = '') => {
@@ -59,15 +63,20 @@ function MultiplesTable({ rows }) {
           {rows.map((row) => (
             <tr key={row.metric}>
               <td>{METRIC_LABELS[row.metric]}</td>
-              <td>{fmtX(row.current)}</td>
+              <td><Num>{fmtX(row.current)}</Num></td>
               <td>
-                {fmtX(row.avg5y)} <span className="muted-note">({fmtPct(row.vsHistoryPct, 0)})</span>
+                <Num>{fmtX(row.avg5y)}</Num> <span className="muted-note">(<Num>{fmtPct(row.vsHistoryPct, 0)}</Num>)</span>
               </td>
-              <td>{fmtX(row.median5y)}</td>
+              <td><Num>{fmtX(row.median5y)}</Num></td>
               <td>{row.percentile5y === null ? '—' : `${Math.round(row.percentile5y)}`}</td>
               <td>
-                {fmtX(row.sectorMedian)}
-                {row.peerCount ? <span className="muted-note"> ({row.peerCount} חברות, {fmtPct(row.vsSectorPct, 0)})</span> : null}
+                <Num>{fmtX(row.sectorMedian)}</Num>
+                {row.peerCount ? (
+                  <span className="muted-note">
+                    {' '}
+                    ({row.peerCount} חברות, <Num>{fmtPct(row.vsSectorPct, 0)}</Num>)
+                  </span>
+                ) : null}
               </td>
               <td>
                 <RangeBar row={row} />
@@ -180,13 +189,13 @@ function DcfCalculator({ data }) {
             <div className="distribution-grid">
               <div className="distribution-card">
                 <h3>שווי פנימי למניה</h3>
-                <div className="distribution-value">{fmtMoney(result.intrinsicPerShare, currency)}</div>
-                <div className="distribution-percentage">מחיר שוק {fmtMoney(result.marketPrice, data.currency)}</div>
+                <div className="distribution-value"><Num>{fmtMoney(result.intrinsicPerShare, currency)}</Num></div>
+                <div className="distribution-percentage">מחיר שוק <Num>{fmtMoney(result.marketPrice, data.currency)}</Num></div>
               </div>
               <div className="distribution-card">
                 <h3>מרווח ביטחון</h3>
-                <div className={`distribution-value ${VERDICT_TONE[result.verdict]}`}>{fmtPct(result.marginOfSafety * 100)}</div>
-                <div className="distribution-percentage">אפסייד {fmtPct(result.upside * 100)}</div>
+                <div className={`distribution-value ${VERDICT_TONE[result.verdict]}`}><Num>{fmtPct(result.marginOfSafety * 100)}</Num></div>
+                <div className="distribution-percentage">אפסייד <Num>{fmtPct(result.upside * 100)}</Num></div>
               </div>
               <div className="distribution-card">
                 <h3>מסקנה</h3>
@@ -294,7 +303,7 @@ function ValuationView({ americanStocks = [] }) {
                   if (draft.trim()) setSymbol(draft.trim().toUpperCase());
                 }}
               >
-                <label htmlFor="val-symbol">סימול אחר</label> <input id="val-symbol" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="AAPL" />{' '}
+                <label htmlFor="val-symbol">סימול אחר</label> <input id="val-symbol" className="inline-input" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="AAPL" />{' '}
                 <button type="submit" className="benchmark-toggle-button">
                   הצגה
                 </button>
