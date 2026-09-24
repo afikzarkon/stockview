@@ -74,12 +74,14 @@ test('each asset card opens the page that holds its rows', () => {
 
   // One per asset class - the dashboard describes every part of the total
   // it shows, and each part is a doorway to its own page.
+  // In the order the dashboard now lays them out: the two markets
+  // first, then the accounts that do not move with the market.
   const expected = [
     'israeli-stocks',
     'us-stocks',
     'provident-funds',
-    'bank-savings',
-    'cash-and-checking'
+    'cash-and-checking',
+    'bank-savings'
   ];
   expect(links.length).toBe(expected.length);
 
@@ -178,7 +180,19 @@ test('shows export buttons for a populated portfolio and wires them to downloadP
   const excelSpy = jest.spyOn(exportReport, 'downloadPortfolioExcel').mockResolvedValue(undefined);
   const pdfSpy = jest.spyOn(exportReport, 'downloadPortfolioPdf').mockImplementation(() => {});
 
-  const { getByText } = render(<HomeView {...makeProps()} />);
+  // Supplied the way App.js supplies it: one payload covering the whole
+  // portfolio, so the report does not depend on which page it was
+  // triggered from.
+  const exportPortfolioData = {
+    summary,
+    israeliStocks,
+    americanStocks,
+    pensionFunds,
+    cashFunds,
+    bankBalances,
+    bankSavingsFunds: []
+  };
+  const { getByText } = render(<HomeView {...makeProps({ exportPortfolioData })} />);
 
   fireEvent.click(getByText('ייצוא Excel'));
   fireEvent.click(getByText('ייצוא PDF'));
@@ -188,8 +202,8 @@ test('shows export buttons for a populated portfolio and wires them to downloadP
   // microtask than a plain sync call would, so the spies aren't called yet
   // synchronously after fireEvent.click.
   await waitFor(() => {
-    expect(pdfSpy).toHaveBeenCalledWith({ summary, israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances, bankSavingsFunds: [] });
-    expect(excelSpy).toHaveBeenCalledWith({ summary, israeliStocks, americanStocks, pensionFunds, cashFunds, bankBalances, bankSavingsFunds: [] });
+    expect(pdfSpy).toHaveBeenCalledWith(exportPortfolioData);
+    expect(excelSpy).toHaveBeenCalledWith(exportPortfolioData);
   });
 
   excelSpy.mockRestore();

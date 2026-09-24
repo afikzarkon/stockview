@@ -1,10 +1,12 @@
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import IsraeliStocksPage from './IsraeliStocksPage';
 import UsStocksPage from './UsStocksPage';
 import ProvidentFundsPage from './ProvidentFundsPage';
 import CashAndCheckingPage from './CashAndCheckingPage';
 import BankSavingsPage from './BankSavingsPage';
 import { calculatePortfolioSummary } from '../../utils/portfolioSummary';
+import * as exportReport from '../../utils/exportReport';
+import { buildPortfolioReportSections } from '../../utils/exportData';
 
 // One page per asset class, carved out of the old single-page dashboard.
 // What matters here is the split itself: each page shows its own holdings
@@ -167,4 +169,69 @@ test('the cash page shows the money-market funds and the current accounts togeth
   const { container } = render(<CashAndCheckingPage {...makeProps()} />);
   const titles = Array.from(container.querySelectorAll('.section-title')).map((el) => el.textContent);
   expect(titles).toEqual(expect.arrayContaining(['כספית שקלית', 'עו"ש']));
+});
+
+// A "portfolio report" has to be the portfolio.
+//
+// Each page used to hand the export its own slice - the US page sent only
+// americanStocks, the three ledger pages sent no shares at all - so which
+// page you happened to press the button on decided what the report
+// contained, and exporting from the provident-funds page produced a report
+// with both stock markets silently missing from it. The data now comes
+// from App.js and every page passes it straight through.
+describe('the export covers the whole portfolio from every page', () => {
+  const fullExportData = {
+    summary,
+    israeliStocks,
+    americanStocks,
+    pensionFunds,
+    cashFunds,
+    bankBalances,
+    bankSavingsFunds
+  };
+
+  const PAGES = [
+    ['בורסה ישראלית', IsraeliStocksPage],
+    ['בורסה אמריקאית', UsStocksPage],
+    ['קופות גמל', ProvidentFundsPage],
+    ['כספית ועו"ש', CashAndCheckingPage],
+    ['חיסכון בבנק', BankSavingsPage]
+  ];
+
+  test.each(PAGES)('%s passes every asset class to the exporter', async (_label, Page) => {
+    const excelSpy = jest
+      .spyOn(exportReport, 'downloadPortfolioExcel')
+      .mockResolvedValue(undefined);
+
+    render(<Page {...makeProps({ exportPortfolioData: fullExportData })} />);
+    fireEvent.click(screen.getByText('ייצוא Excel'));
+
+    // The handler dynamically imports exportReport, so the call lands a
+    // microtask later.
+    await waitFor(() => expect(excelSpy).toHaveBeenCalled());
+    const sent = excelSpy.mock.calls[0][0];
+
+    expect(sent.israeliStocks).toHaveLength(1);
+    expect(sent.americanStocks).toHaveLength(1);
+    expect(sent.pensionFunds).toHaveLength(1);
+    expect(sent.cashFunds).toHaveLength(1);
+    expect(sent.bankBalances).toHaveLength(1);
+    expect(sent.bankSavingsFunds).toHaveLength(1);
+    expect(sent.summary).toBeTruthy();
+
+    excelSpy.mockRestore();
+  });
+
+  // The report builder is what turns that data into sections, so the two
+  // halves are checked together: full data in, both stock tables out.
+  test('both stock markets end up as itemized sections of the report', () => {
+    const sections = buildPortfolioReportSections(fullExportData);
+    const israeli = sections.find((s) => s.title === 'בורסה ישראלית');
+    const us = sections.find((s) => s.title === 'בורסה אמריקאית');
+
+    expect(israeli.isEmpty).toBe(false);
+    expect(israeli.rows).toHaveLength(1);
+    expect(us.isEmpty).toBe(false);
+    expect(us.rows).toHaveLength(1);
+  });
 });

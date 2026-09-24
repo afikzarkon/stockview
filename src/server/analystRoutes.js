@@ -4,51 +4,28 @@
 // the same crumb/cookie auth (yahooCrumb.js) and the same batched-POST +
 // per-symbol-cache shape. Public data, no user auth needed.
 const { fetchYahooAnalystData } = require('./yahooQuotes');
+const { createSymbolCache } = require('./symbolCache');
 
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h for resolved data: analyst consensus doesn't move minute to minute
-const FAILURE_CACHE_TTL_MS = 5 * 60 * 1000; // 5min for a failed lookup - see sectorRoutes.js for why
-const cache = new Map();
-const inFlight = new Map();
+// 6h for resolved data: analyst consensus doesn't move minute to minute,
+// so a few-hours-old target price is a far better answer than a null -
+// see symbolCache.js.
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_SYMBOLS_PER_REQUEST = 30;
 
-async function getCachedAnalystData(symbol) {
-  const cached = cache.get(symbol);
-  if (cached) {
-    const ttl = cached.isFailure ? FAILURE_CACHE_TTL_MS : CACHE_TTL_MS;
-    if (Date.now() - cached.ts < ttl) return cached.data;
-  }
-
-  const existingInFlight = inFlight.get(symbol);
-  if (existingInFlight) return existingInFlight;
-
-  const requestPromise = (async () => {
-    try {
-      const data = await fetchYahooAnalystData(symbol);
-      cache.set(symbol, { data, ts: Date.now(), isFailure: false });
-      return data;
-    } catch (err) {
-      console.warn('[analyst] failed to resolve symbol', { symbol, error: err && err.message });
-      const fallback = {
-        recommendationKey: null,
-        numberOfAnalystOpinions: null,
-        targetMeanPrice: null,
-        targetHighPrice: null,
-        targetLowPrice: null,
-        currentTrend: null,
-        upgradeHistory: []
-      };
-      cache.set(symbol, { data: fallback, ts: Date.now(), isFailure: true });
-      return fallback;
-    }
-  })();
-
-  inFlight.set(symbol, requestPromise);
-  try {
-    return await requestPromise;
-  } finally {
-    inFlight.delete(symbol);
-  }
-}
+const analystCache = createSymbolCache({
+  name: 'analyst',
+  ttlMs: CACHE_TTL_MS,
+  fetchOne: fetchYahooAnalystData,
+  fallback: () => ({
+    recommendationKey: null,
+    numberOfAnalystOpinions: null,
+    targetMeanPrice: null,
+    targetHighPrice: null,
+    targetLowPrice: null,
+    currentTrend: null,
+    upgradeHistory: []
+  })
+});
 
 function mountAnalystRoutes(app) {
   app.post('/api/analyst-recommendations', async (req, res) => {
@@ -64,7 +41,7 @@ function mountAnalystRoutes(app) {
     }
 
     try {
-      const results = await Promise.all(cleaned.map((symbol) => getCachedAnalystData(symbol)));
+      const results = await Promise.all(cleaned.map((symbol) => analystCache.get(symbol)));
       const recommendations = {};
       cleaned.forEach((symbol, i) => {
         recommendations[symbol] = results[i];
@@ -77,4 +54,4 @@ function mountAnalystRoutes(app) {
   });
 }
 
-module.exports = { mountAnalystRoutes };
+module.exports = { mountAnalystRoutes, analystCache };

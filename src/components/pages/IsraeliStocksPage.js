@@ -41,7 +41,6 @@ function IsraeliStocksPage({
       showAmericanColumns={showAmericanColumns}
       hasAnyData={israeliStocks.length > 0}
       hasLoadedLivePrices={hasLoadedLivePrices}
-      exportPortfolioData={{ summary, israeliStocks }}
       isEmpty={israeliStocks.length === 0}
       emptyMessage="עדיין לא נוספו ניירות ערך מהבורסה הישראלית"
       summaryCard={<IsraeliMarketCard summary={summary} formatPriceWithSign={formatPriceWithSign} />}

@@ -41,15 +41,6 @@ function HomeView({
     bankBalances.length > 0 ||
     bankSavingsFunds.length > 0;
 
-  const exportPortfolioData = {
-    summary,
-    israeliStocks,
-    americanStocks,
-    pensionFunds,
-    cashFunds,
-    bankBalances,
-    bankSavingsFunds
-  };
 
   const toneOf = (value) => (value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral');
 
@@ -91,7 +82,6 @@ function HomeView({
             title="תיק ההשקעות שלך"
             subtitle="סיכום התיק - לפירוט המלא של כל אפיק בחרו בו בתפריט או בכרטיס המתאים"
             hasAnyData={hasAnyData}
-            exportPortfolioData={exportPortfolioData}
             // The overview has no table to edit or to widen with extra
             // columns; those toggles belong on the asset pages.
             showTableControls={false}
@@ -161,12 +151,24 @@ function HomeView({
             <div className="portfolio-summary">
               <h2 className="portfolio-summary-title">סיכום התיק</h2>
               <div className="summary-grid-custom">
+                {/* THE ORDER IS AN ARGUMENT, read top to bottom.
+
+                    The two portfolio-wide statements come first and each
+                    takes a full row, because neither is about one market:
+                    what the whole thing is worth, then what was put into
+                    it against what it is worth now. Everything below them
+                    is a component of those two totals.
+
+                    Then the markets, paired - they are read against each
+                    other. Then the accounts that are not traded. */}
                 <div className="summary-row summary-row-single">
                   <CapitalStateCard {...cardProps} />
                 </div>
 
-                {/* The four cards the dashboard is for: the two markets,
-                    the net position across both, and the provident funds. */}
+                <div className="summary-row summary-row-single">
+                  <NetInvestmentCard {...cardProps} />
+                </div>
+
                 <div className="summary-row">
                   <CardLink to="israeli-stocks">
                     <IsraeliMarketCard {...cardProps} />
@@ -176,23 +178,22 @@ function HomeView({
                   </CardLink>
                 </div>
 
+                {/* The accounts that do not move with the market. Their
+                    values are inside the total at the top, so leaving them
+                    off would make the overview describe less than it is
+                    totalling. */}
                 <div className="summary-row">
-                  <NetInvestmentCard {...cardProps} />
                   <CardLink to="provident-funds">
                     <ProvidentFundsCard {...cardProps} />
                   </CardLink>
-                </div>
-
-                {/* The remaining two asset classes. They were missing from
-                    the dashboard even though their values are inside the
-                    total above, so the overview described only part of
-                    what it was totalling. */}
-                <div className="summary-row">
-                  <CardLink to="bank-savings">
-                    <BankSavingsCard {...cardProps} />
-                  </CardLink>
                   <CardLink to="cash-and-checking">
                     <CashAndCheckingCard {...cardProps} />
+                  </CardLink>
+                </div>
+
+                <div className="summary-row summary-row-single">
+                  <CardLink to="bank-savings">
+                    <BankSavingsCard {...cardProps} />
                   </CardLink>
                 </div>
               </div>

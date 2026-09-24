@@ -37,7 +37,6 @@ function UsStocksPage({
       showAmericanColumns={showAmericanColumns}
       hasAnyData={americanStocks.length > 0}
       hasLoadedLivePrices={hasLoadedLivePrices}
-      exportPortfolioData={{ summary, americanStocks }}
       isEmpty={americanStocks.length === 0}
       emptyMessage="עדיין לא נוספו מניות מהבורסה האמריקאית"
       summaryCard={

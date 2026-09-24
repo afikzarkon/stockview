@@ -40,13 +40,6 @@ function AccountsPage({
       isEditMode={isEditMode}
       showAmericanColumns={showAmericanColumns}
       hasAnyData={!isEmpty}
-      exportPortfolioData={{
-        summary,
-        pensionFunds,
-        cashFunds,
-        bankBalances,
-        bankSavingsFunds
-      }}
       isEmpty={isEmpty}
       emptyMessage={emptyMessage}
       summaryCard={summaryCard}

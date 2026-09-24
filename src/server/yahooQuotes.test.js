@@ -89,13 +89,16 @@ describe('fetchYahooQuoteSummary 429 handling (via fetchYahooAssetProfile)', () 
     expect(mockAxios.get).toHaveBeenCalledTimes(2);
   }, 10000);
 
-  test('a persistent 429 (fails twice) still surfaces as an error, not an infinite retry', async () => {
+  test('a persistent 429 gives up after a bounded number of retries rather than looping', async () => {
     const rateLimitError = { response: { status: 429 } };
     mockAxios.get.mockRejectedValue(rateLimitError);
 
     await expect(fetchYahooAssetProfileFresh('NVDA')).rejects.toBeTruthy();
-    expect(mockAxios.get).toHaveBeenCalledTimes(2); // one initial attempt + exactly one retry
-  }, 10000);
+    // One initial attempt plus one retry per entry in the backoff
+    // schedule, and then it stops - the caller falls back to the last
+    // known value instead of waiting indefinitely (see symbolCache.js).
+    expect(mockAxios.get).toHaveBeenCalledTimes(3);
+  }, 20000);
 
   test('a non-429/401/403 error propagates immediately without the 429 backoff delay', async () => {
     mockAxios.get.mockRejectedValue({ response: { status: 500 } });

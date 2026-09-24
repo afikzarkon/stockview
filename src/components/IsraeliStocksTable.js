@@ -13,6 +13,12 @@ import { sectorFromTaseBranch } from '../utils/israeliSectorMapping';
 // cell's data-label. Mobile turns every row into a card whose values each
 // need their own label; sourcing them from the same object is what stops a
 // renamed header from leaving a card labelled with the old name.
+// A grouped row has several lots behind it, so the columns that differ
+// per lot have no single value to print. An em dash says that; the row
+// expands to show the lots themselves.
+const PER_LOT = '—';
+const PER_LOT_TITLE = 'ערך שונה לכל רכישה - הרחיבו את הקיבוץ כדי לראות את הפירוט';
+
 const COL = {
   name: 'שם מנייה',
   date: 'תאריך קנייה',
@@ -344,28 +350,28 @@ function IsraeliStocksTable({
                           </button>
                           <IsraeliAssetCell stock={stocks[0]} />
                         </td>
-                        <td>פתח קיבוץ</td>
-                        <td>פתח קיבוץ</td>
-                        <td>{summary.totalQuantity}</td>
+                        <td data-label={COL.date} title={PER_LOT_TITLE}>{PER_LOT}</td>
+                        <td data-label={COL.buyPrice} title={PER_LOT_TITLE}>{PER_LOT}</td>
+                        <td data-label={COL.quantity}>{summary.totalQuantity}</td>
                         {showAdditionalData && <IsraeliClassificationFields stock={stocks[0]} />}
-                        <td>{formatPrice(summary.totalPurchaseValue)}</td>
-                        <td>
+                        <td data-label={COL.totalBuy}>{formatPrice(summary.totalPurchaseValue)}</td>
+                        <td data-label={COL.currentPrice}>
                           <PendingPriceValue
                             value={summary.averageCurrentPrice}
                             pending={pricesPending}
                             format={formatPrice}
                           />
                         </td>
-                        <td>
+                        <td data-label={COL.totalValue}>
                           <PendingPriceValue
                             value={summary.totalCurrentValue}
                             pending={pricesPending}
                             format={formatPrice}
                           />
                         </td>
-                        <td className={profitClass(summary.totalProfit)}>{formatPriceWithSign(summary.totalProfit)}</td>
+                        <td className={profitClass(summary.totalProfit)} data-label={COL.profit}>{formatPriceWithSign(summary.totalProfit)}</td>
                         {showAdditionalData && (
-                          <td colSpan={2} style={{ color: 'var(--sw-text-secondary)', fontSize: '0.85em' }}>ראה פירוט לכל שורה (מחיצים שונים)</td>
+                          <td colSpan={2} data-label={COL.indexAtBuy} title={PER_LOT_TITLE} style={{ color: 'var(--sw-text-secondary)', fontSize: '0.85em' }}>{PER_LOT}</td>
                         )}
                         {showAdditionalData && (() => {
                           // סכימה per-lot של המס/הרווח הריאלי (לא על הרווח המצרפי),
@@ -396,22 +402,22 @@ function IsraeliStocksTable({
                           const inflationarySum = summary.totalProfit - realGainSum;
                           return (
                             <>
-                              <td className="profit-negative">{formatPriceWithSign(-tax)}</td>
-                              <td className={profitClass(after)}>{formatPriceWithSign(after)}</td>
-                              <td className={profitClass(inflationarySum)}>{formatPriceWithSign(inflationarySum)}</td>
-                              <td className={profitClass(realGainSum)}>{formatPriceWithSign(realGainSum)}</td>
+                              <td className="profit-negative" data-label={COL.tax}>{formatPriceWithSign(-tax)}</td>
+                              <td className={profitClass(after)} data-label={COL.afterTax}>{formatPriceWithSign(after)}</td>
+                              <td className={profitClass(inflationarySum)} data-label={COL.inflationary}>{formatPriceWithSign(inflationarySum)}</td>
+                              <td className={profitClass(realGainSum)} data-label={COL.realGain}>{formatPriceWithSign(realGainSum)}</td>
                             </>
                           );
                         })()}
-                        <td>
+                        <td data-label={COL.profitPercent}>
                           <ValuePill value={summary.totalProfit}>{summary.profitPercentage}%</ValuePill>
                         </td>
-                        <td>
+                        <td data-label={COL.dailyPercent}>
                           <ValuePill value={stocks[0].dailyChangePercent}>
                             {formatDailyChangePercent(stocks[0].dailyChangePercent)}%
                           </ValuePill>
                         </td>
-                        <td className={profitClass(stocks[0].dailyChangePercent)}>
+                        <td className={profitClass(stocks[0].dailyChangePercent)} data-label={COL.dailyProfit}>
                           {formatPriceWithSign(((stocks[0].dailyChangePercent || 0) / 100) * summary.totalCurrentValue)} ₪
                         </td>
                         {isEditMode && <td></td>}

@@ -1065,9 +1065,23 @@ function App() {
     toggleGroup
   };
 
+  // THE EXPORT IS ALWAYS THE WHOLE PORTFOLIO.
+  //
+  // Built here, once, and handed to every page. Each page used to pass
+  // its own slice instead - the US page sent only americanStocks, the
+  // three ledger pages sent no shares at all - so which button you
+  // happened to press decided what the report contained. Exporting from
+  // the provident-funds page produced a "portfolio report" with both
+  // stock markets silently missing from it.
+  //
+  // A report that names itself after the portfolio has to be the
+  // portfolio, so the page it was triggered from is not an input to it.
+  const exportPortfolioData = { summary, ...holdings };
+
   // Save state, import state and the price-refresh indicator - everything
   // PortfolioActionsToolbar shows, on whichever page is showing it.
   const toolbarProps = {
+    exportPortfolioData,
     showLegacyImportButton,
     legacyImportLoading,
     handleLegacyImportOnce,

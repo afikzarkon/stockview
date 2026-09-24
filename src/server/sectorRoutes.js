@@ -5,45 +5,20 @@
 // day-to-day) and batched: the frontend asks for many symbols at once
 // instead of one request per holding.
 const { fetchYahooAssetProfile } = require('./yahooQuotes');
+const { createSymbolCache } = require('./symbolCache');
 
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h for a resolved sector
-const FAILURE_CACHE_TTL_MS = 5 * 60 * 1000; // 5min for a failed lookup - most failures (429s,
-// transient network errors) are temporary, so retry them much sooner than
-// we'd re-check a symbol that already resolved successfully.
-const cache = new Map();
-const inFlight = new Map();
+// 24h: a company's sector classification essentially never changes day
+// to day, which is also why a stale one is worth far more than a null -
+// see symbolCache.js.
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_SYMBOLS_PER_REQUEST = 30; // matches realistic portfolio sizes; guards against abuse
 
-async function getCachedSector(symbol) {
-  const cached = cache.get(symbol);
-  if (cached) {
-    const ttl = cached.isFailure ? FAILURE_CACHE_TTL_MS : CACHE_TTL_MS;
-    if (Date.now() - cached.ts < ttl) return cached.data;
-  }
-
-  const existingInFlight = inFlight.get(symbol);
-  if (existingInFlight) return existingInFlight;
-
-  const requestPromise = (async () => {
-    try {
-      const data = await fetchYahooAssetProfile(symbol);
-      cache.set(symbol, { data, ts: Date.now(), isFailure: false });
-      return data;
-    } catch (err) {
-      console.warn('[sectors] failed to resolve symbol', { symbol, error: err && err.message });
-      const fallback = { sector: null, industry: null };
-      cache.set(symbol, { data: fallback, ts: Date.now(), isFailure: true });
-      return fallback;
-    }
-  })();
-
-  inFlight.set(symbol, requestPromise);
-  try {
-    return await requestPromise;
-  } finally {
-    inFlight.delete(symbol);
-  }
-}
+const sectorCache = createSymbolCache({
+  name: 'sectors',
+  ttlMs: CACHE_TTL_MS,
+  fetchOne: fetchYahooAssetProfile,
+  fallback: () => ({ sector: null, industry: null })
+});
 
 function mountSectorRoutes(app) {
   // POST (not GET) because the symbol list can be longer than is
@@ -62,7 +37,7 @@ function mountSectorRoutes(app) {
     }
 
     try {
-      const results = await Promise.all(cleaned.map((symbol) => getCachedSector(symbol)));
+      const results = await Promise.all(cleaned.map((symbol) => sectorCache.get(symbol)));
       const sectors = {};
       cleaned.forEach((symbol, i) => {
         sectors[symbol] = results[i];
@@ -75,4 +50,4 @@ function mountSectorRoutes(app) {
   });
 }
 
-module.exports = { mountSectorRoutes };
+module.exports = { mountSectorRoutes, sectorCache };

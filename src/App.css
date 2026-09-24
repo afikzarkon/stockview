@@ -5507,8 +5507,11 @@ select {
   .stocks-table tbody tr {
     position: relative;
     margin-bottom: 12px;
-    padding: 4px 0;
-    border-radius: var(--sw-radius-lg);
+    /* No vertical padding: the first and last cells already carry their
+       own, and a card-level pad on top of that stretched every row by
+       8px of nothing. */
+    padding: 0;
+    border-radius: var(--sw-radius);
     border: 1px solid var(--sw-border);
     background: var(--sw-surface);
     box-shadow: var(--sw-shadow);
@@ -5520,14 +5523,35 @@ select {
   }
 
   /* The identifying cell becomes the card's header strip rather than one
-     more labelled line. */
+     more labelled line: it names the holding the rest of the card is
+     about, so it reads as a title and not as the first of twenty
+     equally-weighted facts. */
   .stocks-table td:first-child {
     position: static;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--sw-border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--sw-border-strong);
     background: var(--sw-surface-2);
     box-shadow: none;
     font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--sw-text);
+  }
+
+  /* The group expand control sits in that header strip. Given a real
+     target it stops being a 10px glyph the thumb has to find. */
+  .stocks-table td:first-child .expand-button {
+    flex-shrink: 0;
+    min-width: 32px;
+    min-height: 32px;
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--sw-radius-sm);
+    color: var(--sw-text-secondary);
   }
 
   .stocks-table td:first-child::before {
@@ -5537,24 +5561,48 @@ select {
   /* Every other cell: its column header on one side, its value on the
      other. data-label is set by the table components from the same header
      text, so the two can't drift apart. */
+  /* A two-column key/value grid rather than a flex row with
+     space-between. Flex sized each line to its own content, so the
+     values down a card landed on a different edge on every row and the
+     column of figures the card exists to show could not be scanned.
+     A grid gives every row the same split, so labels share one edge and
+     values share the other.
+
+     The label track is capped rather than fixed: a long header wraps
+     inside its own column instead of pushing the value off the card,
+     and a short one does not leave a gulf in the middle. */
   .stocks-table td:not(:first-child) {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 9px 14px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 10px;
+    padding: 8px 14px;
     text-align: start;
     border-bottom: 1px solid var(--sw-border);
     white-space: normal;
+    min-height: 0;
   }
 
   .stocks-table td:not(:first-child)::before {
     content: attr(data-label);
-    flex-shrink: 0;
     font-size: 0.76rem;
     font-weight: 600;
+    line-height: 1.35;
     letter-spacing: 0.02em;
     color: var(--sw-text-secondary);
+  }
+
+  /* The figure itself: tabular numerals so the digits in a column line
+     up, and end-aligned against the shared right edge the grid gives
+     them. */
+  .stocks-table td:not(:first-child) {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A row whose value is a pill or a button should not stretch it to
+     the full track - it sits at the same edge as a plain figure. */
+  .stocks-table td:not(:first-child) > * {
+    justify-self: end;
   }
 
   .stocks-table tbody tr td:last-child {

@@ -210,7 +210,15 @@ async function fetchYahooSymbolSearch(query, count = 8) {
 // between requests, and a 429 gets one backoff-and-retry, the same as a
 // stale crumb does.
 const QUOTE_SUMMARY_MIN_SPACING_MS = 350;
-const QUOTE_SUMMARY_429_BACKOFF_MS = 1500;
+// A 429 gets more than one chance. Yahoo rate-limits a burst rather than
+// blocking a client, so the limit typically clears within a few seconds -
+// but a single fixed retry lands inside the same burst often enough that
+// a whole portfolio of symbols would give up together and cache nulls.
+// Escalating waits with jitter spread the retries out instead of
+// re-synchronising every symbol onto the same instant. Two retries, not
+// more: past a few seconds the caller is better served by the last known
+// value (see symbolCache.js) than by waiting longer for a fresh one.
+const QUOTE_SUMMARY_429_BACKOFF_MS = [1200, 3000];
 let quoteSummaryQueueTail = Promise.resolve();
 
 function scheduleOnQuoteSummaryQueue(task) {
@@ -266,19 +274,26 @@ async function fetchYahooWithCrumbRetry(url, extraParams) {
     }
   };
 
-  try {
-    return await scheduleOnQuoteSummaryQueue(attemptWithCrumbRetry);
-  } catch (err) {
-    const status = err.response && err.response.status;
-    if (status === 429) {
-      // Back off briefly and retry once, outside the immediate queue
-      // position - a short burst of concurrent symbol lookups is the
-      // typical cause here, not a sustained block.
-      await new Promise((resolve) => setTimeout(resolve, QUOTE_SUMMARY_429_BACKOFF_MS));
+  // Each retry goes back through the queue rather than jumping it, so a
+  // symbol that is being retried still keeps its spacing from whatever
+  // else is in flight.
+  let lastError;
+  for (let attempt = 0; attempt <= QUOTE_SUMMARY_429_BACKOFF_MS.length; attempt += 1) {
+    try {
       return await scheduleOnQuoteSummaryQueue(attemptWithCrumbRetry);
+    } catch (err) {
+      lastError = err;
+      const status = err.response && err.response.status;
+      const waitMs = QUOTE_SUMMARY_429_BACKOFF_MS[attempt];
+      if (status !== 429 || waitMs === undefined) throw err;
+      // Up to 40% jitter. Without it every symbol in a rate-limited
+      // batch waits the identical interval and hits Yahoo together
+      // again, which is the burst that caused the 429 in the first place.
+      const jittered = waitMs * (1 + Math.random() * 0.4);
+      await new Promise((resolve) => setTimeout(resolve, jittered));
     }
-    throw err;
   }
+  throw lastError;
 }
 
 async function fetchYahooQuoteSummary(symbol, modules) {

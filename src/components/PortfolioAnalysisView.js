@@ -649,48 +649,84 @@ function PortfolioAnalysisView({
       const angle = -midAngle * radian;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
+      const isRight = cos >= 0;
 
-      // Slice edge -> elbow -> a short horizontal run into the text.
+      // THE LABEL RAIL.
+      //
+      // Every label on a side shares one x, a fixed distance beyond the
+      // ring, and the leader runs horizontally from the slice out to it.
+      //
+      // The labels used to be placed at their own angle - a little way
+      // past the slice along its own radius - which put the ones near
+      // the top and bottom of the circle almost directly above and below
+      // the centre, printed straight over the ring. A rail cannot do
+      // that: it is outside the widest point of the ring by
+      // construction, so no label can land on the donut whatever angle
+      // its slice sits at.
+      //
+      // It also lines the labels up with each other, which is what makes
+      // several of them readable as a set rather than as text scattered
+      // around a circle.
+      const ELBOW_GAP = 12; // slice edge -> elbow
+      const RAIL_GAP = 34; // ring edge -> rail
+      const TEXT_GAP = 6; // rail -> first character
+
       const startX = cx + outerRadius * cos;
       const startY = cy + outerRadius * sin;
-      const elbowX = cx + (outerRadius + 14) * cos;
-      const elbowY = cy + (outerRadius + 14) * sin;
-      const isRight = cos >= 0;
-      const endX = elbowX + (isRight ? 12 : -12);
-      const textX = endX + (isRight ? 5 : -5);
+      const elbowX = cx + (outerRadius + ELBOW_GAP) * cos;
+      const elbowY = cy + (outerRadius + ELBOW_GAP) * sin;
+      const railX = isRight ? cx + outerRadius + RAIL_GAP : cx - outerRadius - RAIL_GAP;
+      const textX = isRight ? railX + TEXT_GAP : railX - TEXT_GAP;
+
+      // TEXT-ANCHOR IS RESOLVED AGAINST THE READING DIRECTION, and this
+      // document is RTL - so `start` pins the text's RIGHT edge and
+      // `end` pins its LEFT edge, the opposite of the LTR intuition.
+      //
+      // Getting this backwards is what put the labels back on top of the
+      // donut even after they were moved out to the rail: a label on the
+      // right of the chart was pinned by its right edge and grew leftwards
+      // across the ring, and the one on the left grew rightwards into it.
+      // What is wanted is the edge NEAREST the chart pinned to the rail,
+      // so the label always grows away from the centre.
+      const textAnchor = isRight ? 'end' : 'start';
 
       return (
         <g>
           <polyline
-            points={`${startX},${startY} ${elbowX},${elbowY} ${endX},${elbowY}`}
+            points={`${startX},${startY} ${elbowX},${elbowY} ${railX},${elbowY}`}
             stroke={chart.grid}
             strokeWidth={1.2}
             fill="none"
           />
-          {/* The arrowhead points back at the slice the label describes -
-              the direction the reader's eye has to travel to check it. */}
+          {/* Marks the slice the label describes - the end of the line the
+              reader's eye follows back to check it. */}
           <circle cx={startX} cy={startY} r={2.2} fill={chart.grid} />
+          {/* ONE <text>, TWO <tspan>s - not two <text> elements.
+
+              As two elements each was centred on its own y, six pixels
+              either side of the elbow. At 13px and 12px their line boxes
+              are about nineteen pixels tall, so thirteen pixels of
+              separation left them overlapping by six - the name and the
+              amount printed through each other on every slice.
+
+              Spacing tspans in `em` makes the gap a property of the type
+              rather than a constant that has to be re-derived whenever a
+              font size changes: 1.45em of the second line's own size is a
+              normal line height, so the two can no longer collide however
+              the sizes are adjusted. */}
           <text
             x={textX}
-            y={elbowY - 6}
+            y={elbowY}
             fill={chart.axis}
-            fontSize={13}
-            fontWeight={700}
-            textAnchor={isRight ? 'start' : 'end'}
+            textAnchor={textAnchor}
             dominantBaseline="central"
           >
-            {name}
-          </text>
-          <text
-            x={textX}
-            y={elbowY + 7}
-            fill={chart.axis}
-            fontSize={12}
-            fontWeight={500}
-            textAnchor={isRight ? 'start' : 'end'}
-            dominantBaseline="central"
-          >
-            {`${formatPriceWithSign(value)} ₪ · ${(percent * 100).toFixed(1)}%`}
+            <tspan x={textX} dy="-0.35em" fontSize={13} fontWeight={700}>
+              {name}
+            </tspan>
+            <tspan x={textX} dy="1.45em" fontSize={12} fontWeight={500}>
+              {`${formatPriceWithSign(value)} ₪ · ${(percent * 100).toFixed(1)}%`}
+            </tspan>
           </text>
         </g>
       );
@@ -1244,7 +1280,7 @@ function PortfolioAnalysisView({
                 <ResponsiveContainer width="100%" height={360}>
                   {/* The margin is what the callout labels live in - without
                       it they are drawn outside the SVG and simply clipped. */}
-                  <PieChart margin={{ top: 20, right: 104, bottom: 20, left: 104 }} key="pie-chart">
+                  <PieChart margin={{ top: 20, right: 116, bottom: 20, left: 116 }} key="pie-chart">
                     <Pie
                       key="pie-data"
                       data={[
@@ -1281,8 +1317,8 @@ function PortfolioAnalysisView({
                       ]}
                       cx="50%"
                       cy="50%"
-                      outerRadius="64%"
-                      innerRadius="47%"
+                      outerRadius="58%"
+                      innerRadius="42%"
                       paddingAngle={1}
                       fill={chart.accent}
                       dataKey="value"
@@ -1364,7 +1400,7 @@ function PortfolioAnalysisView({
                 <div className="pie-chart-container">
                   <div className="pie-chart-wrapper">
                     <ResponsiveContainer width="100%" height={360}>
-                      <PieChart margin={{ top: 20, right: 104, bottom: 20, left: 104 }}>
+                      <PieChart margin={{ top: 20, right: 116, bottom: 20, left: 116 }}>
                         <Pie
                           data={sectorDistribution.sectors.map((s) => ({
                             name: sectorLabelHe(s.sectorKey),
@@ -1372,8 +1408,8 @@ function PortfolioAnalysisView({
                           }))}
                           cx="50%"
                           cy="50%"
-                          outerRadius="64%"
-                          innerRadius="47%"
+                          outerRadius="58%"
+                          innerRadius="42%"
                           paddingAngle={1}
                           dataKey="value"
                           label={renderSliceCallout}

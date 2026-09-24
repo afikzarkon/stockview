@@ -11,6 +11,12 @@ import { profitClass, formatDailyChangePercent } from '../utils/formatters';
 // the card is an unlabelled column of numbers - which is exactly what
 // this table was on a phone. Sourcing both from one object is what stops
 // a renamed header from leaving a card labelled with the old name.
+// See IsraeliStocksTable.js - a grouped row has several lots behind it,
+// so the columns that differ per lot print an em dash rather than
+// repeating the same "open the group" instruction on every one.
+const PER_LOT = '—';
+const PER_LOT_TITLE = 'ערך שונה לכל רכישה - הרחיבו את הקיבוץ כדי לראות את הפירוט';
+
 const COL = {
   name: 'שם מנייה',
   date: 'תאריך קנייה',
@@ -356,12 +362,12 @@ function AmericanStocksTable({
                           </button>
                           <AssetCell name={stockName} />
                         </td>
-                        <td data-label={COL.date}>{isExpanded ? '' : 'פתח קיבוץ'}</td>
-                        <td data-label={COL.buyPrice}>{isExpanded ? '' : 'פתח קיבוץ'}</td>
+                        <td data-label={COL.date} title={PER_LOT_TITLE}>{PER_LOT}</td>
+                        <td data-label={COL.buyPrice} title={PER_LOT_TITLE}>{PER_LOT}</td>
                         <td data-label={COL.quantity}>{summary.totalQuantity}</td>
                         <td data-label={COL.totalBuyUSD}>{formatPriceWithSign(totalPurchaseUSD)} $</td>
                         {showAdditionalData && <td data-label={COL.totalBuyILS}>{formatPriceWithSign(totalPurchaseILS)} ₪</td>}
-                        {showAdditionalData && <td data-label={COL.rateAtBuy}>{isExpanded ? '' : 'פתח קיבוץ'}</td>}
+                        {showAdditionalData && <td data-label={COL.rateAtBuy} title={PER_LOT_TITLE}>{PER_LOT}</td>}
                         <td data-label={COL.rateToday}>{formatPrice(stocks[0].currentExchangeRate || stocks[0].exchangeRate || 0)}</td>
                         <td data-label={COL.currentPrice}>{formatPriceWithSign(averageCurrentPriceUSD)} $</td>
                         <td data-label={COL.totalValueUSD}>{formatPriceWithSign(totalCurrentValueUSD)} $</td>
