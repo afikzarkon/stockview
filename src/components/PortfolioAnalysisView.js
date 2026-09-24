@@ -51,6 +51,7 @@ import { useAnalystRecommendations } from '../hooks/useAnalystRecommendations';
 import { useDividendData } from '../hooks/useDividendData';
 import { useHistoricalPortfolioValue } from '../hooks/useHistoricalPortfolioValue';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { layoutSliceCallouts } from '../utils/pieCalloutLayout';
 import { formatDate } from '../utils/formatters';
 import {
   computeFirstStockPurchaseDate,
@@ -167,19 +168,23 @@ function PortfolioAnalysisView({
   // the legend is then the key, which is why its swatches must match the
   // slice colours exactly.
   const isNarrowScreen = useMediaQuery('(max-width: 768px)');
-  const donutLayout = isNarrowScreen
-    ? {
-        height: 240,
-        margin: { top: 8, right: 8, bottom: 8, left: 8 },
-        outerRadius: '92%',
-        innerRadius: '64%'
-      }
-    : {
-        height: 360,
-        margin: { top: 20, right: 116, bottom: 20, left: 116 },
-        outerRadius: '58%',
-        innerRadius: '42%'
-      };
+  const donutLayout = useMemo(
+    () =>
+      isNarrowScreen
+        ? {
+            height: 240,
+            margin: { top: 8, right: 8, bottom: 8, left: 8 },
+            outerRadius: '92%',
+            innerRadius: '64%'
+          }
+        : {
+            height: 360,
+            margin: { top: 20, right: 116, bottom: 20, left: 116 },
+            outerRadius: '58%',
+            innerRadius: '42%'
+          },
+    [isNarrowScreen]
+  );
   // PERFORMANCE OVER TIME - computed on the fly, not read back from saved
   // snapshots.
   //
@@ -667,14 +672,33 @@ function PortfolioAnalysisView({
   // Slices under 3% are left unlabelled: below that the callouts collide
   // with each other and the chart becomes less readable, not more. Those
   // remain identifiable in the legend underneath, which is why it stays.
-  const renderSliceCallout = useCallback(
-    ({ cx, cy, midAngle, outerRadius, percent, name, value }) => {
+  //
+  // Neighbouring labels are also spread apart vertically (see
+  // utils/pieCalloutLayout.js): several small slices next to each other
+  // would otherwise put their labels at nearly the same height on the rail,
+  // printed through one another. That needs every slice's position, not
+  // just this one's, which is why this is a factory over the chart's values
+  // rather than a plain renderer.
+  const makeSliceCallout = useCallback(
+    (values) => ({ cx, cy, midAngle, outerRadius, percent, name, value, index }) => {
       if (!percent || percent < 0.03) return null;
       const radian = Math.PI / 180;
       const angle = -midAngle * radian;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
-      const isRight = cos >= 0;
+
+      // Half the plot height: the chart's height less its top and bottom
+      // margins. The label block reaches ~14px above its y and ~22px below.
+      const plotHalf = (donutLayout.height - donutLayout.margin.top - donutLayout.margin.bottom) / 2;
+      const placement = layoutSliceCallouts(values, {
+        cy,
+        outerRadius,
+        paddingAngle: 1,
+        top: cy - plotHalf + 14,
+        bottom: cy + plotHalf - 22
+      })[index];
+      if (!placement) return null;
+      const { isRight, labelY } = placement;
 
       // THE LABEL RAIL.
       //
@@ -718,7 +742,7 @@ function PortfolioAnalysisView({
       return (
         <g>
           <polyline
-            points={`${startX},${startY} ${elbowX},${elbowY} ${railX},${elbowY}`}
+            points={`${startX},${startY} ${elbowX},${elbowY} ${railX},${labelY}`}
             stroke={chart.grid}
             strokeWidth={1.2}
             fill="none"
@@ -741,7 +765,7 @@ function PortfolioAnalysisView({
               the sizes are adjusted. */}
           <text
             x={textX}
-            y={elbowY}
+            y={labelY}
             fill={chart.axis}
             textAnchor={textAnchor}
             dominantBaseline="central"
@@ -756,7 +780,7 @@ function PortfolioAnalysisView({
         </g>
       );
     },
-    [chart.axis, chart.grid, formatPriceWithSign]
+    [chart.axis, chart.grid, formatPriceWithSign, donutLayout]
   );
 
   const sectionRefs = useRef({});
@@ -794,6 +818,41 @@ function PortfolioAnalysisView({
     });
     return () => observer.disconnect();
   }, []);
+
+  // The portfolio donut's slices, one per asset class, in the order of the
+  // palette its legend reads its swatches from.
+  const portfolioPieData = [
+    {
+      name: 'בורסה ישראלית',
+      value: analysis.exchangeDistribution.israeli.value,
+      percentage: analysis.exchangeDistribution.israeli.percentage
+    },
+    {
+      name: 'בורסה אמריקאית',
+      value: analysis.exchangeDistribution.american.value,
+      percentage: analysis.exchangeDistribution.american.percentage
+    },
+    {
+      name: 'קופות גמל',
+      value: analysis.exchangeDistribution.pension.value,
+      percentage: analysis.exchangeDistribution.pension.percentage
+    },
+    {
+      name: 'קרנות כספיות',
+      value: analysis.exchangeDistribution.cashFunds.value,
+      percentage: analysis.exchangeDistribution.cashFunds.percentage
+    },
+    {
+      name: 'עו"ש',
+      value: analysis.exchangeDistribution.bank.value,
+      percentage: analysis.exchangeDistribution.bank.percentage
+    },
+    {
+      name: 'קופת חיסכון בבנק',
+      value: analysis.exchangeDistribution.bankSavings.value,
+      percentage: analysis.exchangeDistribution.bankSavings.percentage
+    }
+  ];
 
   return (
     <div className="App">
@@ -1308,38 +1367,7 @@ function PortfolioAnalysisView({
                   <PieChart margin={donutLayout.margin} key="pie-chart">
                     <Pie
                       key="pie-data"
-                      data={[
-                        {
-                          name: 'בורסה ישראלית',
-                          value: analysis.exchangeDistribution.israeli.value,
-                          percentage: analysis.exchangeDistribution.israeli.percentage
-                        },
-                        {
-                          name: 'בורסה אמריקאית',
-                          value: analysis.exchangeDistribution.american.value,
-                          percentage: analysis.exchangeDistribution.american.percentage
-                        },
-                        {
-                          name: 'קופות גמל',
-                          value: analysis.exchangeDistribution.pension.value,
-                          percentage: analysis.exchangeDistribution.pension.percentage
-                        },
-                        {
-                          name: 'קרנות כספיות',
-                          value: analysis.exchangeDistribution.cashFunds.value,
-                          percentage: analysis.exchangeDistribution.cashFunds.percentage
-                        },
-                        {
-                          name: 'עו"ש',
-                          value: analysis.exchangeDistribution.bank.value,
-                          percentage: analysis.exchangeDistribution.bank.percentage
-                        },
-                        {
-                          name: 'קופת חיסכון בבנק',
-                          value: analysis.exchangeDistribution.bankSavings.value,
-                          percentage: analysis.exchangeDistribution.bankSavings.percentage
-                        }
-                      ]}
+                      data={portfolioPieData}
                       cx="50%"
                       cy="50%"
                       outerRadius={donutLayout.outerRadius}
@@ -1347,7 +1375,7 @@ function PortfolioAnalysisView({
                       paddingAngle={1}
                       fill={chart.accent}
                       dataKey="value"
-                      label={isNarrowScreen ? false : renderSliceCallout}
+                      label={isNarrowScreen ? false : makeSliceCallout(portfolioPieData.map((d) => d.value))}
                       labelLine={false}
                       isAnimationActive={false}
                     >
@@ -1437,7 +1465,9 @@ function PortfolioAnalysisView({
                           innerRadius={donutLayout.innerRadius}
                           paddingAngle={1}
                           dataKey="value"
-                          label={isNarrowScreen ? false : renderSliceCallout}
+                          label={
+                            isNarrowScreen ? false : makeSliceCallout(sectorDistribution.sectors.map((sec) => sec.value))
+                          }
                           labelLine={false}
                           isAnimationActive={false}
                         >
