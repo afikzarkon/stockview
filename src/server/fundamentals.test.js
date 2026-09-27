@@ -33,13 +33,30 @@ test('parses Yahoo fundamentals-timeseries into rows per fiscal year', () => {
   expect(parseYahooTimeseries(null, 'annual')).toEqual([]);
 });
 
-test('requests both annual and quarterly types', async () => {
-  const get = jest.fn(async () => ({ data: { timeseries: { result: [] } } }));
+test('requests annual and quarterly types, falling back to query1', async () => {
+  const data = { timeseries: { result: [{ meta: { type: ['annualTotalRevenue'] }, annualTotalRevenue: [entry('2024-12-31', 1)] }] } };
+  const get = jest.fn(async (url) => {
+    if (url.startsWith('https://query2')) throw new Error('401');
+    return { data };
+  });
   const out = await fetchYahooStatements('AAPL', { get });
-  expect(out).toEqual({ annual: [], quarterly: [], source: 'yahoo' });
-  const types = get.mock.calls.map((c) => c[1].params.type);
-  expect(types[0]).toMatch(/^annualTotalRevenue,/);
-  expect(types[1]).toMatch(/^quarterlyTotalRevenue,/);
+  expect(out.annual).toEqual([{ periodEnd: '2024-12-31', currency: 'USD', revenue: 1 }]);
+  const calls = get.mock.calls.map((c) => [c[0].slice(0, 14), c[1].params.type.split(',')[0]]);
+  expect(calls).toEqual(expect.arrayContaining([
+    ['https://query2', 'annualTotalRevenue'],
+    ['https://query1', 'annualTotalRevenue'],
+    ['https://query1', 'quarterlyTotalRevenue']
+  ]));
+});
+
+test('an empty statements response is an error, not an empty company', async () => {
+  const get = jest.fn(async () => ({ data: { timeseries: { result: [] } } }));
+  await expect(fetchYahooStatements('AAPL', { get })).rejects.toThrow(/no financial statements/);
+});
+
+test('by default the statements go through the crumb-authenticated request', () => {
+  const src = require('fs').readFileSync(require.resolve('./fundamentals'), 'utf8');
+  expect(src).toMatch(/async function fetchYahooStatements\(symbol, \{ get = crumbGet \}/);
 });
 
 test('parses FMP statements into the same shape', () => {
@@ -85,8 +102,11 @@ test('monthly chart: month-end dates, split events, duplicate month deduped', ()
       { date: '2024-05-31', close: 100 },
       { date: '2024-06-30', close: 121 }
     ],
-    splits: [{ date: '2024-06-10', ratio: 10 }]
+    splits: [{ date: '2024-06-10', ratio: 10 }],
+    meta: { price: null, currency: null, name: null }
   });
+  data.chart.result[0].meta = { regularMarketPrice: 123.4, currency: 'USD', longName: 'Netflix, Inc.' };
+  expect(parseMonthlyChart(data).meta).toEqual({ price: 123.4, currency: 'USD', name: 'Netflix, Inc.' });
   expect(() => parseMonthlyChart({})).toThrow();
 });
 

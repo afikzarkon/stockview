@@ -5,7 +5,7 @@ import { apiUrl } from '../apiBase';
 
 export function useValuation(symbol) {
   const cache = useRef(new Map());
-  const [state, setState] = useState({ data: null, loading: false, error: '' });
+  const [state, setState] = useState({ data: null, loading: false, error: '', diagnostics: null });
 
   useEffect(() => {
     const s = String(symbol || '').trim().toUpperCase();
@@ -23,11 +23,15 @@ export function useValuation(symbol) {
       try {
         const r = await fetch(apiUrl(`/api/valuation/${encodeURIComponent(s)}`), { credentials: 'include' });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || 'הטעינה נכשלה');
+        if (!r.ok) {
+          const err = new Error(d.error || 'הטעינה נכשלה');
+          err.diagnostics = d.diagnostics || null;
+          throw err;
+        }
         cache.current.set(s, d);
         if (!cancelled) setState({ data: d, loading: false, error: '' });
       } catch (err) {
-        if (!cancelled) setState({ data: null, loading: false, error: err.message });
+        if (!cancelled) setState({ data: null, loading: false, error: err.message, diagnostics: err.diagnostics || null });
       }
     })();
     return () => {

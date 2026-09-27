@@ -15,7 +15,10 @@ function mountValuationRoutes(app, { valuation }) {
       return res.json(await valuation.getValuation(symbol));
     } catch (err) {
       console.warn('[valuation] failed', symbol, err && err.message);
-      return res.status(502).json({ error: 'לא ניתן היה לטעון נתונים פיננסיים לסימול הזה כרגע' });
+      return res.status(502).json({
+        error: 'לא ניתן היה לטעון נתונים פיננסיים לסימול הזה כרגע',
+        diagnostics: (err && err.diagnostics) || null
+      });
     }
   });
 }

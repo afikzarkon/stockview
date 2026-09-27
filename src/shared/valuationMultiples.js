@@ -113,11 +113,15 @@ function historicalMultiples({ annual, splits = [], monthlyCloses, fromDate }) {
 
 // current: { marketCap, ttm: { revenue, netIncome, operatingCashFlow, capex, freeCashFlow } }
 // peers: [{ symbol, PE, PS, PFCF }]
+// current.fallback: { PE, PS, PFCF } quoted by the data provider, used when
+// the statements needed to compute a multiple are unavailable.
 function buildMultiplesTable({ current, history, peers = [], peerSource = 'yahoo-peers' }) {
   const d = denominators((current && current.ttm) || {});
+  const fallback = (current && current.fallback) || {};
   return METRICS.map((metric) => {
     const values = history ? history[metric] : [];
-    const now = multipleFromCap(current && current.marketCap, d[metric]);
+    const computed = multipleFromCap(current && current.marketCap, d[metric]);
+    const now = computed !== null ? computed : Number.isFinite(fallback[metric]) && fallback[metric] > 0 ? fallback[metric] : null;
     const peerValues = (peers || []).map((p) => p[metric]).filter((v) => Number.isFinite(v) && v > 0);
     const avg5y = mean(values);
     const sectorMedian = peerValues.length ? median(peerValues) : null;

@@ -9,6 +9,7 @@ import { computeDcf, dcfSensitivity, suggestDcfInputs, DCF_DEFAULTS } from '../u
 // the server (server/valuationService.js); the DCF itself runs here, so the
 // sliders recompute instantly.
 
+const SOURCE_LABELS = { summary: 'נתוני ציטוט', statements: 'דוחות כספיים', prices: 'מחירים חודשיים' };
 const METRIC_LABELS = { PE: 'מכפיל רווח (P/E)', PS: 'מכפיל מכירות (P/S)', PFCF: 'מכפיל תזרים חופשי (P/FCF)' };
 export const VERDICT_LABELS = { UNDERVALUED: 'מתומחרת בחסר', FAIRLY_VALUED: 'מתומחרת בהוגן', OVERVALUED: 'מתומחרת ביתר', 'N/A': 'לא ניתן לקבוע' };
 const VERDICT_TONE = { UNDERVALUED: 'profit-positive', OVERVALUED: 'profit-negative', FAIRLY_VALUED: '', 'N/A': '' };
@@ -273,7 +274,7 @@ function ValuationView({ americanStocks = [] }) {
   );
   const [symbol, setSymbol] = useState(held[0] || '');
   const [draft, setDraft] = useState('');
-  const { data, loading, error } = useValuation(symbol);
+  const { data, loading, error, diagnostics } = useValuation(symbol);
 
   return (
     <div className="App">
@@ -313,6 +314,16 @@ function ValuationView({ americanStocks = [] }) {
 
           {loading && <p className="history-empty-note">טוען נתונים פיננסיים…</p>}
           {error && <p className="profit-negative">{error}</p>}
+          {error && diagnostics && (
+            <ul className="muted-note" aria-label="פירוט מקורות">
+              {Object.entries(diagnostics).map(([source, status]) => (
+                <li key={source}>
+                  {SOURCE_LABELS[source] || source}: {status === 'ok' ? 'נטען' : 'נכשל'}
+                  {status === 'ok' ? '' : <bdi dir="ltr"> ({status.replace(/^error: /, '')})</bdi>}
+                </li>
+              ))}
+            </ul>
+          )}
           {!symbol && !loading && <p className="history-empty-note">בחרו מניה אמריקאית מהתיק או הקלידו סימול.</p>}
 
           {data && (
@@ -322,7 +333,7 @@ function ValuationView({ americanStocks = [] }) {
                   {data.name || data.symbol} ({data.symbol})
                 </h2>
                 <p className="section-subtitle">
-                  {[data.sector, data.industry].filter(Boolean).join(' · ')} · מחיר {fmtMoney(data.price, data.currency)} · שווי שוק {fmtMoney(data.marketCap, data.currency)} · נתונים: {data.sources.statements === 'fmp' ? 'Financial Modeling Prep' : 'Yahoo Finance'}, {String(data.asOf).slice(0, 10)}
+                  {[data.sector, data.industry].filter(Boolean).join(' · ')} · מחיר {fmtMoney(data.price, data.currency)} · שווי שוק {fmtMoney(data.marketCap, data.currency)} · נתונים: {data.sources.statements === 'fmp' ? 'Financial Modeling Prep' : 'Yahoo Finance'}{data.partial ? ' (חלקיים)' : ''}, {String(data.asOf).slice(0, 10)}
                 </p>
                 {data.warnings.map((w) => (
                   <p key={w} className="profit-negative">

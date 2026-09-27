@@ -16,7 +16,7 @@
 // Each response shape is parsed by an exported pure function, tested
 // against recorded fixtures.
 const axios = require('axios');
-const { fetchYahooQuoteSummary, unwrapYahooNumber } = require('./yahooQuotes');
+const { fetchYahooQuoteSummary, fetchYahooWithCrumbRetry, unwrapYahooNumber } = require('./yahooQuotes');
 
 const YAHOO_HEADERS = {
   'User-Agent':
@@ -78,19 +78,31 @@ function parseYahooTimeseries(data, prefix) {
     .sort((a, b) => (a.periodEnd < b.periodEnd ? -1 : 1));
 }
 
-async function fetchYahooStatements(symbol, { get = axios.get } = {}) {
+// Yahoo refuses the timeseries endpoint without the same crumb + cookie
+// session quoteSummary needs, so by default the request goes through that
+// authenticated path (with its retry on a stale crumb). query2 first, then
+// query1, which Yahoo sometimes serves when the other is refusing.
+const crumbGet = (url, config) => fetchYahooWithCrumbRetry(url, config.params);
+
+async function fetchYahooStatements(symbol, { get = crumbGet } = {}) {
   const period2 = Math.floor(Date.now() / 1000);
   const period1 = period2 - 8 * 365 * 86400;
-  const url = `https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}`;
+  const path = `/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}`;
   const fetchPrefix = async (prefix) => {
-    const res = await get(url, {
-      params: { type: timeseriesTypes(prefix).join(','), period1, period2, merge: false, padTimeSeries: true, lang: 'en-US' },
-      timeout: 15000,
-      headers: YAHOO_HEADERS
-    });
-    return parseYahooTimeseries(res.data, prefix);
+    const params = { type: timeseriesTypes(prefix).join(','), period1, period2, merge: false, padTimeSeries: true, lang: 'en-US' };
+    let lastError;
+    for (const host of ['https://query2.finance.yahoo.com', 'https://query1.finance.yahoo.com']) {
+      try {
+        const res = await get(`${host}${path}`, { params, timeout: 15000, headers: YAHOO_HEADERS });
+        return parseYahooTimeseries(res.data, prefix);
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError;
   };
   const [annual, quarterly] = await Promise.all([fetchPrefix('annual'), fetchPrefix('quarterly')]);
+  if (!annual.length && !quarterly.length) throw new Error('yahoo returned no financial statements');
   return { annual, quarterly, source: 'yahoo' };
 }
 
@@ -199,7 +211,17 @@ function parseMonthlyChart(data) {
     .sort((a, b) => (a.date < b.date ? -1 : 1));
   // A month can appear twice (the current partial month); keep the last.
   const byDate = new Map(points.map((p) => [p.date, p]));
-  return { closes: [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1)), splits };
+  const meta = result.meta || {};
+  return {
+    closes: [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1)),
+    splits,
+    // The live quote, used when quoteSummary is unavailable.
+    meta: {
+      price: Number.isFinite(meta.regularMarketPrice) ? meta.regularMarketPrice : null,
+      currency: meta.currency || null,
+      name: meta.longName || meta.shortName || null
+    }
+  };
 }
 
 async function fetchMonthlyPrices(symbol, { get = axios.get } = {}) {

@@ -78,7 +78,7 @@ test('currency mismatch and missing risk-free rate are reported', async () => {
   expect(v.dcfInputs).toMatchObject({ riskFreeRate: 0.043, riskFreeRateIsDefault: true });
 });
 
-test('route validates the symbol and maps failures to 502', async () => {
+test('route validates the symbol; a statements failure is a partial result, not an error', async () => {
   const src = sources({ statements: jest.fn(async () => { throw new Error('yahoo down'); }) });
   const app = express();
   mountValuationRoutes(app, { valuation: createValuationService({ sources: src, now, logger: { warn() {} } }) });
@@ -86,8 +86,60 @@ test('route validates the symbol and maps failures to 502', async () => {
   try {
     expect((await request(baseUrl, 'GET', '/api/valuation/bad%20sym')).status).toBe(400);
     const res = await request(baseUrl, 'GET', '/api/valuation/x');
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ symbol: 'X', partial: true, diagnostics: { statements: 'error: yahoo down' } });
   } finally {
     await new Promise((r) => server.close(r));
   }
+});
+
+describe('partial failures', () => {
+  test('statements failing: current multiples and a one-year DCF from the quote, with warnings', async () => {
+    const src = sources({ statements: jest.fn(async () => { throw new Error('Unauthorized'); }) });
+    src.summary.mockImplementation(async (symbol) =>
+      symbol === 'X'
+        ? { name: 'X Corp', currency: 'USD', price: 100, marketCap: 1000, sharesOutstanding: 10, trailingPE: 25, priceToSales: 4, freeCashflow: 40, totalCash: 5, totalDebt: 7 }
+        : { marketCap: 500, trailingPE: 12, priceToSales: 1, freeCashflow: 50 }
+    );
+    const v = await createValuationService({ sources: src, now, logger: { warn() {} } }).getValuation('X');
+    expect(v.partial).toBe(true);
+    expect(v.diagnostics).toEqual({ summary: 'ok', statements: 'error: Unauthorized', prices: 'ok' });
+    expect(v.multiples.map((m) => [m.metric, m.current, m.samples])).toEqual([
+      ['PE', 25, 0],
+      ['PS', 4, 0],
+      ['PFCF', 25, 0]
+    ]);
+    expect(v.dcfInputs).toMatchObject({ fcfHistory: [{ periodEnd: 'TTM', fcf: 40 }], cash: 5, debt: 7, sharesDiluted: 10, marketPrice: 100 });
+    expect(v.warnings.join(' ')).toMatch(/הדוחות הכספיים ההיסטוריים/);
+  });
+
+  test('quote summary failing: price from the chart, market cap from the statements', async () => {
+    const src = sources({ monthlyPrices: jest.fn(async () => ({ closes: [], splits: [], meta: { price: 50, currency: 'USD', name: 'X from chart' } })) });
+    src.summary.mockImplementation(async (symbol) => {
+      if (symbol === 'X') throw new Error('crumb refused');
+      return { marketCap: 500, trailingPE: 12, priceToSales: 1, freeCashflow: 50 };
+    });
+    const v = await createValuationService({ sources: src, now, logger: { warn() {} } }).getValuation('X');
+    expect(v).toMatchObject({ name: 'X from chart', price: 50, marketCap: 500, currency: 'USD' });
+    expect(v.diagnostics.summary).toBe('error: crumb refused');
+    expect(v.multiples.find((m) => m.metric === 'PE').current).toBeCloseTo(500 / 12, 10);
+  });
+
+  test('no price anywhere: fails with per-source diagnostics, and the route passes them on', async () => {
+    const boom = (m) => jest.fn(async () => { throw new Error(m); });
+    const src = sources({ statements: boom('s'), monthlyPrices: boom('p') });
+    src.summary.mockImplementation(async () => { throw new Error('q'); });
+    const svc = createValuationService({ sources: src, now, logger: { warn() {} } });
+    await expect(svc.getValuation('X')).rejects.toThrow(/summary: error: q/);
+    const app = express();
+    mountValuationRoutes(app, { valuation: createValuationService({ sources: src, now, logger: { warn() {} } }) });
+    const { server, baseUrl } = await listen(app);
+    try {
+      const res = await request(baseUrl, 'GET', '/api/valuation/X');
+      expect(res.status).toBe(502);
+      expect(res.body.diagnostics).toEqual({ summary: 'error: q', statements: 'error: s', prices: 'error: p' });
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
 });

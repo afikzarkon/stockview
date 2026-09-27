@@ -5,7 +5,8 @@
 const { historicalMultiples, buildMultiplesTable, trailingTwelveMonths, fcfOf } = require('../shared/valuationMultiples');
 
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-const FAILURE_TTL_MS = 5 * 60 * 1000;
+const FAILURE_TTL_MS = 2 * 60 * 1000;
+const PARTIAL_TTL_MS = 15 * 60 * 1000;
 const MAX_PEERS = 5;
 const DEFAULT_RISK_FREE = 0.043;
 
@@ -20,12 +21,38 @@ function createValuationService({ sources, now = () => new Date(), logger = cons
   const cache = new Map();
   const inFlight = new Map();
 
+  const describe = (settled) => (settled.status === 'fulfilled' ? 'ok' : `error: ${(settled.reason && settled.reason.message) || settled.reason}`);
+
+  // Each source may fail on its own (Yahoo's endpoints are unofficial and
+  // refuse requests unpredictably); the page shows whatever did load and
+  // says what is missing. Only a missing PRICE makes the whole result fail.
   async function build(symbol) {
-    const [summary, statements, prices] = await Promise.all([
+    const [sumR, stR, prR] = await Promise.allSettled([
       sources.summary(symbol),
       sources.statements(symbol),
       sources.monthlyPrices(symbol)
     ]);
+    const diagnostics = { summary: describe(sumR), statements: describe(stR), prices: describe(prR) };
+    Object.entries(diagnostics).forEach(([source, status]) => {
+      if (status !== 'ok') logger.warn && logger.warn(`[valuation] ${symbol} ${source} ${status}`);
+    });
+
+    const summary = sumR.status === 'fulfilled' ? sumR.value || {} : {};
+    const statements = stR.status === 'fulfilled' ? stR.value || {} : {};
+    const prices = prR.status === 'fulfilled' ? prR.value || {} : {};
+    const annual = statements.annual || [];
+    const quarterly = statements.quarterly || [];
+    const meta = prices.meta || {};
+
+    const price = Number.isFinite(summary.price) ? summary.price : meta.price;
+    if (!Number.isFinite(price)) {
+      const err = new Error(`no price for ${symbol} (${Object.entries(diagnostics).map(([k, v]) => `${k}: ${v}`).join('; ')})`);
+      err.diagnostics = diagnostics;
+      throw err;
+    }
+    const shares = summary.sharesOutstanding ?? latest(quarterly, 'sharesOutstanding') ?? latest(quarterly, 'dilutedShares') ?? latest(annual, 'dilutedShares');
+    const marketCap = Number.isFinite(summary.marketCap) ? summary.marketCap : Number.isFinite(shares) ? price * shares : null;
+
     const [riskFreeRate, peers] = await Promise.all([
       sources.riskFreeRate().catch(() => null),
       (async () => {
@@ -46,30 +73,54 @@ function createValuationService({ sources, now = () => new Date(), logger = cons
       })()
     ]);
 
-    const annual = statements.annual || [];
-    const quarterly = statements.quarterly || [];
     const ttm = trailingTwelveMonths(quarterly) || annual[annual.length - 1] || {};
     const today = now().toISOString().slice(0, 10);
     const fromDate = `${Number(today.slice(0, 4)) - 5}${today.slice(4)}`;
-    const history = historicalMultiples({ annual, splits: prices.splits, monthlyCloses: prices.closes, fromDate });
-    const multiples = buildMultiplesTable({ current: { marketCap: summary.marketCap, ttm }, history, peers });
+    const history = historicalMultiples({ annual, splits: prices.splits || [], monthlyCloses: prices.closes || [], fromDate });
+    const multiples = buildMultiplesTable({
+      current: {
+        marketCap,
+        ttm,
+        fallback: {
+          PE: summary.trailingPE,
+          PS: summary.priceToSales,
+          PFCF: Number.isFinite(marketCap) && summary.freeCashflow > 0 ? marketCap / summary.freeCashflow : null
+        }
+      },
+      history,
+      peers
+    });
 
     const warnings = [];
     if (summary.financialCurrency && summary.currency && summary.financialCurrency !== summary.currency) {
       warnings.push(`הדוחות הכספיים מדווחים ב-${summary.financialCurrency} והמניה נסחרת ב-${summary.currency} - שווי ה-DCF למניה יוצא ב-${summary.financialCurrency}.`);
     }
-    if (annual.length < 3) warnings.push(`נמצאו רק ${annual.length} שנות דוחות.`);
+    if (diagnostics.statements !== 'ok') {
+      warnings.push('לא ניתן היה לטעון את הדוחות הכספיים ההיסטוריים - אין השוואה ל-5 שנים, והמכפילים הנוכחיים וה-DCF מבוססים על נתוני הציטוט בלבד.');
+    } else if (annual.length < 3) {
+      warnings.push(`נמצאו רק ${annual.length} שנות דוחות.`);
+    }
+    if (diagnostics.prices !== 'ok') warnings.push('לא ניתן היה לטעון מחירים חודשיים - אין השוואה היסטורית של מכפילים.');
+    if (diagnostics.summary !== 'ok') warnings.push('לא ניתן היה לטעון את נתוני הציטוט (בטא, צמיחה צפויה, סקטור) - הוצגו ערכי ברירת מחדל.');
 
-    const fcfHistory = annual.slice(-5).map((y) => ({ periodEnd: y.periodEnd, fcf: fcfOf(y) })).filter((x) => Number.isFinite(x.fcf));
+    let fcfHistory = annual
+      .slice(-5)
+      .map((y) => ({ periodEnd: y.periodEnd, fcf: fcfOf(y) }))
+      .filter((x) => Number.isFinite(x.fcf));
+    if (!fcfHistory.length && summary.freeCashflow > 0) {
+      fcfHistory = [{ periodEnd: 'TTM', fcf: summary.freeCashflow }];
+      warnings.push('ה-DCF מבוסס על נתון FCF אחד (12 החודשים האחרונים, לפי הגדרת Yahoo) - רמת ביטחון נמוכה.');
+    }
+
     return {
       symbol,
-      name: summary.name,
-      sector: summary.sector,
-      industry: summary.industry,
-      currency: summary.currency,
-      financialCurrency: summary.financialCurrency,
-      price: summary.price,
-      marketCap: summary.marketCap,
+      name: summary.name || meta.name || null,
+      sector: summary.sector || null,
+      industry: summary.industry || null,
+      currency: summary.currency || meta.currency || null,
+      financialCurrency: summary.financialCurrency || (annual[annual.length - 1] && annual[annual.length - 1].currency) || summary.currency || meta.currency || null,
+      price,
+      marketCap,
       multiples,
       historySamples: history.samples,
       fiscalYears: annual.slice(-6),
@@ -78,29 +129,33 @@ function createValuationService({ sources, now = () => new Date(), logger = cons
         fcfHistory,
         cash: latest(quarterly, 'cashAndShortTerm') ?? latest(annual, 'cashAndShortTerm') ?? summary.totalCash ?? 0,
         debt: latest(quarterly, 'totalDebt') ?? latest(annual, 'totalDebt') ?? summary.totalDebt ?? 0,
-        sharesDiluted: latest(quarterly, 'dilutedShares') ?? summary.sharesOutstanding ?? latest(annual, 'dilutedShares'),
-        marketPrice: summary.price,
-        beta: summary.beta,
-        analystGrowth5y: summary.analystGrowth5y,
+        sharesDiluted: latest(quarterly, 'dilutedShares') ?? shares ?? null,
+        marketPrice: price,
+        beta: summary.beta ?? null,
+        analystGrowth5y: summary.analystGrowth5y ?? null,
         riskFreeRate: riskFreeRate ?? DEFAULT_RISK_FREE,
         riskFreeRateIsDefault: riskFreeRate === null
       },
       warnings,
-      sources: { statements: statements.source, prices: 'yahoo', peers: 'yahoo' },
+      diagnostics,
+      partial: Object.values(diagnostics).some((v) => v !== 'ok'),
+      sources: { statements: statements.source || null, prices: 'yahoo', peers: 'yahoo' },
       asOf: now().toISOString()
     };
   }
 
   async function getValuation(symbol) {
     const cached = cache.get(symbol);
-    if (cached && now().getTime() - cached.ts < (cached.error ? FAILURE_TTL_MS : CACHE_TTL_MS)) {
+    if (cached && now().getTime() - cached.ts < (cached.error ? FAILURE_TTL_MS : cached.ttl || CACHE_TTL_MS)) {
       if (cached.error) throw cached.error;
       return cached.data;
     }
     if (inFlight.has(symbol)) return inFlight.get(symbol);
     const p = build(symbol)
       .then((data) => {
-        cache.set(symbol, { data, ts: now().getTime() });
+        // A partial result is kept only briefly, so a source that was
+        // refusing requests gets another chance soon.
+        cache.set(symbol, { data, ts: now().getTime(), ttl: data.partial ? PARTIAL_TTL_MS : CACHE_TTL_MS });
         return data;
       })
       .catch((err) => {
