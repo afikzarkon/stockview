@@ -50,11 +50,13 @@ function sendLedgerError(res, err) {
 }
 
 function mountTransactionRoutes(app, store, { now = todayString, onChanged = null } = {}) {
-  // Deposits/withdrawals change the accounts the monthly sync watches.
-  const notify = (userId) => {
+  // Every transaction changes a month's cash flows (and deposits/withdrawals
+  // the accounts the monthly sync watches). The transaction is passed along
+  // so the report for ITS month can be refreshed.
+  const notify = (userId, tx) => {
     if (!onChanged) return;
     Promise.resolve()
-      .then(() => onChanged(userId))
+      .then(() => onChanged(userId, tx))
       .catch((err) => console.error('[transactions] onChanged hook failed', err && err.message));
   };
 
@@ -85,7 +87,7 @@ function mountTransactionRoutes(app, store, { now = todayString, onChanged = nul
         const applied = applyTransaction(portfolio, tx, { newLotId: nextLotId(portfolio) });
         return { portfolio: applied.portfolio, insert: applied.transaction };
       });
-      notify(req.user.id);
+      notify(req.user.id, result.insert);
       return res.status(201).json({ transaction: result.insert, portfolio: result.portfolio });
     } catch (err) {
       return sendLedgerError(res, err);
@@ -95,12 +97,14 @@ function mountTransactionRoutes(app, store, { now = todayString, onChanged = nul
   app.delete('/api/transactions/:id', requireAuth, async (req, res) => {
     try {
       const id = String(req.params.id || '');
+      let removed = null;
       const result = await store.applyLedgerChange(req.user.id, ({ portfolio, transactions }) => {
         const tx = transactions.find((t) => t.id === id);
         if (!tx) throw new LedgerError('NOT_FOUND', 'transaction not found');
+        removed = tx;
         return { portfolio: revertTransaction(portfolio, tx), removeId: id };
       });
-      notify(req.user.id);
+      notify(req.user.id, removed);
       return res.json({ ok: true, portfolio: result.portfolio });
     } catch (err) {
       if (err instanceof LedgerError && err.code === 'NOT_FOUND') {

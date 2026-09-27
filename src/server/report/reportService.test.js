@@ -127,6 +127,64 @@ describe.each(STORE_FACTORIES)('monthly report flow (%s)', (_name, makeStore) =>
     expect((await service.getStatus(userId, '2026-08')).completedBy).toBe('user');
   });
 
+  test('a transaction recorded after the report produces a new version', async () => {
+    await save(portfolio('2026-09-03'));
+    advance(11);
+    await drain();
+    const div = { id: 'd1', type: 'DIVIDEND', date: '2026-08-20', assetClass: 'israeli', assetId: '604611', amount: 50, taxWithheld: 12.5, currency: 'ILS', fxRate: 1 };
+    await store.applyLedgerChange(userId, ({ portfolio: p }) => ({ portfolio: p, insert: div }));
+    expect(await service.onPortfolioSaved(userId, { months: ['2026-08'] })).toMatchObject({ action: 'rescheduled', result: { version: 2 } });
+    advance(11);
+    await drain();
+    expect((await features.listReports(userId)).map((x) => x.version)).toEqual([2, 1]);
+    expect(renderer.render.mock.calls[1][0]).toContain('₪38');
+  });
+
+  test('a transaction for last month refreshes last month\'s completed report', async () => {
+    await save(portfolio('2026-09-03'));
+    advance(11);
+    await drain(); // August v1
+    clock = new Date('2026-09-15T08:00:00Z'); // now syncing September
+    const div = { id: 'd1', type: 'DIVIDEND', date: '2026-08-20', assetClass: 'israeli', assetId: '604611', amount: 50, taxWithheld: 12.5, currency: 'ILS', fxRate: 1 };
+    await store.applyLedgerChange(userId, ({ portfolio: p }) => ({ portfolio: p, insert: div }));
+    const r = await service.onPortfolioSaved(userId, { months: ['2026-08'] });
+    expect(r.month).toBe('2026-09');
+    expect(r.others).toEqual([expect.objectContaining({ month: '2026-08', action: 'rescheduled', result: expect.objectContaining({ version: 2 }) })]);
+    advance(11);
+    await drain();
+    const august = (await features.listReports(userId)).filter((x) => x.month === '2026-08');
+    expect(august.map((x) => [x.version, x.status])).toEqual([[2, 'ready'], [1, 'ready']]);
+  });
+
+  test('months that are not complete are never auto-completed by a later change', async () => {
+    const r = await service.onPortfolioSaved(userId, { months: ['2026-06'] });
+    expect(r.others).toBeUndefined();
+    expect(await features.getSyncStatus(userId, '2026-06')).toBeNull();
+  });
+
+  test('unrecorded US dividends appear in the report as estimates', async () => {
+    service = createReportService({
+      store,
+      features,
+      storage,
+      renderer,
+      notifier,
+      now: () => clock,
+      getUsdRate: async () => 3.7,
+      getDividendHistory: async () => [{ date: '2026-08-12', amountPerShare: 0.25 }],
+      logger: { error() {} }
+    });
+    runner = createJobRunner({ features, handlers: createJobHandlers({ store, features, marketData, reports: service }), logger: { error() {} } });
+    const p = portfolio('2026-09-03');
+    p.americanStocks = [{ id: 9, stockName: 'KO', quantity: 100, currentPrice: 60, exchangeRate: 3.6, purchaseDate: '2025-01-01', purchasePrice: 50 }];
+    await save(p);
+    advance(11);
+    await drain();
+    const html = renderer.render.mock.calls[0][0];
+    expect(html).toContain('דיבידנדים משוערים (לא נרשמו בעסקאות)');
+    expect(html).toContain('25.00 USD');
+  });
+
   test('excluding an account lets the rest complete the month', async () => {
     await save(portfolio('2026-07-31'));
     const status = await service.setExcluded(userId, '2026-08', ['pension:5']);

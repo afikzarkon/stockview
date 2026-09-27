@@ -9,7 +9,7 @@ const { createJobHandlers } = require('./jobs');
 const { createReportService, createEmailNotifier } = require('./report/reportService');
 const { createReportStorage } = require('./report/reportStorage');
 const { createPdfRenderer } = require('./report/pdfRenderer');
-const { fetchYahooHistoricalRateForDate } = require('./yahooQuotes');
+const { fetchYahooHistoricalRateForDate, fetchYahooDividendHistory } = require('./yahooQuotes');
 
 async function bootstrapServices() {
   const store = await initDataStore();
@@ -24,7 +24,8 @@ async function bootstrapServices() {
     getUsdRate: async (date) => {
       const r = await fetchYahooHistoricalRateForDate('USDILS=X', date);
       return r ? r.rate : null;
-    }
+    },
+    getDividendHistory: (symbol, fromDate) => fetchYahooDividendHistory(symbol, fromDate)
   });
   const runner = createJobRunner({
     features,

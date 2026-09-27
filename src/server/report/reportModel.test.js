@@ -88,3 +88,56 @@ test('no checkpoint for the month is an error; no previous one is not', () => {
   expect(first.summary.changeILS).toBeNull();
   expect(first.topMovers).toEqual([]);
 });
+
+describe('cash-flow fixes', () => {
+  const { flowsForMonth, monthFlowsFingerprint, estimateUnrecordedDividends, usSymbolsHeldInMonth } = require('./reportModel');
+
+  test('deposits/withdrawals recorded through the ledger on a current account are cash flows; its opening entry is not', () => {
+    const portfolio = {
+      bankBalances: [
+        { id: 6, amount: 5000, deposits: [{ date: '2026-08-01', amount: 16500 }, { date: '2026-08-18', amount: -1000, txId: 'w1' }, { date: '2026-08-20', amount: 300, txId: 'd1' }] }
+      ]
+    };
+    const flows = flowsForMonth({ portfolio, transactions: [], month: '2026-08' });
+    expect(flows.map((f) => [f.kind, f.amount, f.itemKey])).toEqual([
+      ['WITHDRAWAL', -1000, 'bank-1'],
+      ['DEPOSIT', 300, 'bank-1']
+    ]);
+    const m = buildReportModel({ ...base(), portfolio: { ...base().portfolio, ...portfolio } });
+    expect(m.cashFlow.withdrawalsILS).toBe(1000);
+    expect(m.cashFlow.depositsILS).toBe(2300);
+  });
+
+  test('the flow fingerprint changes when a transaction lands in the month, not for other months', () => {
+    const p = base().portfolio;
+    const a = monthFlowsFingerprint({ portfolio: p, transactions: [], month: '2026-08' });
+    const div = { id: 'x', type: 'DIVIDEND', date: '2026-08-20', assetClass: 'american', assetId: 'AAPL', amount: 1, taxWithheld: 0, currency: 'USD', fxRate: 3.6 };
+    expect(monthFlowsFingerprint({ portfolio: p, transactions: [div], month: '2026-08' })).not.toBe(a);
+    expect(monthFlowsFingerprint({ portfolio: p, transactions: [{ ...div, date: '2026-07-20' }], month: '2026-08' })).toBe(a);
+  });
+
+  test('unrecorded dividends are estimated from market data for the units held on the ex-date', () => {
+    const portfolio = {
+      americanStocks: [
+        { id: 1, stockName: 'KO', quantity: 100, purchaseDate: '2025-01-01' },
+        { id: 2, stockName: 'KO', quantity: 50, purchaseDate: '2026-08-20' }, // bought after the ex-date
+        { id: 3, stockName: 'AAPL', quantity: 10, purchaseDate: '2025-01-01' }
+      ]
+    };
+    const recorded = [{ id: 'r', type: 'DIVIDEND', date: '2026-08-14', assetClass: 'american', assetId: 'AAPL', amount: 2.6 }];
+    const est = estimateUnrecordedDividends({
+      portfolio,
+      transactions: recorded,
+      month: '2026-08',
+      historyBySymbol: { KO: [{ date: '2026-07-15', amountPerShare: 0.5 }, { date: '2026-08-15', amountPerShare: 0.51 }], AAPL: [{ date: '2026-08-11', amountPerShare: 0.26 }] }
+    });
+    expect(est).toEqual([{ date: '2026-08-15', symbol: 'KO', currency: 'USD', amountPerShare: 0.51, units: 100 }]);
+    expect(usSymbolsHeldInMonth({ portfolio, transactions: [], month: '2026-08' })).toEqual(['AAPL', 'KO']);
+
+    const m = buildReportModel({ ...base(), estimatedDividends: est, usdRateEnd: 4 });
+    expect(m.cashFlow.estimatedDividends[0]).toMatchObject({ gross: 51, grossILS: 204 });
+    expect(m.cashFlow.estimatedDividendsGrossILS).toBe(204);
+    // estimates never move the return or the capital figures
+    expect(m.summary.netCapitalAddedILS).toBeCloseTo(buildReportModel(base()).summary.netCapitalAddedILS, 10);
+  });
+});
