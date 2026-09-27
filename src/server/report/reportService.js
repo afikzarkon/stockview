@@ -12,7 +12,7 @@
 // rates, the clock) is injected, so the whole flow runs in tests.
 const crypto = require('crypto');
 const { evaluateSyncStatus, syncFingerprint, nextSyncState, targetMonthFor, isValidMonth, monthEnd, previousMonth, nextMonth } = require('../../shared/monthlySync');
-const { buildReportModel } = require('./reportModel');
+const { buildReportModel, monthFlowsFingerprint, estimateUnrecordedDividends, usSymbolsHeldInMonth } = require('./reportModel');
 const { renderReportHtml, monthLabel } = require('./reportHtml');
 const { buildHoldingsIndex } = require('../holdingsIndex');
 
@@ -80,6 +80,9 @@ function createReportService({
   renderer,
   notifier = { async reportReady() {} },
   getUsdRate = async () => null,
+  // symbol -> [{ date (ex-date), amountPerShare }] from market data; used to
+  // show dividends the user did not record as estimates.
+  getDividendHistory = async () => [],
   debounceMs = DEBOUNCE_MS,
   now = () => new Date(),
   logger = console
@@ -91,6 +94,15 @@ function createReportService({
     } catch {
       return {};
     }
+  }
+
+  // What a completed month's report depends on besides the stock prices:
+  // the typed-in account values AND the month's cash flows (purchases,
+  // sales, dividends, deposits, withdrawals). Either changing after
+  // completion produces a new report version.
+  async function monthFingerprint(userId, month, portfolio, evaluation) {
+    const transactions = await store.listTransactions(userId);
+    return `${syncFingerprint(evaluation)}|${monthFlowsFingerprint({ portfolio, transactions, month })}`;
   }
 
   async function currentStatus(userId, month) {
@@ -154,7 +166,7 @@ function createReportService({
     const snapshot = await syncSnapshot(userId, month, portfolio);
     const next = Object.assign({}, status, {
       state: 'COMPLETE',
-      fingerprint: syncFingerprint(evaluation),
+      fingerprint: await monthFingerprint(userId, month, portfolio, evaluation),
       completedAt: status.completedAt || now().toISOString(),
       completedBy: status.completedBy || by
     });
@@ -163,33 +175,53 @@ function createReportService({
     return { evaluation, snapshot, scheduled };
   }
 
+  // A month already completed: if its inputs changed, refresh its
+  // checkpoint and schedule a new (debounced) report version.
+  async function refreshCompletedMonth(userId, month, portfolio, status) {
+    const evaluation = evaluateSyncStatus(portfolio, month, { excluded: status.excluded });
+    const fingerprint = await monthFingerprint(userId, month, portfolio, evaluation);
+    if (fingerprint === status.fingerprint) return { month, action: 'none' };
+    await syncSnapshot(userId, month, portfolio);
+    const next = Object.assign({}, status, { fingerprint });
+    await features.saveSyncStatus(userId, month, next);
+    return { month, action: 'rescheduled', result: await scheduleReport(userId, month, next) };
+  }
+
   // Called after every portfolio save / ledger change. Advances the state
   // machine for the month being synced and, once complete, turns later
   // corrections into a new (debounced) report version.
-  async function onPortfolioSaved(userId) {
+  //
+  // `months`: further months the change may touch (a transaction's own
+  // month). The month before the one being synced is always checked too, so
+  // a dividend or deposit dated last month still reaches last month's
+  // report. Months other than the current target are only ever refreshed
+  // when already complete - never auto-completed.
+  async function onPortfolioSaved(userId, { months = [] } = {}) {
     const month = targetMonthFor(now().toISOString().slice(0, 10));
     const portfolio = await loadPortfolio(userId);
     const status = await currentStatus(userId, month);
     const evaluation = evaluateSyncStatus(portfolio, month, { excluded: status.excluded });
     const state = nextSyncState(status.state, evaluation);
 
+    const others = [];
+    for (const other of [...new Set([previousMonth(month), ...months])]) {
+      if (other === month || !isValidMonth(other)) continue;
+      const otherStatus = await features.getSyncStatus(userId, other);
+      if (otherStatus && otherStatus.state === 'COMPLETE') others.push(await refreshCompletedMonth(userId, other, portfolio, otherStatus));
+    }
+
+    let result;
     if (status.state !== 'COMPLETE' && state === 'COMPLETE') {
-      return { month, action: 'completed', result: await completeMonth(userId, month, { by: 'auto' }) };
-    }
-    if (status.state === 'COMPLETE') {
-      const fingerprint = syncFingerprint(evaluation);
-      if (fingerprint !== status.fingerprint) {
-        await syncSnapshot(userId, month, portfolio);
-        const next = Object.assign({}, status, { fingerprint });
-        await features.saveSyncStatus(userId, month, next);
-        return { month, action: 'rescheduled', result: await scheduleReport(userId, month, next) };
+      result = { month, action: 'completed', result: await completeMonth(userId, month, { by: 'auto' }) };
+    } else if (status.state === 'COMPLETE') {
+      result = await refreshCompletedMonth(userId, month, portfolio, status);
+    } else {
+      if (state !== status.state || !(await features.getSyncStatus(userId, month))) {
+        await features.saveSyncStatus(userId, month, Object.assign({}, status, { state }));
       }
-      return { month, action: 'none' };
+      result = { month, action: 'state', state };
     }
-    if (state !== status.state || !(await features.getSyncStatus(userId, month))) {
-      await features.saveSyncStatus(userId, month, Object.assign({}, status, { state }));
-    }
-    return { month, action: 'state', state };
+    return others.length ? Object.assign({}, result, { others }) : result;
   }
 
   async function getStatus(userId, month) {
@@ -248,7 +280,18 @@ function createReportService({
         getUsdRate(monthEnd(month)).catch(() => null),
         getUsdRate(monthEnd(previousMonth(month))).catch(() => null)
       ]);
+      // Dividends the market data shows but the ledger does not have.
+      const historyBySymbol = {};
+      for (const symbol of usSymbolsHeldInMonth({ portfolio, transactions, month })) {
+        try {
+          historyBySymbol[symbol] = await getDividendHistory(symbol, `${month}-01`);
+        } catch (err) {
+          logger.error('[reports] dividend history failed', symbol, err && err.message);
+        }
+      }
+      const estimatedDividends = estimateUnrecordedDividends({ portfolio, transactions, month, historyBySymbol });
       const model = buildReportModel({
+        estimatedDividends,
         userEmail: email,
         month,
         snapshots,

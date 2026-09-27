@@ -50,7 +50,9 @@ bootstrapServices()
     mountSnapshotRoutes(app, store);
     mountMonthlySnapshotRoutes(app, store);
     mountRebalanceRoutes(app, store);
-    mountTransactionRoutes(app, store, { onChanged: (userId) => reports.onPortfolioSaved(userId) });
+    mountTransactionRoutes(app, store, {
+      onChanged: (userId, tx) => reports.onPortfolioSaved(userId, { months: tx && tx.date ? [tx.date.slice(0, 7)] : [] })
+    });
     mountAlertRoutes(app, { store, features, marketData });
     mountInternalJobRoutes(app, { features, runner });
     mountPreferenceRoutes(app, { features });

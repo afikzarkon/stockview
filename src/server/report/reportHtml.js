@@ -128,6 +128,11 @@ function renderReportHtml(model, { fontBase64 = loadAlefBase64() } = {}) {
     .join('');
 
   const cf = model.cashFlow;
+  const estimatedRows = (cf.estimatedDividends || [])
+    .map(
+      (d) => `<tr><td>${num(d.date)}</td><td>${escapeHtml(d.symbol)}</td><td>${num(`${d.gross.toFixed(2)} ${d.currency}`)}</td><td class="muted">${num(`${d.units} × ${d.amountPerShare.toFixed(4)}`)}</td><td>${d.grossILS === null ? '—' : num(fmtMoney(d.grossILS))}</td></tr>`
+    )
+    .join('');
   const dividendRows = cf.dividends
     .map(
       (d) => `<tr><td>${num(d.date)}</td><td>${escapeHtml(d.symbol)}</td><td>${num(`${d.gross.toFixed(2)} ${d.currency}`)}</td><td>${num(`${d.taxWithheld.toFixed(2)} ${d.currency}`)}</td><td>${num(fmtMoney(d.netILS))}</td></tr>`
@@ -233,7 +238,8 @@ th { color: #6b7280; font-weight: 600; background: #f8fafc; }
 <section>
   <h2>תזרים מזומנים</h2>
   <table>
-    <tr><td>דיבידנדים שהתקבלו (נטו)</td><td>${num(fmtMoney(cf.dividendsNetILS))}</td></tr>
+    <tr><td>דיבידנדים שהתקבלו (נטו, לפי העסקאות שנרשמו)</td><td>${num(fmtMoney(cf.dividendsNetILS))}</td></tr>
+    ${estimatedRows ? `<tr><td>דיבידנדים משוערים שלא נרשמו (ברוטו, לפי נתוני שוק)</td><td>${num(fmtMoney(cf.estimatedDividendsGrossILS))}</td></tr>` : ''}
     <tr><td>הפקדות</td><td>${num(fmtMoney(cf.depositsILS))}</td></tr>
     <tr><td>משיכות</td><td>${num(fmtMoney(cf.withdrawalsILS))}</td></tr>
     <tr><td>קניות ניירות ערך</td><td>${num(fmtMoney(cf.purchasesILS))}</td></tr>
@@ -242,6 +248,7 @@ th { color: #6b7280; font-weight: 600; background: #f8fafc; }
     <tr><th>הון נטו שנוסף / נמשך</th><th>${num(fmtSigned(cf.netCapitalAddedILS))}</th></tr>
     ${cf.realizedCount ? `<tr><td>רווח הון נומינלי ממומש (${cf.realizedCount} מנות)</td><td class="${tone(cf.realizedGainILS)}">${num(fmtSigned(cf.realizedGainILS))}</td></tr>` : ''}
   </table>
+  ${estimatedRows ? `<h3>דיבידנדים משוערים (לא נרשמו בעסקאות)</h3><table><thead><tr><th>יום אקס</th><th>נייר</th><th>ברוטו</th><th>יחידות × לחלוקה</th><th>ברוטו בש"ח</th></tr></thead><tbody>${estimatedRows}</tbody></table><p class="note">לפי היסטוריית הדיבידנדים בנתוני השוק והכמות שהוחזקה ביום האקס. אינם נכללים בתשואה ובהון שנוסף - כדי שייכללו, רשמו אותם בעמוד העסקאות עם המס שנוכה בפועל.</p>` : ''}
   ${dividendRows ? `<h3>דיבידנדים</h3><table><thead><tr><th>תאריך</th><th>נייר</th><th>ברוטו</th><th>מס שנוכה</th><th>נטו בש"ח</th></tr></thead><tbody>${dividendRows}</tbody></table>` : ''}
 </section>
 

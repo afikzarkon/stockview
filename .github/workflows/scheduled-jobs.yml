@@ -55,6 +55,9 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           JOB: ${{ steps.pick.outputs.job }}
         run: |
+          # Tolerate a trailing slash in the secret ("https://x/" + "/api"
+          # would be "//api", which the server answers with 404).
+          API_URL="${API_URL%/}"
           if [ -z "$API_URL" ] || [ -z "$CRON_SECRET" ]; then
             echo "STOCKVIEW_API_URL / CRON_SECRET not configured - skipping."
             exit 0
